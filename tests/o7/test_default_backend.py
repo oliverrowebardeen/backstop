@@ -79,7 +79,7 @@ async def test_missing_key_falls_back_each_time_but_warns_once(key, results, mon
             verdict = await dc.configured_check("CEO", "Find current CEO", results)
             assert verdict.verdict == "HIT" and verdict.fallback
             assert verdict.decision_failure == "missing_api_key" and verdict.decision_calls == 0
-            assert verdict.evidence_rank is None and verdict.best_url is None
+            assert verdict.evidence_rank == hit().evidence_rank and verdict.best_url == hit().best_url
     assert fallback.await_count == 2
     decisions.assert_not_called()
     warnings = [record for record in caplog.records if record.name == dc.__name__]

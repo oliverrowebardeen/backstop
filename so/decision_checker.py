@@ -70,6 +70,14 @@ class CascadeVerdict(DecisionVerdict):
     decision_failure: str | None = Field(default=None, exclude=True)
 
 
+class _DecisionBudgetExceeded(config.BudgetExceeded):
+    """Retain completed Decisions usage when its separate budget runs out."""
+
+    def __init__(self, error: config.BudgetExceeded, usage: LLMResponse) -> None:
+        super().__init__(str(error), budget=error.budget)
+        self.usage = usage
+
+
 def _instructions() -> tuple[str, dict[str, str]]:
     text = config.DECISION_PROMPT_PATH.read_text()
     instructions, marker, _ = text.partition("## Output")
@@ -144,6 +152,10 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
         calls += 1
         try:
             response = await llm.decide(prompt, evidence, options)
+        except config.BudgetExceeded as exc:
+            if exc.budget is config.DECISION_BUDGET:
+                raise _DecisionBudgetExceeded(exc, total) from exc
+            raise
         except (llm.DecisionCallError, llm.DecisionStorageError) as exc:
             total = _sum_usage(total, exc.usage)
             checker._log_usage(ctx, exc.usage)
@@ -212,10 +224,10 @@ def _needs_escalation(verdict: CheckerVerdict, threshold: float) -> bool:
 def _cascade_result(decision: DecisionVerdict | None, final: checker.CheckedVerdict,
                     usage: LLMResponse, *, escalated: bool, failure: str | None = None,
                     decision_calls: int | None = None) -> CascadeVerdict:
-    """Keep evidence pointers exclusively from a successful Decisions response."""
+    """Keep Decisions pointers on success, otherwise the LLM fallback's pointers."""
     fields = final.model_dump()
-    fields.update(evidence_rank=decision.evidence_rank if decision else None,
-                  best_url=decision.best_url if decision else None)
+    evidence = decision if decision is not None else final
+    fields.update(evidence_rank=evidence.evidence_rank, best_url=evidence.best_url)
     return CascadeVerdict(**fields, **{name: getattr(usage, name) for name in (
         "model", "tokens_in", "tokens_out", "cost_usd", "latency_ms", "cached")},
         escalated=escalated, fallback=failure is not None, decision_failure=failure,
@@ -228,8 +240,8 @@ async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[s
 
     Decisions non-HITs are final. At the threshold, a HIT is accepted. An
     escalated response keeps Decisions' evidence pointers even when the LLM
-    picks another result. If Decisions failed, both pointers are null.
-    Budget exhaustion and cancellation always propagate without a fallback.
+    picks another result. If Decisions failed, keep the LLM's evidence pointers.
+    Decisions budget exhaustion falls back; LLM exhaustion and cancellation propagate.
     """
     top = checker.as_results(results)[:config.DECISION_TOP_K]
     decision = None
@@ -243,8 +255,8 @@ async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[s
                 failure = "missing_api_key"
         if failure is None:
             decision = await check(query, goal, top, today, ctx=ctx)
-    except config.BudgetExceeded:
-        raise
+    except _DecisionBudgetExceeded as exc:
+        failure, usage = "decision_budget_exhausted", exc.usage
     except llm.DecisionCallError as exc:
         if exc.kind == "fallback_failed":
             raise checker.CheckerError(str(exc), kind=exc.kind, usage=exc.usage) from exc

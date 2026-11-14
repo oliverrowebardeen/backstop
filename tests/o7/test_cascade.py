@@ -10,9 +10,12 @@ from so import checker, config, decision_checker as dc, llm
 from so.checker_eval import Case, SplitRefused
 from so.contracts import LLMResponse, MatrixRow, Question, Result, RunContext
 
+pytestmark = pytest.mark.checker_backend
+
 
 @pytest.fixture(autouse=True)
 def isolate(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "CHECKER_BACKEND", "cascade")
     monkeypatch.setattr(config, "CHECKER_CASCADE_THRESHOLD", .7)
     monkeypatch.setattr(config, "LLM_BUDGET", config.Budget(0))
     monkeypatch.setattr(config, "DECISION_BUDGET", config.Budget(0))
@@ -91,7 +94,7 @@ async def test_decision_failures_fall_back_without_inventing_evidence(kind, monk
     result = await dc.cascade_check("query", "goal", [])
     assert result.verdict == "HIT" and result.escalated and result.fallback
     assert result.decision_failure == kind and result.failure is None
-    assert result.evidence_rank is None and result.best_url is None
+    assert result.evidence_rank == 2 and result.best_url == baseline().best_url
     assert result.cost_usd == pytest.approx(.0007) and result.latency_ms == 1200
     fallback.assert_awaited_once()
 
@@ -104,7 +107,7 @@ async def test_timeout_fallback_is_not_called_twice(monkeypatch):
     monkeypatch.setattr(checker, "check", fallback)
     result = await dc.cascade_check("query", "goal", [])
     assert result.decision_failure == "timeout" and result.escalated and result.fallback
-    assert result.best_url is None and result.evidence_rank is None
+    assert result.best_url == completed.best_url and result.evidence_rank == completed.evidence_rank
     assert result.cost_usd == .0007 and result.latency_ms == 1200
     fallback.assert_not_called()
 
@@ -145,7 +148,7 @@ async def test_storage_failure_retains_decision_cost(monkeypatch):
     monkeypatch.setattr(dc, "check", AsyncMock(side_effect=error))
     monkeypatch.setattr(checker, "check", AsyncMock(return_value=baseline()))
     result = await dc.cascade_check("query", "goal", [])
-    assert result.cost_usd == pytest.approx(.0007) and result.best_url is None
+    assert result.cost_usd == pytest.approx(.0007) and result.best_url == baseline().best_url
 
 
 async def test_configured_cascade_dispatch(monkeypatch):

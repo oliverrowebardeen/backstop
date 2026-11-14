@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -238,6 +239,10 @@ for _model, _prices in json.loads(os.getenv("LLM_PRICE_USD_JSON", "{}")).items()
 class BudgetExceeded(RuntimeError):
     """A call would exceed the process's configured live-spend budget."""
 
+    def __init__(self, message: str, *, budget: Budget | None = None) -> None:
+        super().__init__(message)
+        self.budget = budget
+
 
 class Budget:
     def __init__(self, limit: float) -> None:
@@ -253,7 +258,7 @@ class Budget:
             raise ValueError("Reservation must be nonnegative")
         with self._lock:
             if self.spent + self.reserved + amount > self.limit + 1e-12:
-                raise BudgetExceeded(f"Budget ${self.limit:.4f} exhausted; spent ${self.spent:.4f}")
+                raise BudgetExceeded(f"Budget ${self.limit:.4f} exhausted; spent ${self.spent:.4f}", budget=self)
             self.reserved += amount
 
     def settle(self, reserved: float, actual: float) -> None:
@@ -261,7 +266,7 @@ class Budget:
             self.reserved = max(0, self.reserved - reserved)
             self.spent += actual
             if self.spent > self.limit + 1e-12:
-                raise BudgetExceeded(f"Spend ${self.spent:.4f} exceeded budget ${self.limit:.4f}")
+                raise BudgetExceeded(f"Spend ${self.spent:.4f} exceeded budget ${self.limit:.4f}", budget=self)
 
 
 SEARCH_BUDGET = Budget(TELEM_BUDGET_USD)
@@ -413,7 +418,7 @@ CHECKER_PROVIDER = os.getenv("CHECKER_PROVIDER", LLM_PROVIDER)
 CHECKER_PROVIDER_EXPLICIT = "CHECKER_PROVIDER" in os.environ
 DECISION_MODEL = os.getenv("DECISION_MODEL", "gpt-6-luna")
 DECISION_URL = os.getenv("DECISION_URL", OPENAI_BASE_URL.rstrip("/") + "/decisions")
-DECISION_TIMEOUT_S = float(os.getenv("DECISION_TIMEOUT_S", "10"))
+DECISION_TIMEOUT_S = float(os.getenv("DECISION_TIMEOUT_S", "2"))
 DECISION_MAX_CONCURRENCY = int(os.getenv("DECISION_MAX_CONCURRENCY", "4"))
 DECISION_MAX_CHOICES = int(os.getenv("DECISION_MAX_CHOICES", "255"))
 DECISION_TOP_K = int(os.getenv("DECISION_TOP_K", "5"))
@@ -442,6 +447,12 @@ if CHECKER_PROVIDER not in {"anthropic", "openai"}:
 for _decision_setting in ("DECISION_TIMEOUT_S", "DECISION_TARGET_LATENCY_MS"):
     if not math.isfinite(globals()[_decision_setting]) or globals()[_decision_setting] <= 0:
         raise ValueError(f"{_decision_setting} must be finite and positive")
+if CHECKER_BACKEND == "cascade" and DECISION_TIMEOUT_S >= CHECKER_TIMEOUT_S:
+    logging.getLogger(__name__).warning(
+        "DECISION_TIMEOUT_S should be less than CHECKER_TIMEOUT_S in cascade mode "
+        "to leave time for the LLM fallback (configured: %gs >= %gs).",
+        DECISION_TIMEOUT_S, CHECKER_TIMEOUT_S,
+    )
 if DECISION_MAX_CONCURRENCY < 1 or not 5 <= DECISION_MAX_CHOICES <= 255:
     raise ValueError("Decisions concurrency must be positive; choice limit must be between 5 and 255")
 if not 1 <= DECISION_TOP_K <= 5:
