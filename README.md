@@ -2,9 +2,9 @@
 
 **Verified search for AI agents, built on Telem.**
 
-Backstop sits between your agent and Telem's search API. It asks one engine, checks
-whether the results actually answer what the agent needs, rescues misses on the engine
-our data says catches them, and returns `NOT_FOUND` instead of letting the agent guess.
+Backstop sits between your agent and Telem's search API. It asks one engine, chosen by
+question type, checks whether the results actually answer what the agent needs, rescues
+misses on the engine our data says catches them, and returns `NOT_FOUND` instead of letting the agent guess.
 It is for teams running research and diligence agents, where a confident wrong fact
 in a memo, a model or a customer answer costs real money. Backstop is open source,
 installable, and production-ready: bounded in cost and time, fail-open, typed, and
@@ -58,9 +58,15 @@ the rewrite is recorded in the trace as a before and after. An illustrative exam
 **Retrieval.** Every search goes through one Telem API with pinned engines
 (`providers_include`), the agent's `goal`, one Telem `session` per run so all calls are
 grouped in Telem's console, `published_after` for stale retries, and Telem fetch as the
-page-read fallback. The rescue order (which engine to try after a given engine misses)
-comes from a hit matrix: every question asked on six engines through the same API, in
-one result format. That matrix is the part that is hard to build without Telem.
+page-read fallback. The first engine depends on the question type: a regex over the
+query and goal marks a search as finance or fact, and `out/first_engine.json`, built on
+the learn split only, maps each type to the engine whose first call surfaced the answer
+for the most questions of that type (currently Perplexity for fact, Exa for finance).
+With routing off, or without that table, every search starts on `FIRST_ENGINE` (Tavily).
+The rescue order (which engine to try after a given engine misses) comes from a hit
+matrix: every question asked on six engines through the same API, in one result format.
+That matrix is the part that is hard to build without Telem. Tavily stays in the rescue
+order, and every `SHALLOW` page read goes through Tavily Extract.
 
 **Session ledger.** Each Telem search also carries `context` and `metadata` naming the
 Backstop step (`initial`, `rescue_1`, `rescue_2`, `engine_retry`, `extract_recheck`),
@@ -130,7 +136,10 @@ Set in `.env` or the environment; the limits can also be set on the client or pe
 | `TELEM_BASE_URL` | `https://router.telem.ai` | Telem router |
 | `ANTHROPIC_API_KEY` | | Key for the checker model |
 | `CHECKER_MODEL` | `claude-haiku-5-5` | Model that labels each search |
+| `CHECKER_BACKEND` | `llm` | `llm`, `decision` or `cascade`. `cascade` asks the Decisions checker (`gpt-6-luna`, needs `OPENAI_API_KEY`) first and re-checks uncertain `HIT`s with `CHECKER_MODEL`; it is the configuration measured in [Results](#results) |
+| `CHECKER_CASCADE_THRESHOLD` | 0.7 | A Decisions `HIT` below this confidence goes to the LLM checker |
 | `FIRST_ENGINE_ROUTING` | `on` | Pick each search's first engine by question type from `out/first_engine.json`, built on the learn split only (`python -m so.router build`); currently Perplexity for fact questions and Exa for finance |
+| `FIRST_ENGINE_FINANCE_PATTERN` | accounting, market and filing terms | Regex over query and goal that marks a search as finance; every other search is fact |
 | `FIRST_ENGINE` | `tavily` | First engine when routing is `off` or the routing table is missing |
 | `FALLBACK_ORDER` | `exa,perplexity,brave,parallel,ceramic` | Rescue order when `out/rescue_table.json` is absent |
 | `MAX_RESCUES` / `max_rescues` | 2 | Rescues per search |
@@ -230,7 +239,44 @@ python -m demo.record --golden      # re-run each pair live, cache off, and save
 
 ## Results
 
-Results land here after the held-out eval runs.
+On 200 held-out test questions, Backstop matched Telem's default routing on accuracy
+(94.5% vs 94.5%) at 53% lower total cost per question ($0.048 vs $0.102), with 1.31
+engine calls per question instead of 8.00 and a lower median latency (7.3s vs 8.6s). It
+also cost less per question than the single-engine agent ($0.063).
+
+| Test split | Single engine | Telem default | Backstop |
+|---|---|---|---|
+| Correct | 94.0% (188/200) | 94.5% (189/200) | 94.5% (188/199) |
+| Wrong | 4.0% (8/200) | 5.5% (11/200) | 5.0% (10/199) |
+| Declined (NOT FOUND) | 2.0% (4/200) | 0.0% (0/200) | 0.5% (1/199) |
+| Total cost per question | $0.063 | $0.102 | $0.048 |
+| Engine calls per question | 1.86 | 8.00 | 1.31 |
+| Latency p50 | 9.0s | 8.6s | 7.3s |
+
+Backstop scored 199 of 200 questions: sqa-1447 failed in both passes because the agent
+cited URLs it had not retrieved. Counting it as wrong gives 188/200 (94.0%). Backstop's
+10 wrong answers are within one or two questions of the baselines (8 and 11), so this
+run does not show that it gives fewer wrong answers. Total cost covers the agent model,
+every engine call, page reads and the checker; the judge is excluded.
+
+**Traps.** On 30 false-premise questions, no setup gave a confidently wrong answer (0/30
+in each). Backstop and Telem default flagged the false premise in 30/30; the
+single-engine agent flagged 28/30 and declined the other 2.
+
+**Checker.** Compared with an offline judgment of the exact result list each check saw,
+the checker labelled 75.6% of true misses as misses (59/78) and raised a false alarm on
+2.7% of true hits (5/183). It ran as `CHECKER_BACKEND=cascade`: Decisions labels each
+list first, and a `HIT` below confidence 0.7 is re-checked by the LLM checker. This
+configuration was pre-registered as the primary one before any results were scored,
+with its threshold frozen on the learn split. The LLM-only checker (`CHECKER_BACKEND=llm`,
+the code default) scored 185/198 correct at $0.052 per question, with miss recall 83.8%
+(67/80) and false alarms 8.7% (16/184).
+
+The single-engine and Telem default baselines and the LLM-only checker come from the main
+eval run. Backstop with the cascade checker is a second pass over the same 200 questions
+and 30 traps, with the same agent model, prompt and tools. Both runs had first-engine
+routing on. Full tables, including paired comparisons, retrieval coverage and the
+contamination filter, are in [out/results.md](out/results.md).
 
 ## How we measured
 
@@ -239,8 +285,8 @@ analysis in [`analysis/`](analysis/).
 
 - Questions are split once, stratified, with a fixed seed: a **learn** split and a
   held-out **test** split, plus a separate set of false-premise traps.
-- The rescue table (`out/rescue_table.json`) and all checker tuning use the **learn
-  split only**. Every reported number comes from the **held-out test split** or the
+- The rescue table (`out/rescue_table.json`), the first-engine table
+  (`out/first_engine.json`) and all checker tuning use the **learn split only**. Every reported number comes from the **held-out test split** or the
   traps, which are reported separately with their count.
 - Search results that copy the benchmark are filtered out before judging:
   [`evals/contamination.py`](evals/contamination.py) drops results that reproduce
@@ -255,7 +301,9 @@ Reproduce:
 ```sh
 python -m evals.matrix            # hit matrix: every question on every engine via Telem
 python -m analysis.rescue_table   # learn-split rescue order
-python -m evals.run_eval && python -m evals.score
+python -m evals.run_eval          # all three setups into out/logs, LLM checker
+CHECKER_BACKEND=cascade python -m evals.run_eval --setups second_opinion --log-dir out/logs_cascade
+python -m evals.score --so-log-dir out/logs_cascade   # out/results.json and out/results.md
 ```
 
 ## Development
