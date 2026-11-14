@@ -103,3 +103,16 @@ def test_cache_write_failure_does_not_erase_spend(monkeypatch):
         with config.paid_response("paid", {}, {}, budget, .01) as record:
             record.update(normalized={}, _cost_usd=.005)
     assert budget.spent == .005 and budget.reserved == 0
+
+
+def test_agent_environment_settings_and_log_alias(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    env = dict(os.environ, SO_ENV_FILE=str(tmp_path / "absent.env"), AGENT_MAX_SEARCHES="2",
+               AGENT_MAX_PAGE_READS="3", AGENT_MAX_TURNS="4", AGENT_PROMPT_PATH="custom-prompt.md",
+               SO_LOG_DIR=str(tmp_path), SO_ENABLE_SECOND_OPINION="false")
+    code = "from so import config as c; import json; print(json.dumps([c.AGENT_MAX_SEARCHES,c.AGENT_MAX_PAGE_READS,c.AGENT_MAX_TURNS,str(c.AGENT_PROMPT_PATH),c.SO_ENABLE_SECOND_OPINION,c.LOG_DIR == c.SO_LOG_DIR]))"
+    result = subprocess.run([sys.executable, "-c", code], env=env, check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [2, 3, 4, "custom-prompt.md", False, True]

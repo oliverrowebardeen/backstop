@@ -45,6 +45,15 @@ def _csv(name: str, default: str) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in os.getenv(name, default).split(",") if item.strip()))
 
 
+def _bool(name: str, default: bool) -> bool:
+    value = os.getenv(name, str(default)).strip().lower()
+    if value in {"true", "1", "yes", "on"}:
+        return True
+    if value in {"false", "0", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
 def api_key(provider: str) -> str:
     """Read a configured credential without exposing its value in errors."""
     name = f"{provider.upper()}_API_KEY"
@@ -90,6 +99,12 @@ CACHE_DIR = Path(os.getenv("SO_CACHE_DIR", str(ROOT / "cache")))
 OUT_DIR = Path(os.getenv("SO_OUT_DIR", str(ROOT / "out")))
 SO_OUT_DIR = OUT_DIR
 SO_LOG_DIR = Path(os.getenv("SO_LOG_DIR", str(OUT_DIR / "logs")))
+LOG_DIR = SO_LOG_DIR
+AGENT_MAX_SEARCHES = int(os.getenv("AGENT_MAX_SEARCHES", "6"))
+AGENT_MAX_PAGE_READS = int(os.getenv("AGENT_MAX_PAGE_READS", "12"))
+AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "24"))
+AGENT_PROMPT_PATH = Path(os.getenv("AGENT_PROMPT_PATH", str(ROOT / "so" / "prompts" / "agent.md")))
+SO_ENABLE_SECOND_OPINION = _bool("SO_ENABLE_SECOND_OPINION", True)
 TELEM_MAX_CONCURRENCY = int(os.getenv("TELEM_MAX_CONCURRENCY", "16"))
 TELEM_BUDGET_USD = float(os.getenv("TELEM_BUDGET_USD", "25"))
 LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "8"))
