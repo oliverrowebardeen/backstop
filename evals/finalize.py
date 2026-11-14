@@ -36,7 +36,9 @@ def steps(so_log_dir: Path | None = None, so_label: str | None = None) -> list[t
         ("score the eval", score),
         ("frontier chart", ["-m", "analysis.frontier"]),
         ("findings", ["-m", "analysis.findings"]),
-        ("conformal wrong-HIT bound", ["-m", "analysis.conformal", "--log-dir", str(so_log_dir or out / "logs")]),
+        # The bound is calibrated on the default (LLM) checker, so it is tested on the main eval's runs,
+        # which used that checker, even when the headline pass used another checker backend.
+        ("conformal wrong-HIT bound", ["-m", "analysis.conformal", "--log-dir", str(out / "logs")]),
         ("founder claims", ["-m", "analysis.hn_claims", "--results", str(out / "results.json")]),
     ]
 

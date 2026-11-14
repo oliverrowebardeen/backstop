@@ -190,9 +190,14 @@ async def test_points(log_dir: Path, test_ids: set[str],
     finished = {k: p for k, p in finished_runs(log_dir).items() if k[1] == OURS}
     runs = {k: p for k, p in finished.items() if k[0] in test_ids}
     truth = await judge_runs(runs, {q.id: q for q in load_all()})
+    # The first checked search of each search tool call. With first-engine routing
+    # (so.router) that engine depends on the question type, so it is not always `engine`.
+    first: dict[tuple[str, str, int], object] = {}
+    for s in sorted(truth.searches, key=lambda x: x.seq):
+        if s.verdict is not None:
+            first.setdefault((s.question_id, s.setup, s.call_index), s)
     points = [CheckPoint(s.question_id, str(s.verdict), float(s.confidence or 0.0), bool(s.hit))
-              for s in truth.searches
-              if s.engines == [engine] and s.verdict is not None and s.hit is not None]
+              for s in first.values() if s.hit is not None]
     counts = {"finished_runs": len(runs), "outside_test": len(finished) - len(runs),
               "not_in_cache": truth.missing, "judge_errors": truth.judge_errors}
     return points, counts

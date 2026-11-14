@@ -492,15 +492,23 @@
     "n_questions": 200,
     "oracle_hits": 182,
     "oracle_rate": 0.91,
-    "simulated": {
-      "source": "out/frontier.json second_opinion point (simulated)",
-      "label": "simulated, perfect checker",
-      "coverage": 0.89,
-      "cost_per_q": 0.007257,
-      "share_of_ceiling": 0.978,
-      "cost_per_captured": 0.008154
+    "measured": {
+      "source": "out/results.json",
+      "accuracy": 0.9447,
+      "n": 199,
+      "share_of_ceiling": 1.0381,
+      "cost_per_captured": 0.050635,
+      "note": "final-answer accuracy over the oracle rate; a correct answer can come from a page read even when no engine's top 5 had it, so this is a ratio of rates, not a subset count"
     },
-    "headline": "simulated"
+    "simulated": {
+      "source": "out/frontier.json second_opinion point",
+      "label": "measured agent runs",
+      "coverage": 0.8131,
+      "cost_per_q": 0.007967,
+      "share_of_ceiling": 0.8935,
+      "cost_per_captured": 0.009798
+    },
+    "headline": "measured"
   },
   "context_telem_published": "Telem's own published numbers, not ours: Telem's Oct 22 2026 post reported that Tavily found known answers on 244 of 363 questions and that Tavily plus Exa top-5 found 279.",
   "recommendation_only": true

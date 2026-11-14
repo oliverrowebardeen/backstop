@@ -58,7 +58,8 @@ Rescue table order_after["tavily"] (by rescue rate): exa, parallel, perplexity, 
 ## Share of the all-engine ceiling
 
 Oracle (any of the 6 engines hit) on the test split: 91.0% (182/200).
-- SIMULATED (out/frontier.json second_opinion point (simulated), simulated, perfect checker): coverage 89.0% = 97.8% of the ceiling; cost per captured question $0.0082.
+- Measured (out/results.json): second_opinion accuracy 94.5% on 199 questions = 103.8% of the ceiling; cost per captured question $0.0506. final-answer accuracy over the oracle rate; a correct answer can come from a page read even when no engine's top 5 had it, so this is a ratio of rates, not a subset count.
+- SIMULATED (out/frontier.json second_opinion point, measured agent runs): coverage 81.3% = 89.3% of the ceiling; cost per captured question $0.0098.
 
 ## Context
 

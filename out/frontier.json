@@ -54,54 +54,54 @@
       "engines": [
         "tavily"
       ],
-      "coverage": 0.685,
+      "coverage": 0.6869,
       "cost_per_q": 0.005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
       "engines": [
         "exa"
       ],
-      "coverage": 0.82,
+      "coverage": 0.8182,
       "cost_per_q": 0.005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
       "engines": [
         "brave"
       ],
-      "coverage": 0.67,
+      "coverage": 0.6717,
       "cost_per_q": 0.005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
       "engines": [
         "perplexity"
       ],
-      "coverage": 0.82,
+      "coverage": 0.8182,
       "cost_per_q": 0.005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
       "engines": [
         "parallel"
       ],
-      "coverage": 0.635,
+      "coverage": 0.6414,
       "cost_per_q": 0.001,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
       "engines": [
         "ceramic"
       ],
-      "coverage": 0.045,
+      "coverage": 0.0404,
       "cost_per_q": 5e-05,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -109,9 +109,9 @@
         "tavily",
         "exa"
       ],
-      "coverage": 0.875,
+      "coverage": 0.8737,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -119,9 +119,9 @@
         "tavily",
         "brave"
       ],
-      "coverage": 0.79,
+      "coverage": 0.7929,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -129,9 +129,9 @@
         "tavily",
         "perplexity"
       ],
-      "coverage": 0.855,
+      "coverage": 0.8535,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -139,9 +139,9 @@
         "tavily",
         "parallel"
       ],
-      "coverage": 0.785,
+      "coverage": 0.7879,
       "cost_per_q": 0.006,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -149,9 +149,9 @@
         "tavily",
         "ceramic"
       ],
-      "coverage": 0.685,
+      "coverage": 0.6869,
       "cost_per_q": 0.00505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -159,9 +159,9 @@
         "exa",
         "brave"
       ],
-      "coverage": 0.865,
+      "coverage": 0.8636,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -169,9 +169,9 @@
         "exa",
         "perplexity"
       ],
-      "coverage": 0.875,
+      "coverage": 0.8737,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -179,9 +179,9 @@
         "exa",
         "parallel"
       ],
-      "coverage": 0.86,
+      "coverage": 0.8586,
       "cost_per_q": 0.006,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -189,9 +189,9 @@
         "exa",
         "ceramic"
       ],
-      "coverage": 0.82,
+      "coverage": 0.8182,
       "cost_per_q": 0.00505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -199,9 +199,9 @@
         "brave",
         "perplexity"
       ],
-      "coverage": 0.855,
+      "coverage": 0.8535,
       "cost_per_q": 0.01,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -209,9 +209,9 @@
         "brave",
         "parallel"
       ],
-      "coverage": 0.78,
+      "coverage": 0.7828,
       "cost_per_q": 0.006,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -219,9 +219,9 @@
         "brave",
         "ceramic"
       ],
-      "coverage": 0.67,
+      "coverage": 0.6717,
       "cost_per_q": 0.00505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -229,9 +229,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.84,
+      "coverage": 0.8384,
       "cost_per_q": 0.006,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -239,9 +239,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.82,
+      "coverage": 0.8182,
       "cost_per_q": 0.00505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -249,9 +249,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.66,
+      "coverage": 0.6616,
       "cost_per_q": 0.00105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -260,9 +260,9 @@
         "exa",
         "brave"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.015,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -271,9 +271,9 @@
         "exa",
         "perplexity"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.015,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -282,9 +282,9 @@
         "exa",
         "parallel"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -293,9 +293,9 @@
         "exa",
         "ceramic"
       ],
-      "coverage": 0.875,
+      "coverage": 0.8737,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -304,9 +304,9 @@
         "brave",
         "perplexity"
       ],
-      "coverage": 0.88,
+      "coverage": 0.8788,
       "cost_per_q": 0.015,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -315,9 +315,9 @@
         "brave",
         "parallel"
       ],
-      "coverage": 0.835,
+      "coverage": 0.8384,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -326,9 +326,9 @@
         "brave",
         "ceramic"
       ],
-      "coverage": 0.79,
+      "coverage": 0.7929,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -337,9 +337,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.865,
+      "coverage": 0.8636,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -348,9 +348,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.855,
+      "coverage": 0.8535,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -359,9 +359,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.785,
+      "coverage": 0.7879,
       "cost_per_q": 0.00605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -370,9 +370,9 @@
         "brave",
         "perplexity"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.015,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -381,9 +381,9 @@
         "brave",
         "parallel"
       ],
-      "coverage": 0.885,
+      "coverage": 0.8838,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -392,9 +392,9 @@
         "brave",
         "ceramic"
       ],
-      "coverage": 0.865,
+      "coverage": 0.8636,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -403,9 +403,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.885,
+      "coverage": 0.8838,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -414,9 +414,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.875,
+      "coverage": 0.8737,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -425,9 +425,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.86,
+      "coverage": 0.8586,
       "cost_per_q": 0.00605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -436,9 +436,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.87,
+      "coverage": 0.8687,
       "cost_per_q": 0.011,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -447,9 +447,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.855,
+      "coverage": 0.8535,
       "cost_per_q": 0.01005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -458,9 +458,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.78,
+      "coverage": 0.7828,
       "cost_per_q": 0.00605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -469,9 +469,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.84,
+      "coverage": 0.8384,
       "cost_per_q": 0.00605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -481,9 +481,9 @@
         "brave",
         "perplexity"
       ],
-      "coverage": 0.905,
+      "coverage": 0.904,
       "cost_per_q": 0.02,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -493,9 +493,9 @@
         "brave",
         "parallel"
       ],
-      "coverage": 0.905,
+      "coverage": 0.904,
       "cost_per_q": 0.016,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -505,9 +505,9 @@
         "brave",
         "ceramic"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.01505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -517,9 +517,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.9,
+      "coverage": 0.899,
       "cost_per_q": 0.016,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -529,9 +529,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.01505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -541,9 +541,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -553,9 +553,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.016,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -565,9 +565,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.88,
+      "coverage": 0.8788,
       "cost_per_q": 0.01505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -577,9 +577,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.835,
+      "coverage": 0.8384,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -589,9 +589,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.865,
+      "coverage": 0.8636,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -601,9 +601,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.016,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -613,9 +613,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.01505,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -625,9 +625,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.885,
+      "coverage": 0.8838,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -637,9 +637,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.885,
+      "coverage": 0.8838,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -649,9 +649,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.87,
+      "coverage": 0.8687,
       "cost_per_q": 0.01105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -662,9 +662,9 @@
         "perplexity",
         "parallel"
       ],
-      "coverage": 0.91,
+      "coverage": 0.9091,
       "cost_per_q": 0.021,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -675,9 +675,9 @@
         "perplexity",
         "ceramic"
       ],
-      "coverage": 0.905,
+      "coverage": 0.904,
       "cost_per_q": 0.02005,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -688,9 +688,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.905,
+      "coverage": 0.904,
       "cost_per_q": 0.01605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -701,9 +701,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.9,
+      "coverage": 0.899,
       "cost_per_q": 0.01605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -714,9 +714,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.89,
+      "coverage": 0.8889,
       "cost_per_q": 0.01605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -727,9 +727,9 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.895,
+      "coverage": 0.8939,
       "cost_per_q": 0.01605,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "combo",
@@ -741,31 +741,72 @@
         "parallel",
         "ceramic"
       ],
-      "coverage": 0.91,
+      "coverage": 0.9091,
       "cost_per_q": 0.02105,
-      "n_questions": 200
+      "n_questions": 198
     },
     {
       "kind": "telem_default",
       "engines": [],
-      "coverage": 0.9,
-      "cost_per_q": 0.023655,
-      "n_questions": 200
+      "coverage": 0.9141,
+      "cost_per_q": 0.032138,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
     },
     {
       "kind": "second_opinion",
       "engines": [],
-      "coverage": 0.89,
-      "cost_per_q": 0.007257,
-      "n_questions": 200,
-      "simulated": true,
-      "label": "simulated, perfect checker",
-      "rescue_order": [
-        "exa",
-        "parallel"
-      ],
-      "checker_cost_usd_mean": 0.0003751,
-      "note": "simulated from the matrix: tavily first, up to 2 rescues in learned order, perfect checker (no results.json checker metrics yet). Checker cost per check derived from prompt length / token ratio and LLM_PRICE_USD[claude-haiku-5-5], averaged over the checks made."
+      "coverage": 0.8131,
+      "cost_per_q": 0.007967,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
     }
-  ]
+  ],
+  "measured_runs": [
+    {
+      "kind": "single",
+      "engines": [],
+      "coverage": 0.8384,
+      "cost_per_q": 0.010116,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
+    },
+    {
+      "kind": "telem_default",
+      "engines": [],
+      "coverage": 0.9141,
+      "cost_per_q": 0.032138,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
+    },
+    {
+      "kind": "second_opinion",
+      "engines": [],
+      "coverage": 0.8131,
+      "cost_per_q": 0.007967,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
+    },
+    {
+      "kind": "second_opinion_llm_checker",
+      "engines": [],
+      "coverage": 0.8131,
+      "cost_per_q": 0.00853,
+      "n_questions": 198,
+      "simulated": false,
+      "label": "measured agent runs",
+      "note": "agent runs; x = search + checker cost per question; answer found in results: any search in the agent's run surfaced the gold answer (offline judge on the exact, contamination-filtered result lists)"
+    }
+  ],
+  "combo_points_are": "one search per engine on the question text (hit matrix)"
 }

@@ -416,8 +416,9 @@ def render_md(r: dict) -> str:
           f"| {OURS} vs | Both finished | Wrong to correct | Correct to wrong | Wrong to declined "
           "| Declined to correct | Correct to declined | Declined to wrong | Unchanged |",
           "|---|---|---|---|---|---|---|---|---|"]
-    for base in BASELINES:
-        p = r["paired"][f"{OURS}_vs_{base}"]
+    for key in r["paired"]:
+        base = key.removeprefix(f"{OURS}_vs_")
+        p = r["paired"][key]
         L.append(f"| {base} | {p['n_both']} | {p['wrong->correct']} | {p['correct->wrong']} | "
                  f"{p['wrong->declined']} | {p['declined->correct']} | {p['correct->declined']} | "
                  f"{p['declined->wrong']} | {p['unchanged']} |")
@@ -443,10 +444,14 @@ def render_md(r: dict) -> str:
             L.append(f"| {label} | {pct(hb.get(k, 0), hb.get('n', 0))} | {pct(cb.get(k, 0), cb.get('n', 0))} |")
         L.append(f"| Total cost per question | {usd(hb.get('cost_per_q_total'))} | {usd(cb.get('cost_per_q_total'))} |")
         L.append(f"| Checker cost per question | {usd(hb.get('cost_per_q_checker'))} | {usd(cb.get('cost_per_q_checker'))} |")
-        L.append(f"| Checker miss recall (exact lists) | {r['checker'].get('miss_recall', 0):.1%} "
-                 f"(n={r['checker'].get('n_true_misses', 0)}) | {cc.get('miss_recall', 0):.1%} (n={cc.get('n_true_misses', 0)}) |")
-        L.append(f"| Checker false alarms (exact lists) | {r['checker'].get('false_alarm_rate', 0):.1%} "
-                 f"(n={r['checker'].get('n_true_hits', 0)}) | {cc.get('false_alarm_rate', 0):.1%} (n={cc.get('n_true_hits', 0)}) |")
+        def counted(m: dict, rate: str, n: str) -> str:
+            return pct(round(m.get(rate, 0) * m.get(n, 0)), m.get(n, 0))
+
+        hc = r["checker"]
+        L.append(f"| Checker miss recall (exact lists) | {counted(hc, 'miss_recall', 'n_true_misses')} | "
+                 f"{counted(cc, 'miss_recall', 'n_true_misses')} |")
+        L.append(f"| Checker false alarms (exact lists) | {counted(hc, 'false_alarm_rate', 'n_true_hits')} | "
+                 f"{counted(cc, 'false_alarm_rate', 'n_true_hits')} |")
         L.append("")
     ja, jc = r["judge_agreement"], r["judge_cost_usd"]
     labeler = ja.get("labeler", "human")

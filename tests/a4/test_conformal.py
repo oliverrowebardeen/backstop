@@ -126,6 +126,7 @@ def test_test_points_use_offline_truth_of_the_exact_list(tmp_path, monkeypatch):
 
     monkeypatch.setattr("data.load.load_all", lambda split=None: [Q(i) for i in ("t1", "t2", "t3", "l1")])
     pts, counts = asyncio.run(conformal.test_points(tmp_path, {"t1", "t2", "t3"}, "tavily"))
+    # t2's two checks are in one search call (no search_done between them): only the first counts.
     assert sorted((p.question_id, p.verdict, p.truth_hit) for p in pts) == [
-        ("t1", "HIT", True), ("t2", "HIT", False), ("t2", "SHALLOW", False)]
+        ("t1", "HIT", True), ("t2", "SHALLOW", False)]
     assert counts["finished_runs"] == 2 and counts["outside_test"] == 1
