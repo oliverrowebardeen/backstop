@@ -24,6 +24,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "finance_deep_read: opt into configured finance page reads",
     )
+    config.addinivalue_line(
+        "markers", "evidence_delivery: opt into compact HIT result delivery",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -52,3 +55,17 @@ def isolate_finance_deep_read(request: pytest.FixtureRequest, monkeypatch: pytes
     monkeypatch.setattr(config, "FINANCE_DEEP_READ", False)
     if second_opinion.config is not config:
         monkeypatch.setattr(second_opinion.config, "FINANCE_DEEP_READ", False)
+
+
+@pytest.fixture(autouse=True)
+def isolate_evidence_delivery(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep legacy all-results fixtures explicit; delivery tests opt in."""
+    if (request.node.get_closest_marker("evidence_delivery") is not None
+            or (request.node.path.parent == Path(__file__).parent / "o2"
+                and request.node.path.name.startswith("test_evidence"))):
+        return
+    from so import config, second_opinion
+
+    monkeypatch.setattr(config, "EVIDENCE_FILTER_ENABLED", False)
+    if second_opinion.config is not config:
+        monkeypatch.setattr(second_opinion.config, "EVIDENCE_FILTER_ENABLED", False)

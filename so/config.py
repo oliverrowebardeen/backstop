@@ -123,6 +123,16 @@ except ValueError as exc:
 if not 1 <= FINANCE_EXTRACT_CHUNKS <= 5:
     raise ValueError("FINANCE_EXTRACT_CHUNKS must be between 1 and 5")
 
+# HIT delivery always retains cited evidence and page reads. Extra search results
+# follow original engine rank; disable filtering for an all-results comparison.
+EVIDENCE_FILTER_ENABLED = _bool("EVIDENCE_FILTER_ENABLED", True)
+try:
+    EVIDENCE_EXTRA_RESULTS = int(os.getenv("EVIDENCE_EXTRA_RESULTS", "1"))
+except ValueError as exc:
+    raise ValueError("EVIDENCE_EXTRA_RESULTS must be a nonnegative integer") from exc
+if EVIDENCE_EXTRA_RESULTS < 0:
+    raise ValueError("EVIDENCE_EXTRA_RESULTS must be a nonnegative integer")
+
 SO_CACHE = os.getenv("SO_CACHE", "readwrite")
 if SO_CACHE not in {"readwrite", "off"}:
     raise ValueError("SO_CACHE must be readwrite or off")

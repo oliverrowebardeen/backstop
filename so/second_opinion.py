@@ -140,6 +140,26 @@ def _observe(seen: dict[str, dict[str, int]], results: list[Result]) -> None:
         by_engine[result.engine] = min(by_engine.get(result.engine, result.rank), result.rank)
 
 
+def _delivery_results(
+    merged: dict[str, Result], pages: dict[str, Result], seen: dict[str, dict[str, int]],
+    evidence_url: str, extra_results: int,
+) -> list[Result]:
+    """Keep the cited result, every read page, then extras by original engine rank.
+
+    The checker supplies one evidence URL, not a full ordering. Remaining
+    results therefore use their best engine rank, with stable ties. Page text
+    takes precedence over a later snippet from the same URL.
+    """
+    available = {**merged, **pages}
+    selected = dict.fromkeys([evidence_url, *pages])
+    remaining = sorted(
+        (result for url, result in available.items() if url not in selected),
+        key=lambda result: min(seen.get(result.url, {}).values(), default=result.rank),
+    )
+    selected.update(dict.fromkeys(result.url for result in remaining[:extra_results]))
+    return [available[url] for url in selected if url in available]
+
+
 def rank_results(
     merged: Sequence[Result], seen: dict[str, dict[str, int]], evidence_url: str | None,
 ) -> list[RankedResult]:
@@ -441,6 +461,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     memory: RunMemory = ctx.memory
     engines: list[str] = []
     merged: dict[str, Result] = {}
+    extracted_pages: dict[str, Result] = {}
     seen: dict[str, dict[str, int]] = {}
     # Each engine's already-fetched top results, for the HIT evidence object's agreement count.
     per_engine: dict[str, list[Result]] = {}
@@ -473,8 +494,11 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
 
     def finish(status: str, note: str, evidence_url: str | None = None, **extra: Any) -> SearchOutcome:
         flush_cancelled()
+        results = list(merged.values())
+        if status == "HIT" and evidence_url and config.EVIDENCE_FILTER_ENABLED:
+            results = _delivery_results(merged, extracted_pages, seen, evidence_url, config.EVIDENCE_EXTRA_RESULTS)
         outcome = SearchOutcome(
-            status=status, results=list(merged.values()), note=note,
+            status=status, results=results, note=note,
             engines_called=engines, trace=trace.events.copy(), calls=len(engines),
             fetches=sum(event["type"] == "fetch" for event in trace.events),
             cost_usd=trace.total("cost_usd"),
@@ -706,6 +730,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                             engine=original.engine if original else engine,
                         )
                         _merge(merged, [evidence])
+                        extracted_pages[action.url] = merged[action.url]
                         current_results = [evidence]
                         unchecked_pending = True
                         checked, skipped = await _guarded_check(

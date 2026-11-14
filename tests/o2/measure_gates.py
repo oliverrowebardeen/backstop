@@ -41,6 +41,9 @@ async def measure(args: argparse.Namespace) -> dict[str, Any]:
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {"split": "learn", "mode": args.mode, "ids": [question.id for question in questions],
                 "finance_deep_read": args.finance_deep_read,
+                "evidence_filter_enabled": config.EVIDENCE_FILTER_ENABLED,
+                "evidence_extra_results": config.EVIDENCE_EXTRA_RESULTS,
+                "first_engine_routing": config.FIRST_ENGINE_ROUTING,
                 "extract_chunks": config.FINANCE_EXTRACT_CHUNKS,
                 "search_timeout_s": config.SEARCH_TIMEOUT_S,
                 "checker_timeout_s": config.CHECKER_TIMEOUT_S,
