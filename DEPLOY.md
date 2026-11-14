@@ -20,6 +20,8 @@ Add the existing runtime values as Vercel environment variables: `TELEM_API_KEY`
 
 Vercel runtime cache and event logs use `/tmp/backstop/`; evaluation artifacts stay in the deployed `out/`. `POST /race-stream` runs and streams both agents within one request, so the presentation does not depend on another function instance finding an in-memory job. Disconnection cancels both jobs. Provider budgets remain the shared process-level guards, not a deployment-wide spending ledger.
 
+The separately authenticated `/v1` API is preserved. Its SQLite usage database also defaults to `/tmp/backstop/` on Vercel and is ephemeral; use persistent hosting for durable usage metering.
+
 Reference: [Vercel FastAPI support](https://vercel.com/docs/frameworks/backend/fastapi).
 
 ## Numbers and charts

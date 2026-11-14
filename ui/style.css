@@ -7,3 +7,5 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
 .diagram-mobile{position:relative}.mobile-particle{position:absolute;width:5px;height:5px;background:var(--ink);pointer-events:none;opacity:0;transform:translate(-50%,-50%)}
+
+.answer-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.answer-details{margin-top:10px;font-size:11px;color:#c4c8b9}.answer-details summary{cursor:pointer;text-underline-offset:3px}.answer-details summary:hover{text-decoration:underline}.answer-full{margin-top:10px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}

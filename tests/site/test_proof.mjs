@@ -14,3 +14,10 @@ test('Backstop is only on the frontier when it is actually efficient',()=>{
  const points=[{key:'telem_default',cost:1,accuracy:.9},{key:'second_opinion',cost:2,accuracy:.8},{key:'single',cost:.5,accuracy:.6}];
  assert.deepEqual(efficientFrontier(points).map(p=>p.key),['single','telem_default']);
 });
+
+import {newRun,applyEvent} from '../../ui/race-state.js';
+test('an error run_end never appears as a completed answer',()=>{
+ const state=newRun('single','tavily');
+ applyEvent(state,{run_id:'interrupted',seq:1,ts:'2026-11-14T20:00:00Z',type:'run_end',setup:'single',data:{engine_calls:1,cost_usd_total:.01,latency_ms:100,error:'BudgetExceeded'}});
+ assert.equal(state.status,'Interrupted');assert.equal(state.finished,true);
+});

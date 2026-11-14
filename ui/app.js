@@ -5,6 +5,7 @@ const $ = selector => document.querySelector(selector);
 const elements = {}, states = {};
 let firstEngine = 'tavily', active = false, replayPair = null, replaySource = null, controller = null;
 let replayMode = false, autoplayDone = false, raceVisible = false, ready = false, liveAvailable = false;
+let auditQuestion = '';
 const origins = {};
 const names = {single: 'Single engine', second_opinion: 'Backstop', telem_default: 'Telem default'};
 const element = (tag, cls, text) => { const node = document.createElement(tag); if(cls) node.className = cls; if(text !== undefined) node.textContent = text; return node; };
@@ -43,7 +44,11 @@ function render(side) {
   } else steps.replaceChildren(element('li', 'empty', 'Waiting for the question.'));
   const declined = state.answer?.status === 'NOT_FOUND';
   find('.answer-label').textContent = declined ? 'Not found · a deliberate outcome' : 'Final answer';
-  find('.answer-text').textContent = state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
+  const fullAnswer = state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
+  const lead = typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter('en', {granularity:'sentence'}).segment(fullAnswer)][0]?.segment.trim() : fullAnswer;
+  find('.answer-text').textContent = lead || fullAnswer;
+  find('.answer-full').textContent = fullAnswer;
+  find('.answer-details').hidden = !state.answer;
   find('.sources').replaceChildren(...(state.answer?.citations || []).map((url, i) => {
     const safe = safeURL(url); if (!safe) return null;
     const link = element('a', '', `[${i + 1}] ${safe.hostname.replace(/^www\./, '')} ↗`);
@@ -102,6 +107,7 @@ function playReplay() {
   autoplayDone = true;
   reset(replayPair.fixture ? 'fixture' : 'replay');
   $('#question').value = replayPair.question;
+  auditQuestion = replayPair.question;
   notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded evidence, played at its original pace.');
   const source = new EventSource(`/replay/${encodeURIComponent(replayPair.name)}`);
   replaySource = source;
@@ -137,6 +143,7 @@ async function consumeStream(response) {
 $('#race-form').addEventListener('submit', async event => {
   event.preventDefault(); if (active || !liveAvailable) return;
   const question = $('#question').value.trim(); if (!question) return;
+  auditQuestion = question;
   autoplayDone = true; reset('live'); notify('Both agents are searching. Every counter comes from the event log.');
   const abort = new AbortController(); controller = abort;
   try {
@@ -146,7 +153,7 @@ $('#race-form').addEventListener('submit', async event => {
   } catch(error) { if (error.name !== 'AbortError') fail(error.message); }
 });
 $('#export-audit').addEventListener('click', () => {
-  const data = {product:'Backstop',mode:$('#race-mode').textContent,question:$('#question').value,left:states.left.events,right:states.right.events};
+  const data = {product:'Backstop',mode:$('#race-mode').textContent,question:auditQuestion,left:states.left.events,right:states.right.events};
   const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)+'\n'],{type:'application/json'}));
   const anchor = element('a'); anchor.href=url; anchor.download='backstop-race-audit.json';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
@@ -220,4 +227,4 @@ new IntersectionObserver(entries=>{diagramVisible=entries[0].isIntersecting;if(d
 reduced.addEventListener('change',()=>{diagramPaused=reduced.matches;diagramButton();if(!diagramPaused&&!frame)frame=requestAnimationFrame(animateDiagram);});diagramButton();
 
 // A fresh commit link keeps the pitch connected to the team's ongoing work.
-fetch('https://api.github.com/repos/oliverrowebardeen/backstop/commits?sha=main&per_page=1',{signal:AbortSignal.timeout(5000)}).then(r=>r.ok?r.json():[]).then(([commit])=>{if(/^[a-f0-9]{40}$/.test(commit?.sha)){$('#build-link').textContent=`Build ${commit.sha.slice(0,7)} ↗`;$('#build-link').href=`https://github.com/oliverrowebardeen/backstop/commit/${commit.sha}`;}}).catch(()=>{});
+fetch('https://api.github.com/repos/oliverrowebardeen/backstop/commits?sha=main&per_page=1',{signal:AbortSignal.timeout(5000)}).then(r=>r.ok?r.json():[]).then(([commit])=>{if(/^[a-f0-9]{40}$/.test(commit?.sha)){$('#build-link').textContent=`Latest commit ${commit.sha.slice(0,7)} ↗`;$('#build-link').href=`https://github.com/oliverrowebardeen/backstop/commit/${commit.sha}`;}}).catch(()=>{});

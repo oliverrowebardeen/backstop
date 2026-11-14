@@ -69,7 +69,7 @@ export function applyEvent(state, event) {
     state.elapsed = data.latency_ms;
     state.telemCalls = data.telem_calls ?? state.telemCalls;
     state.finished = true;
-    state.status = state.answer?.status === 'NOT_FOUND' ? 'Not found' : 'Complete';
+    state.status = data.error || !state.answer ? 'Interrupted' : state.answer.status === 'NOT_FOUND' ? 'Not found' : 'Complete';
   }
   return true;
 }
