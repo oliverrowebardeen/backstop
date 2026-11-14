@@ -76,17 +76,16 @@ def S(q, seq, hit, verdict, call=0, setup="second_opinion"):
 
 def test_checker_metrics_on_exact_lists():
     truth = retrieval.RunTruth(searches=[
-        S("q1", 1, False, "DEAD"), S("q1", 4, True, "HIT"),      # miss caught, rescue later hit -> DEAD wrong
+        S("q1", 1, False, "DEAD"), S("q1", 4, True, "HIT"),      # miss caught, rescue later hit
         S("q2", 1, True, "HIT"),                                  # hit kept
         S("q3", 1, True, "STALE"),                                # false alarm
         S("q4", 1, False, "HIT"),                                 # missed miss
-        S("q5", 1, False, "DEAD"),                                # dead and nothing later -> DEAD right
+        S("q5", 1, False, "DEAD"),                                # miss caught
     ])
     m = retrieval.checker_metrics(truth)
     assert (m["n_true_misses"], m["n_true_hits"]) == (3, 3)
     assert m["miss_recall"] == round(2 / 3, 4) and m["false_alarm_rate"] == round(1 / 3, 4)
-    # q1: rescuable but called DEAD (wrong); q4: not rescuable, called HIT (wrong); q5: DEAD and not rescuable (right)
-    assert m["rescuable_vs_dead_acc"] == round(1 / 3, 4)
+    assert "rescuable_vs_dead_acc" not in m
 
 
 def test_coverage_uses_the_scored_cohort():

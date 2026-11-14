@@ -158,7 +158,6 @@ class CheckerMetrics(BaseModel):
     n_searches: int = 0
     miss_recall: float = 0
     false_alarm_rate: float = 0
-    rescuable_vs_dead_acc: float = 0
 
 
 class JudgeAgreement(BaseModel):

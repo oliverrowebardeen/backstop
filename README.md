@@ -226,6 +226,12 @@ also cost less per question than the single-engine agent ($0.063).
 | Engine calls per question | 1.86 | 8.00 | 1.31 |
 | Latency p50 | 9.0s | 8.6s | 7.3s |
 
+Engine calls per question are higher than the engines per search given above because
+the agent can search more than once per question: Telem default made about 1.40
+searches per question at about 5.71 engines each (1,600 engine calls over 280 searches),
+and Backstop made about 1.22 searches per question at about 1.08 engines each (261 engine
+calls over 242 searches).
+
 Backstop scored 199 of 200 questions: sqa-1447 failed in both passes because the agent
 cited URLs it had not retrieved. Counting it as wrong gives 188/200 (94.0%). Backstop's
 10 wrong answers are within one or two questions of the baselines (8 and 11), so this

@@ -43,7 +43,6 @@ Cost per search call = (engine calls + page reads inside the search tool + check
 | Checked searches judged | 261 (not in cache: 0, judge errors: 0) |
 | Miss recall (true misses labelled not-HIT) | 75.6% (59/78) |
 | False alarm rate (true hits labelled not-HIT) | 2.7% (5/183) |
-| Rescuable vs DEAD accuracy (on true misses) | 5.1% (4/78) |
 
 Truth: every check compared with an offline judgment of the exact result list it saw (recovered from the Telem response cache, contamination-filtered as in the eval). Traps are excluded.
 

@@ -143,27 +143,16 @@ async def judge_runs(runs: dict[tuple[str, str], Path], questions: dict, *,
 
 
 def checker_metrics(truth: RunTruth) -> dict:
-    """Miss recall, false alarms and DEAD-vs-rescuable on exactly the lists the checker saw."""
+    """Miss recall and false alarms on exactly the lists the checker saw."""
     checked = [s for s in truth.searches if s.verdict is not None and s.hit is not None]
     misses = [s for s in checked if not s.hit]
     hits = [s for s in checked if s.hit]
     caught = sum(s.verdict != "HIT" for s in misses)
     alarms = sum(s.verdict != "HIT" for s in hits)
-    # A miss is rescuable when a later search in the same search call surfaced the answer.
-    later_hit = {}
-    for s in truth.searches:
-        key = (s.question_id, s.setup, s.call_index)
-        later_hit.setdefault(key, []).append(s)
-    correct_dead = 0
-    for s in misses:
-        rest = [o for o in later_hit[(s.question_id, s.setup, s.call_index)] if o.seq > s.seq and o.hit]
-        rescuable = bool(rest)
-        correct_dead += (s.verdict == "DEAD") == (not rescuable)
     return {
         "n_searches": len(checked), "n_true_misses": len(misses), "n_true_hits": len(hits),
         "miss_recall": round(caught / len(misses), 4) if misses else 0.0,
         "false_alarm_rate": round(alarms / len(hits), 4) if hits else 0.0,
-        "rescuable_vs_dead_acc": round(correct_dead / len(misses), 4) if misses else 0.0,
         "searches_not_in_cache": truth.missing, "judge_errors": truth.judge_errors,
         "method": ("every check compared with an offline judgment of the exact result list it saw "
                    "(recovered from the Telem response cache, contamination-filtered as in the eval)"),

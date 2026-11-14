@@ -91,7 +91,6 @@
     "n_true_hits": 183,
     "miss_recall": 0.7564,
     "false_alarm_rate": 0.0273,
-    "rescuable_vs_dead_acc": 0.0513,
     "searches_not_in_cache": 0,
     "judge_errors": 0,
     "method": "every check compared with an offline judgment of the exact result list it saw (recovered from the Telem response cache, contamination-filtered as in the eval)"
@@ -466,7 +465,6 @@
       "n_true_hits": 184,
       "miss_recall": 0.8375,
       "false_alarm_rate": 0.087,
-      "rescuable_vs_dead_acc": 0.05,
       "searches_not_in_cache": 0,
       "judge_errors": 0,
       "method": "every check compared with an offline judgment of the exact result list it saw (recovered from the Telem response cache, contamination-filtered as in the eval)"

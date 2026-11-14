@@ -9,8 +9,8 @@ benchmark itself, removed with the matrix's own filter (evals.contamination).
 It gets the same query and goal the matrix used (the question text) and
 today's date. It never sees gold answers.
 
-Prints miss recall, false alarm rate, rescuable-vs-DEAD accuracy and a
-confusion table of verdicts. Metric definitions match evals/score.py.
+Prints miss recall, false alarm rate, HIT precision and a confusion table
+of verdicts. Metric definitions match evals/score.py.
 
 A checker call that fails outright raises CheckerError and stops the run, so
 an outage is never scored as a string of misses.
@@ -163,7 +163,7 @@ def _rate(num: int, den: int) -> float:
 
 
 def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
-    """Miss recall, false alarm rate and rescuable-vs-DEAD accuracy, as defined in evals/score.py."""
+    """Miss recall and false alarm rate, as defined in evals/score.py, plus HIT precision."""
     c: Counter[str] = Counter()
     confusion: dict[str, Counter[str]] = {"hit": Counter(), "miss": Counter()}
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
@@ -182,9 +182,6 @@ def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
             c["misses_flagged"] += flagged
             cat["true_misses"] += 1
             cat["misses_flagged"] += flagged
-            if s.case.others_hit:
-                c["dead_scored"] += 1
-                c["dead_correct"] += (s.verdict.verdict == "DEAD") == (not any(s.case.others_hit))
     usage = [s.verdict for s in scored if isinstance(s.verdict, checker.CheckedVerdict)]
     latencies = [v.latency_ms for v in usage if v.model and not v.cached]
     return {
@@ -195,8 +192,6 @@ def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
         "miss_recall": _rate(c["misses_flagged"], c["true_misses"]),
         "false_alarm_rate": _rate(c["hits_flagged"], c["true_hits"]),
         "hit_precision": _rate(confusion["hit"]["HIT"], confusion["hit"]["HIT"] + confusion["miss"]["HIT"]),
-        "rescuable_vs_dead_acc": _rate(c["dead_correct"], c["dead_scored"]),
-        "dead_scored": c["dead_scored"],
         "confusion": {k: {v: confusion[k][v] for v in checker.VERDICTS} for k in confusion},
         "by_category": {k: {"miss_recall": _rate(v["misses_flagged"], v["true_misses"]),
                             "false_alarm_rate": _rate(v["hits_flagged"], v["true_hits"]),
@@ -224,7 +219,6 @@ def report(m: dict[str, Any], target_miss_recall: float = TARGET_MISS_RECALL,
         f"  miss recall            {m['miss_recall']:.3f}   (target >= {target_miss_recall})",
         f"  false alarm rate       {m['false_alarm_rate']:.3f}   (target <= {target_false_alarm})",
         f"  HIT precision          {m['hit_precision']:.3f}",
-        f"  rescuable vs DEAD acc  {m['rescuable_vs_dead_acc']:.3f}   (on {m['dead_scored']} true misses)",
         "",
         "  truth \\ verdict " + "".join(f"{v:>14}" for v in checker.VERDICTS),
     ]

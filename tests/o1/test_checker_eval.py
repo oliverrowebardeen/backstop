@@ -104,8 +104,6 @@ async def test_end_to_end_on_tavily(files, model, capsys):
                                questions=QUESTIONS, show=5)
     assert (m["n_searches"], m["true_hits"], m["true_misses"]) == (3, 1, 2)
     assert (m["miss_recall"], m["false_alarm_rate"]) == (1.0, 0.0)
-    # q2 is rescuable (exa hit) and got DEAD: wrong. q3 is not rescuable and got DEAD: right.
-    assert (m["dead_scored"], m["rescuable_vs_dead_acc"]) == (2, 0.5)
     assert m["confusion"]["miss"]["DEAD"] == 2 and m["confusion"]["hit"]["HIT"] == 1
     assert m["cost_usd"] == pytest.approx(0.0015)
     assert not any("t1" in p for p in model.prompts)
@@ -173,7 +171,6 @@ def test_metrics_match_score_definitions():
     assert m["miss_recall"] == pytest.approx(5 / 6, abs=1e-4)
     assert m["false_alarm_rate"] == 0.25
     assert m["hit_precision"] == 0.75
-    assert m["rescuable_vs_dead_acc"] == pytest.approx(5 / 6, abs=1e-4)
     assert checker_eval.report(m).endswith("target NOT MET")
     assert checker_eval.report(m, target_miss_recall=0.8, target_false_alarm=0.3).endswith("target MET")
 

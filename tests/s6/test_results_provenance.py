@@ -26,8 +26,7 @@ FRONTIER = {
 RESULTS = {
     "generated_at": "2026-11-14T22:00:00Z", "n_test": 200, "n_traps": 30,
     "setups": {"single": {"correct": 120, "wrong": 50, "declined": 30, "n": 200, "notes": ["cache on"]}},
-    "checker": {"n_searches": 400, "miss_recall": 0.87, "false_alarm_rate": 0.1, "rescuable_vs_dead_acc": 0.7,
-                "n_labeled": 380},
+    "checker": {"n_searches": 400, "miss_recall": 0.87, "false_alarm_rate": 0.1, "n_labeled": 380},
     "judge_agreement": {"n_checked": 30, "agree": 29, "labeler": "claude-sonnet-5-5 (blind)"},
     "warnings": ["2 finished logs had no answer event"],
     "contamination": {"single": {"seen": 1000, "removed": 40}},

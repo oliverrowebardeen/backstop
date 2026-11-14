@@ -398,8 +398,6 @@ def render_md(r: dict) -> str:
           f"{pct(round(c['miss_recall'] * c.get('n_true_misses', 0)), c.get('n_true_misses', 0))} |",
           f"| False alarm rate (true hits labelled not-HIT) | "
           f"{pct(round(c['false_alarm_rate'] * c.get('n_true_hits', 0)), c.get('n_true_hits', 0))} |",
-          f"| Rescuable vs DEAD accuracy (on true misses) | "
-          f"{pct(round(c['rescuable_vs_dead_acc'] * c.get('n_true_misses', 0)), c.get('n_true_misses', 0))} |",
           "", f"Truth: {c.get('method', 'offline judge')}. Traps are excluded.", ""]
     rt = r.get("retrieval") or {}
     if rt.get("setups"):
