@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from pydantic import Field
@@ -39,6 +40,19 @@ from so.checker_eval import (
 from so.contracts import CheckerVerdict, LLMResponse, MatrixRow, Result, RunContext
 
 logger = logging.getLogger(__name__)
+_fallback_warning_lock = Lock()
+_fallback_warning_emitted = False
+
+
+def _warn_fallback_once(reason: str) -> None:
+    """Report degraded checker availability once per process, including timeouts."""
+    global _fallback_warning_emitted
+    with _fallback_warning_lock:
+        if _fallback_warning_emitted:
+            return
+        _fallback_warning_emitted = True
+    logger.warning("Decisions unavailable (%s); falling back to the configured LLM checker. "
+                   "Further fallback warnings are suppressed for this process.", reason)
 
 
 class DecisionVerdict(checker.CheckedVerdict):
@@ -156,7 +170,7 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
     except llm.DecisionCallError as exc:
         if exc.kind != "timeout":
             raise llm.DecisionCallError(str(exc), usage=total, kind=exc.kind) from exc
-        logger.warning("Decisions timed out; using the LLM checker with its configured provider")
+        _warn_fallback_once("timeout")
         try:
             fallback = await checker.check(query, goal, top, today, ctx=ctx)
         except config.BudgetExceeded:
@@ -196,7 +210,8 @@ def _needs_escalation(verdict: CheckerVerdict, threshold: float) -> bool:
 
 
 def _cascade_result(decision: DecisionVerdict | None, final: checker.CheckedVerdict,
-                    usage: LLMResponse, *, escalated: bool, failure: str | None = None) -> CascadeVerdict:
+                    usage: LLMResponse, *, escalated: bool, failure: str | None = None,
+                    decision_calls: int | None = None) -> CascadeVerdict:
     """Keep evidence pointers exclusively from a successful Decisions response."""
     fields = final.model_dump()
     fields.update(evidence_rank=decision.evidence_rank if decision else None,
@@ -204,7 +219,7 @@ def _cascade_result(decision: DecisionVerdict | None, final: checker.CheckedVerd
     return CascadeVerdict(**fields, **{name: getattr(usage, name) for name in (
         "model", "tokens_in", "tokens_out", "cost_usd", "latency_ms", "cached")},
         escalated=escalated, fallback=failure is not None, decision_failure=failure,
-        decision_calls=decision.decision_calls if decision else 1)
+        decision_calls=decision_calls if decision_calls is not None else (decision.decision_calls if decision else 1))
 
 
 async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],
@@ -221,7 +236,13 @@ async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[s
     failure = None
     usage = LLMResponse(role="checker", cached=True)
     try:
-        decision = await check(query, goal, top, today, ctx=ctx)
+        if top:
+            try:
+                config.api_key("openai")
+            except ValueError:
+                failure = "missing_api_key"
+        if failure is None:
+            decision = await check(query, goal, top, today, ctx=ctx)
     except config.BudgetExceeded:
         raise
     except llm.DecisionCallError as exc:
@@ -242,14 +263,15 @@ async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[s
         if not _needs_escalation(decision, config.CHECKER_CASCADE_THRESHOLD):
             return _cascade_result(decision, decision, usage, escalated=False)
     if failure:
-        logger.warning("Decisions failed (%s); using the LLM checker", failure)
+        _warn_fallback_once(failure)
     try:
         final = await checker.check(query, goal, top, today, ctx=ctx)
     except checker.CheckerError as exc:
         raise checker.CheckerError("Cascade LLM escalation failed", kind=exc.kind,
                                    usage=_sum_usage(usage, exc.usage)) from exc
     return _cascade_result(decision, final, _sum_usage(usage, _usage(final)),
-                           escalated=True, failure=failure)
+                           escalated=True, failure=failure,
+                           decision_calls=0 if failure == "missing_api_key" else None)
 
 
 @dataclass

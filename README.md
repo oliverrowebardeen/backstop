@@ -158,7 +158,7 @@ Set in `.env` or the environment; the limits can also be set on the client or pe
 | `TELEM_BASE_URL` | `https://router.telem.ai` | Telem router |
 | `ANTHROPIC_API_KEY` | | Key for the checker model |
 | `CHECKER_MODEL` | `claude-haiku-5-5` | Model that labels each search |
-| `CHECKER_BACKEND` | `llm` | `llm`, `decision` or `cascade`. `cascade` asks the Decisions checker (`gpt-6-luna`, needs `OPENAI_API_KEY`) first and re-checks uncertain `HIT`s with `CHECKER_MODEL`; it is the configuration measured in [Results](#results) |
+| `CHECKER_BACKEND` | `cascade` | `llm`, `decision` or `cascade`. `cascade` asks the Decisions checker (`gpt-6-luna`, using `OPENAI_API_KEY`) first and re-checks uncertain `HIT`s with `CHECKER_MODEL`. If the key is missing or Decisions fails, it falls back to the configured LLM checker and logs a warning once per process. This is the configuration measured in [Results](#results) |
 | `CHECKER_CASCADE_THRESHOLD` | 0.7 | A Decisions `HIT` below this confidence goes to the LLM checker |
 | `FIRST_ENGINE_ROUTING` | `on` | Pick each search's first engine by question type from `out/first_engine.json`, built on the learn split only (`python -m so.router build`); currently Perplexity for fact questions and Exa for finance |
 | `FIRST_ENGINE_FINANCE_PATTERN` | accounting, market and filing terms | Regex over query and goal that marks a search as finance; every other search is fact |
@@ -298,8 +298,9 @@ the checker labelled 75.6% of true misses as misses (59/78) and raised a false a
 2.7% of true hits (5/183). It ran as `CHECKER_BACKEND=cascade`: Decisions labels each
 list first, and a `HIT` below confidence 0.7 is re-checked by the LLM checker. This
 configuration was pre-registered as the primary one before any results were scored,
-with its threshold frozen on the learn split. The LLM-only checker (`CHECKER_BACKEND=llm`,
-the code default) scored 185/198 correct at $0.052 per question, with miss recall 83.8%
+with its threshold frozen on the learn split.
+The learn-split switching rule had recommended the LLM-only checker, which caught two more misses on the held-out half of learn (70/76 vs 68/76), and the registration was made after the main eval had started but before any results were scored.
+The LLM-only checker (`CHECKER_BACKEND=llm`) scored 185/198 correct at $0.052 per question, with miss recall 83.8%
 (67/80) and false alarms 8.7% (16/184).
 
 The single-engine and Telem default baselines and the LLM-only checker come from the main
@@ -331,8 +332,8 @@ Reproduce:
 ```sh
 python -m evals.matrix            # hit matrix: every question on every engine via Telem
 python -m analysis.rescue_table   # learn-split rescue order
-python -m evals.run_eval          # all three setups into out/logs, LLM checker
-CHECKER_BACKEND=cascade python -m evals.run_eval --setups second_opinion --log-dir out/logs_cascade
+CHECKER_BACKEND=llm python -m evals.run_eval   # all three setups into out/logs, LLM checker
+CHECKER_BACKEND=cascade CHECKER_CASCADE_THRESHOLD=0.7 python -m evals.run_eval --setups second_opinion --log-dir out/logs_cascade
 python -m evals.score --so-log-dir out/logs_cascade   # out/results.json and out/results.md
 ```
 

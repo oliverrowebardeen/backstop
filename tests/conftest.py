@@ -27,6 +27,22 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "evidence_delivery: opt into compact HIT result delivery",
     )
+    config.addinivalue_line(
+        "markers", "checker_backend: opt into configured checker backend selection",
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolate_checker_backend(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep legacy checker fixtures on LLM; backend tests opt in explicitly."""
+    if request.node.get_closest_marker("checker_backend") is not None:
+        return
+    from so import config, decision_checker, second_opinion
+
+    monkeypatch.setenv("CHECKER_BACKEND", "llm")
+    # Config reloads must not switch a legacy test to the product backend.
+    for settings in (config, decision_checker.config, second_opinion.config):
+        monkeypatch.setattr(settings, "CHECKER_BACKEND", "llm")
 
 
 @pytest.fixture(autouse=True)

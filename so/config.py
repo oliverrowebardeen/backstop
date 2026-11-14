@@ -388,8 +388,8 @@ if not (BACKSTOP_KEY_SPEND_CAP_USD > 0 and BACKSTOP_MAX_COST_USD > 0 and BACKSTO
 if BACKSTOP_MAX_RESCUES < 0:
     raise ValueError("BACKSTOP_MAX_RESCUES must be 0 or more")
 
-# Optional Decisions checker. The existing search/checker integration stays on LLM.
-CHECKER_BACKEND = os.getenv("CHECKER_BACKEND", "llm")
+# Product default: Decisions first, with the configured LLM checker as fallback.
+CHECKER_BACKEND = os.getenv("CHECKER_BACKEND", "cascade")
 CHECKER_PROVIDER = os.getenv("CHECKER_PROVIDER", LLM_PROVIDER)
 CHECKER_PROVIDER_EXPLICIT = "CHECKER_PROVIDER" in os.environ
 DECISION_MODEL = os.getenv("DECISION_MODEL", "gpt-6-luna")
@@ -435,7 +435,7 @@ if not 0 <= DECISION_EVAL_BUDGET_USD <= 3 or not 0 <= DECISION_BUDGET_USD <= 3:
     raise ValueError("Decisions budgets must be between 0 and the $3 evaluation cap")
 DECISION_BUDGET = Budget(DECISION_BUDGET_USD)
 
-# Cascade: threshold selected on the first learn half; the default backend stays llm.
+# Cascade threshold frozen on the first learn half.
 CHECKER_CASCADE_THRESHOLD = _unit_interval("CHECKER_CASCADE_THRESHOLD", "0.7")
 CASCADE_EVAL_THRESHOLDS = [float(value) for value in _csv("CASCADE_EVAL_THRESHOLDS", "0.6,0.7,0.8,0.9")]
 CASCADE_EVAL_SEED = int(os.getenv("CASCADE_EVAL_SEED", "14"))
