@@ -1,4 +1,4 @@
-"""Shared wire contracts from SHARED_CONTEXT.md section 6.
+"""Shared wire contracts for retrieval, evaluation and run events.
 
 RunContext.log and .memory hold runtime objects and are not serialized.
 LLM tools use {id, name, arguments}; messages use OpenAI-style dictionaries.

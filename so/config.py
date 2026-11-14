@@ -2,7 +2,7 @@
 
 Budgets count live spend within this Python process. Cached calls retain their
 original reported cost but do not spend budget. Search prices are from
-https://docs.telem.ai/pricing/ (2026-11-14); Exa uses the brief's estimate.
+https://docs.telem.ai/pricing/ (2026-11-14); Exa uses DEFAULT_PRICE_USD unless overridden.
 """
 from __future__ import annotations
 
