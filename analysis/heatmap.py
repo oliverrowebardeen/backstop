@@ -12,7 +12,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from analysis.common import OUT, banner, load_rescue_table  # noqa: E402
+from analysis import common  # noqa: E402
+from analysis.common import load_rescue_table  # noqa: E402
 
 
 def main() -> None:
@@ -28,7 +29,7 @@ def main() -> None:
             c = t["rescue"][a][b]
             grid[i, j] = c["rate"]
             cells.append({"missed": a, "rescuer": b, **c})
-    (OUT / "rescue_heatmap.json").write_text(json.dumps(
+    (common.OUT / "rescue_heatmap.json").write_text(json.dumps(
         {"split": "learn", "n_questions": t["n_questions"], "engines": engines, "cells": cells}, indent=2))
 
     fig, ax = plt.subplots(figsize=(13.33, 7.5), dpi=200)
@@ -56,12 +57,11 @@ def main() -> None:
     cb.ax.tick_params(labelsize=14)
     for s in ax.spines.values():
         s.set_visible(False)
-    fig.suptitle(f"Which engine rescues which miss (learn split, {t['n_questions']} questions)"
-                 + ("  [FAKE DATA]" if banner().startswith("FAKE") else ""),
+    fig.suptitle(f"Which engine rescues which miss (learn split, {t['n_questions']} questions)",
                  fontsize=22, x=0.02, ha="left")
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(OUT / "rescue_heatmap.png")
-    print(f"wrote {OUT / 'rescue_heatmap.json'} and .png")
+    fig.savefig(common.OUT / "rescue_heatmap.png")
+    print(f"wrote {common.OUT / 'rescue_heatmap.json'} and .png")
 
 
 if __name__ == "__main__":

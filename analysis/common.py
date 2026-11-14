@@ -1,20 +1,20 @@
 """Shared helpers for lane S3 (rescue table, frontier, heatmap, findings).
 
-Paths: out/fake/ when SO_FAKE=1, else out/. Replicates the tiny OUT logic from
-evals/deps.py on purpose (evals.deps imports so.llm).
+OUT is where the analysis reads and writes artifacts (out/ by default). It is a
+plain module attribute, read at call time here and in the other analysis modules,
+so callers can point it elsewhere. Kept apart from evals.deps on purpose
+(evals.deps imports so.llm).
 """
 from __future__ import annotations
 
 import json
-import os
 from collections import defaultdict
 from pathlib import Path
 
 from data.load import load_all
 
 ROOT = Path(__file__).resolve().parent.parent
-FAKE = os.getenv("SO_FAKE") == "1"
-OUT = ROOT / "out" / "fake" if FAKE else ROOT / "out"
+OUT = ROOT / "out"
 
 from so.config import (DEFAULT_PRICE_USD, ENGINES, FALLBACK_ORDER, FIRST_ENGINE,  # noqa: E402,F401
                        PRICE_USD)
@@ -60,14 +60,9 @@ def split_ids(split: str, *, traps: bool = False) -> set[str]:
 def need_matrix() -> list[dict]:
     rows = read_jsonl(OUT / "matrix.jsonl")
     if not rows:
-        raise SystemExit(f"no matrix rows at {OUT / 'matrix.jsonl'} "
-                         "(fake data: SO_FAKE=1 python -m evals.matrix)")
+        raise SystemExit(f"no matrix rows at {OUT / 'matrix.jsonl'} (run python -m evals.matrix)")
     return rows
 
 
 def load_rescue_table() -> dict:
     return json.loads((OUT / "rescue_table.json").read_text())
-
-
-def banner() -> str:
-    return "FAKE DATA (SO_FAKE=1)" if FAKE else "real data"

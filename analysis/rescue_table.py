@@ -12,7 +12,8 @@ import json
 from data.load import load_all
 from so.contracts import RescueTable
 
-from analysis.common import ENGINES, FIRST_ENGINE, OUT, hits_by_question, need_matrix, price
+from analysis import common
+from analysis.common import ENGINES, FIRST_ENGINE, hits_by_question, need_matrix, price
 
 
 class LearnOnlyError(RuntimeError):
@@ -74,10 +75,10 @@ def main() -> None:
     rows = [r for r in need_matrix() if r["question_id"] in learn_ids]
     t = build(rows, questions)
     RescueTable.model_validate(t)  # section 6.6 contract
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "rescue_table.json").write_text(json.dumps(t, indent=2))
+    common.OUT.mkdir(parents=True, exist_ok=True)
+    (common.OUT / "rescue_table.json").write_text(json.dumps(t, indent=2))
     print_table(t)
-    print(f"wrote {OUT / 'rescue_table.json'}")
+    print(f"wrote {common.OUT / 'rescue_table.json'}")
 
 
 if __name__ == "__main__":

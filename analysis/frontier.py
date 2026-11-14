@@ -32,8 +32,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from analysis.common import (ENGINES, FIRST_ENGINE, OUT, banner, load_rescue_table, need_matrix,  # noqa: E402
-                             price, read_jsonl, split_ids)
+from analysis import common  # noqa: E402
+from analysis.common import (ENGINES, FIRST_ENGINE, load_rescue_table, need_matrix, price, read_jsonl,  # noqa: E402
+                             split_ids)
 from data.load import load_all  # noqa: E402
 from so.checker import load_prompt, render_user  # noqa: E402
 from so.config import CHECKER_MODEL, LLM_PRICE_USD  # noqa: E402
@@ -76,7 +77,7 @@ def efficient(points: list[dict]) -> list[dict]:
 
 
 def read_results_json() -> dict | None:
-    f = OUT / "results.json"
+    f = common.OUT / "results.json"
     if not f.exists():
         return None
     try:
@@ -93,7 +94,7 @@ def checker_costs(ids: set[str], tokens_out: int, chars_per_token: float) -> tup
     system = load_prompt("checker")
     text = {q.id: q.question for q in load_all() if q.id in ids}
     costs: dict[tuple[str, str], float] = {}
-    for r in read_jsonl(OUT / "matrix_results.jsonl"):
+    for r in read_jsonl(common.OUT / "matrix_results.jsonl"):
         qid, eng = r["question_id"], r["engine"]
         if qid not in text or eng == "telem_default":
             continue
@@ -102,7 +103,7 @@ def checker_costs(ids: set[str], tokens_out: int, chars_per_token: float) -> tup
         tokens_in = (len(system) + len(user)) / chars_per_token
         costs[(qid, eng)] = (tokens_in * p_in + tokens_out * p_out) / 1e6
     if not costs:
-        raise SystemExit(f"no usable rows in {OUT / 'matrix_results.jsonl'} to derive the checker cost")
+        raise SystemExit(f"no usable rows in {common.OUT / 'matrix_results.jsonl'} to derive the checker cost")
     return costs, sum(costs.values()) / len(costs)
 
 
@@ -190,10 +191,10 @@ def main(argv=None) -> None:
     combos = combo_points(pq)
     front = efficient(combos)
 
-    drows = per_question([r for r in read_jsonl(OUT / "default_matrix.jsonl") if r["engine"] == "telem_default"], ids)
+    drows = per_question([r for r in read_jsonl(common.OUT / "default_matrix.jsonl") if r["engine"] == "telem_default"], ids)
     nd = len(drows)
     if not nd:
-        raise SystemExit(f"no default rows in {OUT / 'default_matrix.jsonl'}")
+        raise SystemExit(f"no default rows in {common.OUT / 'default_matrix.jsonl'}")
     default = {"kind": "telem_default", "engines": [],
                "coverage": round(sum(h for h, _ in (d["telem_default"] for d in drows.values())) / nd, 4),
                "cost_per_q": round(sum(c for _, c in (d["telem_default"] for d in drows.values())) / nd, 6),
@@ -212,13 +213,13 @@ def main(argv=None) -> None:
                             chk, chk_mean, recall, far)
 
     points = combos + [default, so_pt]
-    doc = {"split": "test", "non_trap_only": True, "generated_from": banner(),
+    doc = {"split": "test", "non_trap_only": True, "generated_from": "real data",
            "frontier_engines": [p["engines"] for p in front], "points": points,
            "measured_runs": list(measured["points"].values()) if measured else [],
            "combo_points_are": "one search per engine on the question text (hit matrix)"}
     Frontier.model_validate(doc)  # section 6.13 contract
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "frontier.json").write_text(json.dumps(doc, indent=2))
+    common.OUT.mkdir(parents=True, exist_ok=True)
+    (common.OUT / "frontier.json").write_text(json.dumps(doc, indent=2))
     plot(combos, front, default, so_pt)
 
     n_combo = combos[0]["n_questions"]
@@ -228,7 +229,7 @@ def main(argv=None) -> None:
     for p in (default, so_pt):
         sim = " (simulated)" if p.get("simulated") else ""
         print(f"  {p['kind']}{sim}: cov {p['coverage']:.1%} cost ${p['cost_per_q']:.4f} n={p['n_questions']}")
-    print(f"wrote {OUT / 'frontier.json'} and .png")
+    print(f"wrote {common.OUT / 'frontier.json'} and .png")
 
 
 def plot(combos, front, default, so_pt) -> None:
@@ -258,11 +259,9 @@ def plot(combos, front, default, so_pt) -> None:
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
     ttl = f"Coverage vs cost, test split ({combos[0]['n_questions']} questions)"
-    if banner().startswith("FAKE"):
-        ttl += "  [FAKE DATA]"
     ax.set_title(ttl, fontsize=22, loc="left")
     fig.tight_layout()
-    fig.savefig(OUT / "frontier.png")
+    fig.savefig(common.OUT / "frontier.png")
 
 
 if __name__ == "__main__":
