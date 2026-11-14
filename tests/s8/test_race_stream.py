@@ -209,6 +209,9 @@ def test_shipped_replays_state_how_they_were_recorded_and_claim_no_selection():
         assert meta["commit"] and meta["recorded_at"], name
         assert (meta["checker_backend"], meta["first_engine_routing"], meta["cache"]) == ("cascade", "on", "off"), name
         assert "seed" not in meta and "selection" not in meta, name
+        assert len(pair.title) <= 45, pair.title  # the dropdown shows a short title; the question box shows the question
+    orders = [pair.order for pair in shipped.values()]
+    assert None not in orders and orders == sorted(set(orders)), orders  # the catalog lists pairs in manifest order
     for manifest in (root / "ui" / "fixtures").glob("race-*.json"):
         text = manifest.read_text().lower()
         assert not any(word in text for word in ("seed", "selection", "random", "whatever the outcome")), manifest.name

@@ -1,5 +1,5 @@
 {
-  "title": "What position did Ghulam Ishaq Khan, former Governor of the State Bank of Pakistan...",
+  "title": "Ghulam Ishaq Khan's post until 1955",
   "left": "sqa-3559.telem_default.jsonl",
   "right": "sqa-3559.second_opinion.jsonl",
   "question_id": "sqa-3559",
@@ -11,5 +11,6 @@
   "cache": "off",
   "split": "test",
   "commit": "0ef610b456cc",
-  "checker_cascade_threshold": 0.7
+  "checker_cascade_threshold": 0.7,
+  "order": 4
 }

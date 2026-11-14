@@ -1,0 +1,16 @@
+{
+  "title": "American Water Works FY2021 EBITDA",
+  "left": "fb-04254.telem_default.jsonl",
+  "right": "fb-04254.second_opinion.jsonl",
+  "question_id": "fb-04254",
+  "story": null,
+  "recorded_at": "2026-11-14T23:22:22+00:00",
+  "live": true,
+  "checker_backend": "cascade",
+  "first_engine_routing": "on",
+  "cache": "off",
+  "split": "test",
+  "commit": "37f946eb97c2",
+  "checker_cascade_threshold": 0.7,
+  "order": 1
+}

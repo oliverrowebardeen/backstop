@@ -138,6 +138,7 @@ class Replay:
     left: list[Event]
     right: list[Event]
     meta: dict[str, Any] | None = None
+    order: int | None = None
 
     def summary(self) -> dict[str, Any]:
         return {"name": self.name, "title": self.title, "question": self.question,
@@ -168,7 +169,8 @@ def replay_catalog(demo_dir: Path, fixture_dir: Path | None,
     """Pairs use a JSON manifest with relative left/right JSONL filenames.
 
     demo_dir and recordings_dir (ui/fixtures, shipped real runs) hold recordings of live runs;
-    fixture_dir holds synthetic test fixtures."""
+    fixture_dir holds synthetic test fixtures. Pairs whose manifest sets an integer "order" come
+    first, lowest first; the rest keep directory and file name order."""
     pairs = {}
     for directory, synthetic in ((demo_dir, False), (recordings_dir, False), (fixture_dir, True)):
         if directory is None:
@@ -187,12 +189,14 @@ def replay_catalog(demo_dir: Path, fixture_dir: Path | None,
                     raise ValueError("Replay manifest names must be URL-safe")
                 meta = {key: data[key] for key in REPLAY_META
                         if isinstance(data.get(key), (str, int, float)) and not isinstance(data.get(key), bool)}
+                order = data.get("order")
                 pairs[name] = Replay(name, data.get("title", manifest.stem),
                                      left[0].data["question"],
-                                     synthetic or bool(data.get("fixture")), left, right, meta)
+                                     synthetic or bool(data.get("fixture")), left, right, meta,
+                                     order if isinstance(order, int) and not isinstance(order, bool) else None)
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 raise ValueError(f"Invalid replay manifest: {manifest.name}") from exc
-    return pairs
+    return dict(sorted(pairs.items(), key=lambda item: (item[1].order is None, item[1].order or 0)))
 
 
 def sse(kind: str, data: Any, event_id: str | None = None) -> str:

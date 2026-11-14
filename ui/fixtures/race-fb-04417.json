@@ -1,5 +1,5 @@
 {
-  "title": "What is the year end FY2019 total amount of inventories for Best Buy? Answer in USD...",
+  "title": "Best Buy FY2019 inventories",
   "left": "fb-04417.telem_default.jsonl",
   "right": "fb-04417.second_opinion.jsonl",
   "question_id": "fb-04417",
@@ -11,5 +11,6 @@
   "cache": "off",
   "split": "test",
   "commit": "0ef610b456cc",
-  "checker_cascade_threshold": 0.7
+  "checker_cascade_threshold": 0.7,
+  "order": 5
 }

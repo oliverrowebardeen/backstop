@@ -1,0 +1,16 @@
+{
+  "title": "Founders of the Dubai band \"Sho?\"",
+  "left": "sqa-0923.telem_default.jsonl",
+  "right": "sqa-0923.second_opinion.jsonl",
+  "question_id": "sqa-0923",
+  "story": null,
+  "recorded_at": "2026-11-14T23:21:58+00:00",
+  "live": true,
+  "checker_backend": "cascade",
+  "first_engine_routing": "on",
+  "cache": "off",
+  "split": "test",
+  "commit": "37f946eb97c2",
+  "checker_cascade_threshold": 0.7,
+  "order": 3
+}

@@ -123,7 +123,7 @@ Pairs live in `SERVER_DEMO_DIR` as a JSON manifest with relative log paths:
 {"title": "Recorded question", "left": "single.jsonl", "right": "second_opinion.jsonl"}
 ```
 
-Each JSONL must contain one complete run, starting with `run_start` and ending with `run_end`. Paths must stay inside the recording directory. Malformed recordings return 503; an unknown pair returns 404. Synthetic manifests use `fixture: true`.
+An optional integer `order` lists a pair first in `/replays`, lowest first; pairs without it follow in file name order. Each JSONL must contain one complete run, starting with `run_start` and ending with `run_end`. Paths must stay inside the recording directory. Malformed recordings return 503; an unknown pair returns 404. Synthetic manifests use `fixture: true`.
 
 Fixtures are disabled by default. For local acceptance, set `SERVER_FIXTURE_DIR=tests/o4/fixtures` and start `python -m server`. `/replay/fixture-stripe` emits 25 events with a page-read HIT; `/replay/fixture-ranked` emits 21 events with a result-2 HIT. They are synthetic test data. The reference client's audit download contains the received event arrays without rewriting them.
 

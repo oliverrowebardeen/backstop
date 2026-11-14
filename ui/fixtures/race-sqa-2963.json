@@ -1,5 +1,5 @@
 {
-  "title": "In what year did conductor David Randolph marry Mildred Greenberg?",
+  "title": "David Randolph's marriage year",
   "left": "sqa-2963.telem_default.jsonl",
   "right": "sqa-2963.second_opinion.jsonl",
   "question_id": "sqa-2963",
@@ -11,5 +11,6 @@
   "cache": "off",
   "split": "test",
   "commit": "0ef610b456cc",
-  "checker_cascade_threshold": 0.7
+  "checker_cascade_threshold": 0.7,
+  "order": 6
 }
