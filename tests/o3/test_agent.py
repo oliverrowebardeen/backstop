@@ -95,6 +95,23 @@ async def test_read_page_carries_same_session_and_counts_cost(question, wrappers
     assert totals["cost_usd_total"] == pytest.approx(.037)
 
 
+async def test_first_page_read_opens_the_session_for_later_searches(question, wrappers, tmp_path):
+    wrappers.complete.side_effect = [response(ToolCall(id="read1", name="read_page", arguments={"url": URL})),
+                                       response(search_call()), final_response()]
+    await agent.run_question(question, "single", log_dir=tmp_path)
+    wrappers.fetch.assert_awaited_once_with(URL, session=None)
+    assert wrappers.pinned.await_args.kwargs["session"] == "session-one"
+
+
+async def test_cached_search_does_not_reuse_a_previous_runs_session(question, wrappers, tmp_path):
+    cached = run(cached=True).model_copy(update={"session_id": None})
+    wrappers.pinned.side_effect = [{"tavily": cached}, {"tavily": run()}, {"tavily": run()}]
+    wrappers.complete.side_effect = [response(search_call(i)) for i in range(3)] + [final_response()]
+    await agent.run_question(question, "single", log_dir=tmp_path)
+    assert [call.kwargs["session"] for call in wrappers.pinned.await_args_list] == [None, None, "session-one"]
+    assert events(tmp_path)[-1]["data"]["latency_ms"] >= 1900
+
+
 async def test_parallel_tool_request_cannot_exceed_search_limit(question, wrappers, tmp_path):
     wrappers.complete.side_effect = [response(*(search_call(i) for i in range(8))), final_response()]
     answer = await agent.run_question(question, "single", log_dir=tmp_path)
@@ -163,6 +180,8 @@ async def test_checker_events_are_included_once(question, wrappers, tmp_path, mo
     (f"Ada is CEO. [Source]({URL})", set(), "NOT_FOUND"),
     (f"Ada is CEO. {URL} https://invented.example", {URL}, "NOT_FOUND"),
     (json.dumps({"final": "Ada", "citations": [URL], "status": "NOT_FOUND"}), {URL}, "NOT_FOUND"),
+    (json.dumps({"final": None, "citations": [URL]}), {URL}, "NOT_FOUND"),
+    ("Ada. [Source](https://example.com/Ada_(person))", {"https://example.com/Ada_(person)"}, "ANSWERED"),
 ])
 def test_final_answer_requires_retrieved_citation(text, sources, status):
     assert agent._answer(text, sources, 1).status == status

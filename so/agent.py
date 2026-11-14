@@ -80,11 +80,15 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
         candidate = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", final))
         if isinstance(candidate, dict):
             payload = candidate
-            final = str(payload.get("final", "")).strip()
+            value = payload.get("final")
+            final = value.strip() if isinstance(value, str) else ""
     except json.JSONDecodeError:
         pass
     urls = re.findall(r"https?://[^\s<>\[\]\"']+", final)
-    urls = [url.rstrip(".,;:!?)}") for url in urls]
+    sources_by_length = sorted(sources, key=len, reverse=True)
+    urls = [next((source for source in sources_by_length
+                  if url.startswith(source) and not url[len(source):].strip(".,;:!?)}")),
+                 url.rstrip(".,;:!?)}")) for url in urls]
     cited = payload.get("citations", [])
     if not isinstance(cited, list):
         cited = []
@@ -172,7 +176,7 @@ async def run_question(question: Question, setup: str, *, log_dir="out/logs") ->
         answer.searches = counts["searches"]
         log.emit("answer", **answer.model_dump())
         return answer
-    except Exception as exc:
+    except BaseException as exc:
         error = type(exc).__name__
         raise
     finally:
