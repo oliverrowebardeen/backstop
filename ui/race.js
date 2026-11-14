@@ -95,7 +95,8 @@ for (const side of ['left', 'right']) {
 
 function render(side) {
   const state = states[side], column = elements[side], find = selector => column.querySelector(selector);
-  find('.telem-count').textContent = String(state.telemCalls);
+  find('.engine-count').textContent = String(state.engineCalls);
+  find('.search-cost').textContent = `$${state.searchCost.toFixed(4)}`;
   find('.cost-count').textContent = `$${state.cost.toFixed(4)}`;
   find('.time-count').replaceChildren(document.createTextNode((state.elapsed / 1000).toFixed(1)), element('span', '', 's'));
   find('.run-status').textContent = state.status;
@@ -285,7 +286,7 @@ $('#race-form').addEventListener('submit', async event => {
   auditQuestion = question;
   setups.left = $('#left-setup').value; setups.right = $('#right-setup').value;
   lastRuns = null;
-  autoplayDone = true; reset('live'); notify('Both agents are searching live through Telem. Every counter comes from the event log.');
+  autoplayDone = true; reset('live'); notify('Both agents are searching live through Telem. Counts and costs come from the event log; the clock is real time.');
   const abort = new AbortController(); controller = abort;
   try {
     const response = await fetch('/race',{method:'POST',headers,body:JSON.stringify({question,left:setups.left,right:setups.right}),signal:abort.signal});

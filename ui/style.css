@@ -349,9 +349,9 @@ td.is-pending .cell-main { color: #a3a598; font-weight: 550; font-size: 14px; }
 .column-name { margin-top: 4px; font-size: clamp(24px, 2.2vw, 34px); font-weight: 650; letter-spacing: -0.03em; }
 .ours .column-name, .ours .counters dd { color: var(--r-accent); }
 .run-status { font: 12px/1 var(--mono); padding: 6px 9px; border-radius: 999px; border: 1px solid var(--r-line); color: var(--r-muted); white-space: nowrap; }
-.counters { display: grid; grid-template-columns: 0.8fr 1.3fr 1fr; gap: 10px; margin-top: 16px; padding: 14px 0; border-block: 1px solid var(--r-line); }
+.counters { display: grid; grid-template-columns: 0.8fr 1.1fr 1.1fr 0.9fr; gap: 10px; margin-top: 16px; padding: 14px 0; border-block: 1px solid var(--r-line); }
 .counters div { display: flex; flex-direction: column-reverse; }
-.counters dd { font-size: clamp(28px, 3vw, 46px); font-weight: 650; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.1; }
+.counters dd { font-size: clamp(22px, 2.2vw, 36px); font-weight: 650; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.1; }
 .counters dd span { font-size: 0.5em; margin-left: 2px; letter-spacing: 0; }
 .counters dt { font-size: 12.5px; color: var(--r-muted); }
 .steps { height: 260px; overflow-y: auto; scrollbar-width: thin; }

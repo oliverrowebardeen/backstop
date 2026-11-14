@@ -317,3 +317,14 @@ test('a live run keeps the page clock and counts only spend made in this run', (
   assert.equal(replay.elapsed, totals.latency_ms, 'a replay keeps its recorded timing');
   assert.equal(replay.cost, totals.cost_usd_total);
 });
+
+test('search cost counts engines, page reads and the checker; total adds the agent model', () => {
+  const state = newRun('second_opinion', 'tavily');
+  fixture('second_opinion').forEach(event => applyEvent(state, event));
+  const events = fixture('second_opinion');
+  const searchSide = events.filter(e => e.type === 'search' || e.type === 'fetch' || (e.type === 'llm' && !['agent', 'judge'].includes(e.data.role)))
+    .reduce((sum, e) => sum + (e.data.cost_usd || 0), 0);
+  assert.ok(Math.abs(state.searchCost - searchSide) < 1e-10);
+  assert.ok(state.searchCost <= state.cost);
+  assert.equal(state.engineCalls, events.at(-1).data.engine_calls);
+});

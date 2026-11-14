@@ -16,7 +16,7 @@ export const VERDICTS = {
  */
 export function newRun(setup, firstEngine, {live = false} = {}) {
   return {setup, firstEngine, live, events: [], seen: new Set(), runId: null, session: null, engineCalls: 0,
-    telemCalls: 0, cost: 0, cachedCost: 0, elapsed: 0, startedAt: null, finished: false,
+    telemCalls: 0, cost: 0, searchCost: 0, cachedCost: 0, elapsed: 0, startedAt: null, finished: false,
     steps: [], currentSearch: null, currentCheck: null, sourceChecks: new Map(),
     answer: null, failure: null, status: 'Ready'};
 }
@@ -88,6 +88,7 @@ export function applyEvent(state, event) {
     state.engineCalls += data.engines.length;
     state.telemCalls += 1;
     state.cost += spend;
+    state.searchCost += spend;
     const engine = textField(data.first_engine);
     const questionType = textField(data.question_type);
     const step = {kind: 'search', query: data.query, goal: data.goal, resultCount: data.n_results,
@@ -107,6 +108,7 @@ export function applyEvent(state, event) {
       rewrite, action, why: data.reason, engines: [], verdict: state.currentCheck?.verdict || null});
   } else if (event.type === 'fetch') {
     state.cost += spend;
+    state.searchCost += spend;
     if (data.via === 'telem') state.telemCalls += 1;
     const step = {kind: 'fetch', query: data.via === 'tavily' ? 'read by Tavily Extract' : 'read by Telem fetch',
       url: data.url, ok: data.ok, why: data.ok ? 'Page read completed.' : 'Page read did not return usable text.',
@@ -115,6 +117,8 @@ export function applyEvent(state, event) {
     state.currentCheck = step;
   } else if (event.type === 'llm' && data.role !== 'judge') {
     state.cost += spend;
+    // Search cost: engines, page reads and the checker; the agent model's own turns are the rest.
+    if (data.role !== 'agent') state.searchCost += spend;
   } else if (event.type === 'search_done') {
     const step = state.currentSearch;
     if (step && !step.verdict) step.verdict = data.status;
