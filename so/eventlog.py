@@ -21,7 +21,7 @@ class EventLog:
         self.run_id, self.question_id, self.setup = run_id, question_id, setup
         self.path = Path(log_dir if log_dir is not None else config.SO_LOG_DIR) / f"{run_id}.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        existing = read_log(self.path) if self.path.exists() else []
+        existing = read_log(self.path, allow_partial=False) if self.path.exists() else []
         self._seq = max((row["seq"] for row in existing), default=0)
         self._lock = threading.Lock()
 
@@ -37,9 +37,11 @@ class EventLog:
             return event
 
 
-def read_log(path: str | Path) -> list[dict[str, Any]]:
-    """Read validated wire dictionaries, ignoring only an unfinished trailing line."""
+def read_log(path: str | Path, *, allow_partial: bool = True) -> list[dict[str, Any]]:
+    """Read events; streaming readers tolerate a torn tail, while appenders reject it."""
     text = Path(path).read_text(encoding="utf-8")
+    if not allow_partial and text and not text.endswith("\n"):
+        raise ValueError("Cannot resume an event log with an unterminated final line")
     rows = []
     lines = text.splitlines(keepends=True)
     for index, line in enumerate(lines):

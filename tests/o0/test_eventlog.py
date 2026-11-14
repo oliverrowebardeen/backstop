@@ -61,3 +61,18 @@ def test_default_log_directory_comes_from_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SO_LOG_DIR", tmp_path)
     log = EventLog("single-q-config", "q", "single")
     assert log.path.parent == tmp_path
+
+
+@pytest.mark.parametrize("tail", ['{"ts":', '{"ts":"interrupted"}', '\n{"ts":"interrupted'])
+def test_resume_after_interrupted_write_rejects_tail_without_changing_log(tmp_path, tail):
+    log = EventLog("single-q-interrupted", "q", "single", log_dir=tmp_path)
+    log.emit("run_start", question="q")
+    with log.path.open("a", encoding="utf-8") as file:
+        file.write(tail)
+    before = log.path.read_bytes()
+
+    with pytest.raises(ValueError, match="Cannot resume.*unterminated final line"):
+        resumed = EventLog("single-q-interrupted", "q", "single", log_dir=tmp_path)
+        resumed.emit("answer", final="answer", status="ANSWERED", citations=[])
+
+    assert log.path.read_bytes() == before

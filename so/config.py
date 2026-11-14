@@ -20,6 +20,8 @@ import threading
 from typing import Any, TypeVar
 from weakref import WeakKeyDictionary
 
+from tavily.errors import TimeoutError as TavilyTimeoutError, UsageLimitExceededError
+
 ROOT = Path(__file__).resolve().parent.parent
 T = TypeVar("T")
 
@@ -87,6 +89,9 @@ TELEM_FETCH_PRICE_USD = float(os.getenv("TELEM_FETCH_PRICE_USD", "0.001"))
 TELEM_ROUTING_ENGINES = _csv("TELEM_ROUTING_ENGINES", ",".join(dict.fromkeys(ENGINES + SUBSTITUTES + list(PRICE_USD))))
 TELEM_BASE_URL = os.getenv("TELEM_BASE_URL", "https://router.telem.ai")
 TELEM_TIMEOUT_S = float(os.getenv("TELEM_TIMEOUT_S", "60"))
+TELEM_ERROR_CACHE_TTL_S = float(os.getenv("TELEM_ERROR_CACHE_TTL_S", "30"))
+if not math.isfinite(TELEM_ERROR_CACHE_TTL_S) or TELEM_ERROR_CACHE_TTL_S < 0:
+    raise ValueError("TELEM_ERROR_CACHE_TTL_S must be finite and nonnegative")
 TELEM_TIER = os.getenv("TELEM_TIER", "default")
 TELEM_NUM_RESULTS = int(os.getenv("TELEM_NUM_RESULTS", "5"))
 RESULT_SNIPPET_CHARS = int(os.getenv("RESULT_SNIPPET_CHARS", "500"))
@@ -277,7 +282,7 @@ def paid_response(key: str, request: dict[str, Any], raw: dict[str, Any],
 
 
 async def retry(call: Callable[[], Awaitable[T]]) -> T:
-    """Retry 429 and 5xx responses using the configured cap and backoff."""
+    """Retry transient HTTP statuses and Tavily SDK errors with bounded backoff."""
     for attempt in range(API_MAX_RETRIES + 1):
         try:
             return await call()
@@ -285,7 +290,9 @@ async def retry(call: Callable[[], Awaitable[T]]) -> T:
             status = getattr(exc, "status_code", None)
             if status is None:
                 status = getattr(getattr(exc, "response", None), "status_code", None)
-            if attempt == API_MAX_RETRIES or status is None or not (status == 429 or 500 <= status < 600):
+            retryable = isinstance(exc, (UsageLimitExceededError, TavilyTimeoutError))
+            retryable = retryable or (status is not None and (status == 429 or 500 <= status < 600))
+            if attempt == API_MAX_RETRIES or not retryable:
                 raise
             await asyncio.sleep(API_RETRY_BACKOFF_S * 2**attempt)
     raise AssertionError("Retry loop exhausted")

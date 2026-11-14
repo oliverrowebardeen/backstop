@@ -116,3 +116,89 @@ def test_agent_environment_settings_and_log_alias(tmp_path):
     code = "from so import config as c; import json; print(json.dumps([c.AGENT_MAX_SEARCHES,c.AGENT_MAX_PAGE_READS,c.AGENT_MAX_TURNS,str(c.AGENT_PROMPT_PATH),c.SO_ENABLE_SECOND_OPINION,c.LOG_DIR == c.SO_LOG_DIR]))"
     result = subprocess.run([sys.executable, "-c", code], env=env, check=True, capture_output=True, text=True)
     assert json.loads(result.stdout) == [2, 3, 4, "custom-prompt.md", False, True]
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param("rate_limit", id="tavily-usage-limit"),
+    pytest.param("timeout", id="tavily-timeout"),
+    pytest.param("server", id="httpx-server-error"),
+])
+async def test_retry_real_sdk_errors_with_configured_cap(monkeypatch, error):
+    import httpx
+    from tavily.errors import TimeoutError as TavilyTimeoutError, UsageLimitExceededError
+
+    request = httpx.Request("POST", "https://example.com/extract")
+    errors = {
+        "rate_limit": UsageLimitExceededError("rate limited"),
+        "timeout": TavilyTimeoutError(1),
+        "server": httpx.HTTPStatusError("unavailable", request=request,
+                                        response=httpx.Response(503, request=request)),
+    }
+    monkeypatch.setattr(config, "API_MAX_RETRIES", 2)
+    monkeypatch.setattr(config, "API_RETRY_BACKOFF_S", .1)
+    attempts = 0
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    async def call():
+        nonlocal attempts
+        attempts += 1
+        raise errors[error]
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    with pytest.raises(type(errors[error])) as raised:
+        await config.retry(call)
+    assert raised.value is errors[error]
+    assert attempts == 3
+    assert delays == [.1, .2]
+
+
+async def test_httpx_timeout_propagates_to_caller_without_retry():
+    import httpx
+
+    attempts = 0
+
+    async def call():
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("timeout")
+
+    with pytest.raises(httpx.ReadTimeout):
+        await config.retry(call)
+    assert attempts == 1
+
+
+async def test_tavily_rate_limit_can_recover(monkeypatch):
+    from tavily.errors import UsageLimitExceededError
+
+    attempts = 0
+    monkeypatch.setattr(config, "API_RETRY_BACKOFF_S", 0)
+
+    async def call():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise UsageLimitExceededError("rate limited")
+        return "recovered"
+
+    assert await config.retry(call) == "recovered"
+    assert attempts == 2
+
+
+@pytest.mark.parametrize("error_type", ["BadRequestError", "ForbiddenError", "InvalidAPIKeyError"])
+async def test_permanent_tavily_errors_are_not_retried(error_type):
+    from tavily import errors
+
+    attempts = 0
+    error = getattr(errors, error_type)("permanent failure")
+
+    async def call():
+        nonlocal attempts
+        attempts += 1
+        raise error
+
+    with pytest.raises(type(error)):
+        await config.retry(call)
+    assert attempts == 1

@@ -49,6 +49,11 @@ def _snippet(row: dict[str, Any]) -> str:
     return (" ".join(value) if isinstance(value, list) else value)[:config.RESULT_SNIPPET_CHARS]
 
 
+def _failure_cache_fresh(record: dict[str, Any]) -> bool:
+    """Old failures without expiry metadata are retried immediately."""
+    return float(record.get("expires_at", 0)) > time.time()
+
+
 def _normalize(raw: dict[str, Any], elapsed_ms: float, engines: list[str] | None) -> dict[str, EngineRun]:
     runs = {}
     for run in raw.get("by_provider", []):
@@ -92,9 +97,11 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
-            return _filtered({name: EngineRun.model_validate(value).model_copy(
+            runs = {name: EngineRun.model_validate(value).model_copy(
                 update={"cached": True, "session_id": session})
-                for name, value in cached["normalized"].items()})
+                for name, value in cached["normalized"].items()}
+            if (runs and all(run.status == "ok" for run in runs.values())) or _failure_cache_fresh(cached):
+                return _filtered(runs)
         # Auto-routing can select any available web engine. Reserve all known prices.
         possible = engines if engines is not None else config.TELEM_ROUTING_ENGINES
         estimate = sum(config.PRICE_USD.get(e, config.DEFAULT_PRICE_USD) for e in possible)
@@ -116,6 +123,8 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
                 runs = _normalize(raw, elapsed, engines)
                 record["_cost_usd"] = sum(r.cost_usd for r in runs.values())
                 record["normalized"] = {e: r.model_dump(mode="json") for e, r in runs.items()}
+                if not runs or any(run.status != "ok" for run in runs.values()):
+                    record["expires_at"] = time.time() + config.TELEM_ERROR_CACHE_TTL_S
             return _filtered(runs)
 
 
@@ -155,8 +164,10 @@ async def fetch_page(url: str, *, session: str | None = None, goal: str | None =
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
-            return PageText.model_validate(cached["normalized"]).model_copy(
+            page = PageText.model_validate(cached["normalized"]).model_copy(
                 update={"cached": True, "session_id": session})
+            if page.ok or _failure_cache_fresh(cached):
+                return page
         async with config.semaphore("telem", config.TELEM_MAX_CONCURRENCY):
             estimate = config.TELEM_FETCH_PRICE_USD
             config.SEARCH_BUDGET.reserve(estimate)
@@ -178,6 +189,8 @@ async def fetch_page(url: str, *, session: str | None = None, goal: str | None =
                                 latency_ms=(time.perf_counter() - start) * 1000,
                                 cost_usd=estimate if ok else 0, session_id=raw.get("session_id") or session)
                 record.update(normalized=page.model_dump(mode="json"), _cost_usd=page.cost_usd)
+                if not page.ok:
+                    record["expires_at"] = time.time() + config.TELEM_ERROR_CACHE_TTL_S
             return page
 
 

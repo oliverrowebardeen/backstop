@@ -101,3 +101,81 @@ async def test_provider_endpoint_timeout_and_content_overrides(fake_client, monk
     assert fake_client.options[0]["timeout"] == 7
     assert fake_client.calls[0]["providers"] == ["custom-fetch"]
     assert len(page.text) == 123
+
+
+@pytest.mark.parametrize("engines", [["tavily", "exa"], None], ids=["pinned", "auto-routing"])
+async def test_partial_engine_failures_expire_but_successes_remain_cached(fake_client, monkeypatch, engines):
+    now = [100.0]
+    monkeypatch.setattr(config, "TELEM_ERROR_CACHE_TTL_S", 10)
+    monkeypatch.setattr(telem_client.time, "time", lambda: now[0])
+
+    async def search():
+        if engines is None:
+            return await telem_client.search_default("retry a partial failure")
+        return await telem_client.search_engines("retry a partial failure", engines)
+
+    first = await search()
+    assert first["exa"].status == "error"
+    now[0] = 109
+    assert (await search())["exa"].cached
+    assert len(fake_client.calls) == 1
+
+    async def recovered(self, **kwargs):
+        self.calls.append(kwargs)
+        return SearchResponse(session_id="recovered", interaction_id="i3", status="succeeded", by_provider=[
+            {"provider": "tavily", "status": "succeeded", "results": []},
+            {"provider": "exa", "status": "succeeded", "results": []},
+        ])
+
+    monkeypatch.setattr(fake_client, "search", recovered)
+    now[0] = 110
+    recovered_runs = await search()
+    assert recovered_runs["exa"].status == "ok" and not recovered_runs["exa"].cached
+    assert len(fake_client.calls) == 2
+    assert config.SEARCH_BUDGET.spent == pytest.approx(.015)
+    now[0] = 1000
+    assert all(run.cached for run in (await search()).values())
+    assert len(fake_client.calls) == 2
+
+
+async def test_old_failed_cache_entries_are_retried_immediately(fake_client):
+    import json
+
+    await telem_client.search_engines("legacy", ["tavily", "exa"])
+    path = next(config.CACHE_DIR.glob("telem-search-*.json"))
+    record = json.loads(path.read_text())
+    record.pop("expires_at")
+    path.write_text(json.dumps(record))
+    await telem_client.search_engines("legacy", ["tavily", "exa"])
+    assert len(fake_client.calls) == 2
+
+
+async def test_zero_failure_ttl_retries_on_next_call(fake_client, monkeypatch):
+    monkeypatch.setattr(config, "TELEM_ERROR_CACHE_TTL_S", 0)
+    await telem_client.search_engines("retry now", ["exa"])
+    again = await telem_client.search_engines("retry now", ["exa"])
+    assert len(fake_client.calls) == 2
+    assert not again["exa"].cached
+
+
+async def test_failed_fetch_recovers_after_cache_expiry(fake_client, monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(config, "TELEM_ERROR_CACHE_TTL_S", 10)
+    monkeypatch.setattr(telem_client.time, "time", lambda: now[0])
+    original = fake_client.fetch
+
+    async def unavailable(self, **kwargs):
+        self.calls.append(kwargs)
+        return FetchResponse(session_id="s", interaction_id="i", status="failed", results=[
+            {"url": kwargs["urls"][0], "status": "failed", "error": {"message": "temporary"}},
+        ])
+
+    monkeypatch.setattr(fake_client, "fetch", unavailable)
+    assert not (await telem_client.fetch_page("https://example.com/retry")).ok
+    assert (await telem_client.fetch_page("https://example.com/retry")).cached
+    assert len(fake_client.calls) == 1
+    monkeypatch.setattr(fake_client, "fetch", original)
+    now[0] = 110
+    assert (await telem_client.fetch_page("https://example.com/retry")).ok
+    assert len(fake_client.calls) == 2
+    assert config.SEARCH_BUDGET.spent == .001
