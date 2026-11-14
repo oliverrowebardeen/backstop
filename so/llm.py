@@ -10,7 +10,9 @@ import asyncio
 import json
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Literal
 
 import httpx
@@ -20,6 +22,24 @@ from so import config
 from so.contracts import LLMResponse, ToolCall
 
 Role = Literal["agent", "checker", "judge"]
+
+_cancelled_sink: ContextVar[list[LLMResponse] | None] = ContextVar("llm_cancelled_sink", default=None)
+
+
+@contextmanager
+def capture_cancelled_usage() -> Iterator[list[LLMResponse]]:
+    """Collect the estimated usage of model calls cancelled after their request was sent.
+
+    The provider bills a request it received even if the caller stops waiting, so
+    such a call is settled at its reservation estimate and reported here (the list
+    is shared with child tasks, so calls inside asyncio.wait_for are captured too).
+    """
+    sink: list[LLMResponse] = []
+    token = _cancelled_sink.set(sink)
+    try:
+        yield sink
+    finally:
+        _cancelled_sink.reset(token)
 
 
 def _strict_schema(value: Any) -> Any:
@@ -214,13 +234,30 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
         async with config.semaphore("llm", config.LLM_MAX_CONCURRENCY):
             config.LLM_BUDGET.reserve(estimate)
             start = time.perf_counter()
+            sent = False
             try:
                 async with httpx.AsyncClient(timeout=config.LLM_TIMEOUT_S) as client:
                     async def send() -> dict[str, Any]:
+                        nonlocal sent
+                        sent = True
                         response = await client.post(endpoint, headers=headers, json=body)
                         response.raise_for_status()
                         return response.json()
                     raw = await config.retry(send)
+            except asyncio.CancelledError:
+                # A request the provider received is billed even though nobody reads the reply.
+                billed = estimate if sent else 0.0
+                try:
+                    config.LLM_BUDGET.settle(estimate, billed)
+                except config.BudgetExceeded:
+                    pass  # spend is recorded; cancellation must still propagate
+                sink = _cancelled_sink.get()
+                if sent and sink is not None:
+                    sink.append(LLMResponse(
+                        tokens_in=token_bound, tokens_out=max_tokens, cost_usd=billed, model=model, role=role,
+                        latency_ms=(time.perf_counter() - start) * 1000, stop_reason="cancelled",
+                    ))
+                raise
             except BaseException:
                 config.LLM_BUDGET.settle(estimate, 0)
                 raise

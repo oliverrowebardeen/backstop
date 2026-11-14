@@ -27,7 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from so import config
-from so.contracts import EngineRun, RunContext, SearchOutcome
+from so.contracts import EngineRun, PageText, RunContext, SearchOutcome
 from so.second_opinion import SearchLimits, SearchError, TelemUnavailable, ranked_results
 from so.second_opinion import search as second_opinion_search
 
@@ -249,7 +249,7 @@ class BackstopTelem:
             log = EventLog(run_id, question_id, "second_opinion", log_dir=self.log_dir)
         ctx = RunContext(run_id=run_id, question_id=question_id, setup="second_opinion", session=session, log=log)
         outcome = await second_opinion_search(
-            query, goal or query, ctx, limits=limits, engine_search=engine_search,
+            query, goal or query, ctx, limits=limits, engine_search=engine_search, page_reader=self._fetch_page,
         )
         return _response(outcome, calls, ctx.session)
 
@@ -306,6 +306,39 @@ class BackstopTelem:
                 query=query,
             ))
         return runs
+
+    async def _fetch_page(self, url: str, *, session: str | None = None, goal: str | None = None,
+                          metadata: dict[str, Any] | None = None) -> PageText:
+        """Telem page read through this client's own Telem connection (the SHALLOW fallback).
+
+        Mirrors so.telem_client.fetch_page (same request and PageText), but uses the
+        credentials and base URL this client was built with, and no disk cache. Telem
+        fetch takes no goal; it is accepted for signature compatibility.
+        """
+        from so.ledger import call_with_ledger
+        from so.telem_client import _SUCCESS
+
+        request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
+                       inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
+        estimate = config.TELEM_FETCH_PRICE_USD
+        config.SEARCH_BUDGET.reserve(estimate)
+        started = time.perf_counter()
+        try:
+            response = await call_with_ledger(
+                lambda extra: config.retry(lambda: self._telem.fetch(**request, session=session, **extra)),
+                {"metadata": metadata},
+            )
+        except BaseException:
+            config.SEARCH_BUDGET.settle(estimate, 0)
+            raise
+        raw = response.model_dump(mode="json")
+        row = next(iter(raw.get("results") or []), {})
+        ok = row.get("status") in _SUCCESS
+        page = PageText(url=url, ok=ok, text=(row.get("content") or "")[:config.PAGE_TEXT_CHARS] if ok else "",
+                        latency_ms=(time.perf_counter() - started) * 1000, cost_usd=estimate if ok else 0,
+                        session_id=raw.get("session_id") or session)
+        config.SEARCH_BUDGET.settle(estimate, page.cost_usd)
+        return page
 
     async def aclose(self) -> None:
         """Close the wrapped Telem client."""

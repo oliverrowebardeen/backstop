@@ -153,8 +153,7 @@ async def test_engine_error_is_skipped_without_spending_a_rescue(ctx, monkeypatc
 
 
 async def test_engine_exception_after_first_call_is_skipped(ctx, monkeypatch):
-    # The failed engine's empty result list is still labelled (free in so.checker) for the trace.
-    Fakes([verdict("DEAD", rewrite="q2"), verdict("DEAD"), verdict("HIT", evidence_rank=1)], runs=[
+    Fakes([verdict("DEAD", rewrite="q2"), verdict("HIT", evidence_rank=1)], runs=[
         EngineRun(engine="tavily", status="ok", results=[source()], cost_usd=0.005),
         RuntimeError("exa exploded"),
         EngineRun(engine="perplexity", status="ok", results=[source("https://p.example", engine="perplexity")]),

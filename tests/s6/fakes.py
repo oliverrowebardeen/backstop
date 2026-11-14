@@ -44,8 +44,8 @@ class Fakes:
     seconds to sleep (to exercise timeouts).
     """
 
-    def __init__(self, verdicts: list[Step], *, runs: list[EngineRun | Exception] | None = None,
-                 pages: list[PageText | Exception] | None = None, search_delay_s: float = 0.0) -> None:
+    def __init__(self, verdicts: list[Step], *, runs: list[EngineRun | Exception | float] | None = None,
+                 pages: list[PageText | Exception | float] | None = None, search_delay_s: float = 0.0) -> None:
         self.verdicts = deque(verdicts)
         self.runs = deque(runs or [])
         self.pages = deque(pages or [])
@@ -59,23 +59,30 @@ class Fakes:
         if self.search_delay_s:
             await asyncio.sleep(self.search_delay_s)
         engine = engines[0]
-        run = self.runs.popleft() if self.runs else EngineRun(
-            engine=engine, status="ok", results=[source(engine=engine)],
-            cost_usd=0.005, latency_ms=100, session_id="session-created",
-        )
+        run = self.runs.popleft() if self.runs else None
+        if isinstance(run, float):
+            # A float entry is a hang: sleep, then answer with the default run.
+            await asyncio.sleep(run)
+            run = None
+        if run is None:
+            run = EngineRun(engine=engine, status="ok", results=[source(engine=engine)],
+                            cost_usd=0.005, latency_ms=100, session_id="session-created")
         if isinstance(run, Exception):
             raise run
         return {engine: run}
 
     async def extract(self, url: str, *, goal: str | None = None) -> PageText:
-        return self._page(url, "tavily")
+        return await self._page(url, "tavily")
 
     async def fetch_page(self, url: str, **kwargs: Any) -> PageText:
-        return self._page(url, "telem")
+        return await self._page(url, "telem")
 
-    def _page(self, url: str, via: str) -> PageText:
+    async def _page(self, url: str, via: str) -> PageText:
         self.fetches.append({"url": url, "via": via})
         page = self.pages.popleft()
+        if isinstance(page, float):
+            await asyncio.sleep(page)
+            page = self.pages.popleft()
         if isinstance(page, Exception):
             raise page
         return page

@@ -94,8 +94,8 @@ environment, on the client constructor, or per call. The most specific setting w
 |---|---|---|---|
 | `max_rescues` | 2 | `MAX_RESCUES` | Outcome is `NOT_FOUND` after the first search plus this many rescues. |
 | `max_cost_usd` | 0.03 | `SEARCH_MAX_COST_USD` | A rescue whose estimated cost (engine price from `PRICE_USD` plus the average checker cost so far) would push spend over the limit is not started. Outcome is `NOT_FOUND` and the note names the limit. |
-| `timeout_s` | 12 | `SEARCH_TIMEOUT_S` | A rescue that is expected to finish after this many seconds of wall clock (estimated from this call's average step time) is not started. Outcome is `NOT_FOUND` and the note names the limit. |
-| `checker_timeout_s` | 4 | `CHECKER_TIMEOUT_S` | A checker call slower than this is abandoned. Outcome is `UNCHECKED` with the results gathered so far. |
+| `timeout_s` | 12 | `SEARCH_TIMEOUT_S` | A hard wall-clock deadline. A rescue expected to finish past it (from this call's average step time) is not started, and any engine call, page read or check still running at the deadline is cancelled. The search returns what it gathered: `NOT_FOUND`, or `UNCHECKED` if the latest results were not checked yet, with `stopped_by` set to `"timeout"` (or the time limit) in `search_done` data and the note. |
+| `checker_timeout_s` | 4 | `CHECKER_TIMEOUT_S` | A checker call slower than this is abandoned. Outcome is `UNCHECKED` with the results gathered so far. A model request that was already sent is still billed, so it is charged at its reservation estimate and logged as an `llm` event with `estimated: true`. |
 
 When no limit is reached, behavior is identical to the unbounded loop.
 
@@ -170,8 +170,9 @@ Newer evidence keys are passed through unchanged.
 | `WRONG_ENTITY` | Results are about a similarly named entity | Retry on the next engine with the checker's rewrite |
 | `DEAD` | Nothing relevant | Retry once on the next engine with the checker's rewrite |
 
-An engine is never retried within one search. An engine that errors is recorded and
-skipped without spending a rescue.
+An engine is never retried within one search. An engine that errors is recorded in its
+`search` event and skipped without spending a rescue; the checker is not run on it, so
+no `check` event is emitted for a failed engine.
 
 ## Errors
 
@@ -281,14 +282,18 @@ below those.
 ```python
 async def search(query: str, goal: str, ctx: RunContext, *,
                  limits: SearchLimits | None = None,
-                 engine_search: EngineSearch | None = None) -> SearchOutcome
+                 engine_search: EngineSearch | None = None,
+                 page_reader: PageReader | None = None) -> SearchOutcome
 ```
 
 This is the search tool the evaluation agent calls. It returns the `SearchOutcome`
 contract from `so/contracts.py`, with results in merge order. The ranked view is in the
 trace's `search_done` event (`data["ranking"]`), and `ranked_results(outcome)` turns it
-into `RankedResult` objects. `engine_search` replaces `so.telem_client.search_engines`,
-which adds disk caching and the process budget.
+into `RankedResult` objects. `engine_search` replaces `so.telem_client.search_engines`
+and `page_reader` replaces `so.telem_client.fetch_page` (the Telem fallback for page
+reads); the defaults add disk caching and the process budget. `BackstopTelem` passes
+both, so every Telem call, including page reads, uses the client's own credentials and
+base URL.
 
 Command line:
 
@@ -308,8 +313,8 @@ into `out/logs/<run_id>.jsonl`:
 
 | Event | Key data |
 |---|---|
-| `search` | `query`, `goal`, `engines`, `n_results`, `latency_ms`, `cost_usd`, `cached`, `status`, `error` when an engine failed |
-| `llm` | `role="checker"`, `model`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms` |
+| `search` | `query`, `goal`, `engines`, `n_results`, `latency_ms`, `cost_usd`, `cached`, `status`, `error` when an engine failed or was cancelled at the timeout |
+| `llm` | `role="checker"`, `model`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms`; `estimated: true` for a call cancelled after sending, billed at its reservation |
 | `check` | `verdict`, `confidence`, `why`, `evidence_rank`, `best_url`, `rewrite` |
 | `rescue` | `action` (`RETRY_ENGINE`, `FETCH_PAGE`), `engine`, `query`, `reason`, `counted`, `estimated_cost_usd`, `original_query` and `rewritten_query` when the checker's rewrite is used |
 | `fetch` | `url`, `ok`, `via` (`tavily` or `telem`), `latency_ms`, `cost_usd` |

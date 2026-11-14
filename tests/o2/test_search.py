@@ -196,8 +196,12 @@ async def test_engine_error_does_not_check_unusable_results(ctx, monkeypatch):
         EngineRun(engine="tavily", status="error", results=[source()]),
     ])
     fake.install(monkeypatch)
-    await search("query", "goal", ctx)
-    assert fake.checks[0]["results"] == []
+    outcome = await search("query", "goal", ctx)
+    # Review fix #9: a failed engine gets no checker verdict at all (no DEAD at confidence 1.0
+    # for scoring to count); the error stays in its search event and the retry is not a rescue.
+    assert all(check["results"] for check in fake.checks)
+    assert [item["data"]["verdict"] for item in outcome.trace if item["type"] == "check"] == ["DEAD", "HIT"]
+    assert outcome.trace[0]["type"] == "search" and outcome.trace[1]["type"] == "rescue"
 
 
 async def test_final_page_hit_points_to_merged_rank(ctx, monkeypatch):

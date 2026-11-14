@@ -11,6 +11,14 @@ All notable changes to this project are documented here. The format follows
 - Optional `evidence` (the verified source, snippet and agreeing engines behind a
   `HIT`) and `ranking` fields on `BackstopSearchResponse` and `POST /v1/search`.
 
+### Fixed
+
+- `timeout_s` is now a hard deadline: in-flight engine calls, page reads and checks are
+  cancelled at it and the search returns what it gathered with `stopped_by: "timeout"`.
+- `BackstopTelem` page-read fallbacks use the client's own Telem credentials and base URL.
+- A checker call cancelled after its request was sent is charged at its estimate and logged.
+- A failed engine no longer produces a checker verdict (no `check` event).
+
 ## [0.1.0] - 2026-11-14
 
 First public release.

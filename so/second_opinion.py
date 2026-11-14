@@ -30,6 +30,9 @@ from so.policy import Action, freshness_cutoff, load_rescue_table, next_action
 EngineSearch = Callable[..., Awaitable[dict[str, EngineRun]]]
 """Signature of so.telem_client.search_engines; injectable for alternate Telem clients."""
 
+PageReader = Callable[..., Awaitable[PageText]]
+"""Signature of so.telem_client.fetch_page; injectable for alternate Telem clients."""
+
 
 class SearchError(RuntimeError):
     """Base class for errors raised by the Second Opinion search loop."""
@@ -208,10 +211,13 @@ async def _check_page(query: str, goal: str, page: PageText, ctx: RunContext) ->
 
 async def _guarded_check(
     call: Awaitable[CheckerVerdict], timeout_s: float, trace: _Trace,
+    on_cancelled: Callable[[], None] | None = None,
 ) -> tuple[CheckerVerdict | None, str | None]:
     """Run a checker call, converting failures and timeouts into a skip reason.
 
     BudgetExceeded is an operator stop, not a checker failure, and propagates.
+    `on_cancelled` logs model calls billed although the wait was cancelled, so
+    their estimated cost counts toward this check.
     """
     start = len(trace.events)
     failure: str | None = None
@@ -227,9 +233,13 @@ async def _guarded_check(
         raise
     except asyncio.CancelledError:
         failure = "cancelled"
+        if on_cancelled is not None:
+            on_cancelled()
         raise
     except TimeoutError:
         failure = "timeout"
+        if on_cancelled is not None:
+            on_cancelled()
         return None, f"the checker did not answer within {timeout_s:g}s"
     except Exception as exc:
         failure = getattr(exc, "kind", "error")
@@ -307,17 +317,23 @@ def _hit_evidence(
                           exclude=exclude, rank_reason=rank_reason, source=source, chunks=chunks)
 
 
-async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: str = "SHALLOW") -> PageText:
+async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: str = "SHALLOW",
+                 page_reader: PageReader | None = None) -> PageText:
     """Read a SHALLOW page: Tavily Extract chunks for the goal first, then the Telem fetch.
 
     Extract runs at basic depth with the goal as its query, so it returns the
     config.TAVILY_EXTRACT_CHUNKS chunks most relevant to the goal under
     config.TAVILY_EXTRACT_TIMEOUT_S. A failed or empty Extract falls back to the
     Telem fetch unchanged. Each attempt is a fetch trace event carrying its cost.
+    `page_reader` replaces so.telem_client.fetch_page for the Telem fallback.
     """
     from so.config import BudgetExceeded
     from so.tavily_client import tavily_extract
-    from so.telem_client import fetch_page
+
+    if page_reader is None:
+        from so.telem_client import fetch_page
+    else:
+        fetch_page = page_reader
 
     fields = {"metadata": ledger("extract_recheck", trigger, config.TELEM_FETCH_PROVIDER)["metadata"]}
 
@@ -373,18 +389,24 @@ def _error_text(exc: BaseException) -> str:
 
 
 async def search(query: str, goal: str, ctx: RunContext, *, limits: SearchLimits | None = None,
-                 engine_search: EngineSearch | None = None) -> SearchOutcome:
+                 engine_search: EngineSearch | None = None, page_reader: PageReader | None = None) -> SearchOutcome:
     """Return verified evidence, or an explicit instruction to avoid guessing.
 
-    `limits` overrides the so.config defaults for this call only. `engine_search`
-    replaces so.telem_client.search_engines (same signature), which the drop-in
-    client uses to route calls through its own Telem client. Raises
-    TelemUnavailable only when Telem returns nothing usable at all.
+    `limits` overrides the so.config defaults for this call only; `timeout_s`
+    is a hard deadline that cancels in-flight work. `engine_search` replaces
+    so.telem_client.search_engines and `page_reader` replaces
+    so.telem_client.fetch_page (same signatures), which the drop-in client uses
+    to route calls through its own Telem client. Raises TelemUnavailable only
+    when Telem returns nothing usable at all.
     """
+    from so import llm
+
     trace = _Trace(ctx.log)
     started = perf_counter()
     try:
-        return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config(), engine_search)
+        with llm.capture_cancelled_usage() as cancelled:
+            return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config(), engine_search,
+                                 page_reader, cancelled)
     except BaseException as exc:
         if not any(event["type"] == "search_done" for event in trace.events):
             trace.emit(
@@ -400,10 +422,13 @@ async def search(query: str, goal: str, ctx: RunContext, *, limits: SearchLimits
 
 
 async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits: SearchLimits,
-                  engine_search: EngineSearch | None = None) -> SearchOutcome:
+                  engine_search: EngineSearch | None = None, page_reader: PageReader | None = None,
+                  cancelled: list[Any] | None = None) -> SearchOutcome:
     if engine_search is None:
         from so.telem_client import search_engines as engine_search
     search_engines = engine_search
+    cancelled_usage: list[Any] = cancelled if cancelled is not None else []
+    flushed = [0]
 
     started = perf_counter()
     table = load_rescue_table()
@@ -426,8 +451,22 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     step_seconds: list[float] = []
     # Ledger label for the next Telem search: which Backstop step it is and the verdict behind it.
     step_name, trigger = "initial", None
+    # Gathered results the checker has not ruled on yet, and the engine call in flight (for the timeout).
+    unchecked_pending = False
+    in_flight: dict[str, Any] | None = None
+
+    def flush_cancelled() -> None:
+        """Log model calls cancelled after sending, billed at their estimate."""
+        for usage in cancelled_usage[flushed[0]:]:
+            trace.emit(
+                "llm", role=usage.role, model=usage.model, tokens_in=usage.tokens_in, tokens_out=usage.tokens_out,
+                cost_usd=usage.cost_usd, latency_ms=usage.latency_ms, cached=False, estimated=True,
+                reason="cancelled after the request was sent; billed at the reservation estimate",
+            )
+        flushed[0] = len(cancelled_usage)
 
     def finish(status: str, note: str, evidence_url: str | None = None, **extra: Any) -> SearchOutcome:
+        flush_cancelled()
         outcome = SearchOutcome(
             status=status, results=list(merged.values()), note=note,
             engines_called=engines, trace=trace.events.copy(), calls=len(engines),
@@ -447,18 +486,37 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
         outcome.trace = trace.events.copy()
         return outcome
 
-    def not_found(stop: str | None = None) -> SearchOutcome:
+    def not_found(stop: str | None = None, **extra: Any) -> SearchOutcome:
         note = (
             f"No engine surfaced this after {1 + rescues_used} tries. "
             "If you cannot answer from other evidence, answer NOT FOUND."
         )
         if stop:
             note += f" Rescues stopped early by the {stop}."
-        return finish("NOT_FOUND", note, **({"stopped_by": stop} if stop else {}))
+        return finish("NOT_FOUND", note, **({"stopped_by": stop} if stop else {}), **extra)
 
-    def unchecked(reason: str) -> SearchOutcome:
+    def unchecked(reason: str, **extra: Any) -> SearchOutcome:
         note = f"Check skipped because {reason}. These results are unverified; do not treat them as confirmed."
-        return finish("UNCHECKED", note, check_skipped=reason)
+        return finish("UNCHECKED", note, check_skipped=reason, **extra)
+
+    def timed_out() -> SearchOutcome:
+        """Return what was gathered when the hard timeout_s deadline cancelled in-flight work."""
+        limit = f"timeout_s {limits.timeout_s:g}s"
+        if in_flight is not None:
+            trace.emit(
+                "search", query=in_flight["query"], goal=goal, engines=[in_flight["engine"]], n_results=0,
+                latency_ms=(perf_counter() - in_flight["started"]) * 1000, cost_usd=0, cached=False,
+                published_after=in_flight["published_after"], session=ctx.session, status="error",
+                error=f"Cancelled at the search timeout ({limit}).",
+            )
+        if unchecked_pending:
+            return unchecked(f"the search reached its timeout ({limit}) before the check finished",
+                             stopped_by="timeout")
+        return finish("NOT_FOUND", (
+            f"No engine surfaced this after {1 + rescues_used} tries. "
+            "If you cannot answer from other evidence, answer NOT FOUND. "
+            f"Search stopped by the timeout ({limit})."
+        ), stopped_by="timeout")
 
     def limit_stop(estimated_cost: float) -> str | None:
         """Name the limit the next step would break, or None if it fits."""
@@ -477,155 +535,173 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
         costs = trace.checker_costs()
         return sum(costs) / len(costs) if costs else 0.0
 
-    while True:
-        step_started = perf_counter()
-        engines.append(engine)
-        memory.record_search(current_query, engine, [])
-        error: str | None = None
-        try:
-            runs = await search_engines(
-                current_query, [engine], num_results=config.TELEM_NUM_RESULTS, goal=goal,
-                published_after=published_after, session=ctx.session,
-                **_supported_kwargs(search_engines, ledger(step_name, trigger, engine)),
-            )
-            run = runs.get(engine) or EngineRun(engine=engine, status="error")
-        except config.BudgetExceeded:
-            raise
-        except Exception as exc:
-            if ok_runs == 0 and len(engines) == 1:
-                raise TelemUnavailable(f"Telem search failed: {_error_text(exc)}") from exc
-            error = _error_text(exc)
-            run = EngineRun(engine=engine, status="error", latency_ms=(perf_counter() - step_started) * 1000)
-        if ctx.session is None and run.session_id:
-            ctx.session = run.session_id
-        checker_ctx.session = ctx.session
-        engine_failed = run.status != "ok"
-        trace.emit(
-            "search", query=current_query, goal=goal, engines=[engine],
-            n_results=min(len(run.results), config.TELEM_NUM_RESULTS) if not engine_failed else 0,
-            latency_ms=run.latency_ms, cost_usd=run.cost_usd, cached=run.cached,
-            published_after=published_after, session=ctx.session, status=run.status,
-            **({"error": error or "Engine returned an unsuccessful response."} if engine_failed else {}),
-        )
-        if engine_failed:
-            error = error or "Engine returned an unsuccessful response."
-            current_results = []
-        else:
-            ok_runs += 1
-            current_results = run.results[:config.TELEM_NUM_RESULTS]
-            _observe(seen, current_results)
-            per_engine.setdefault(engine, []).extend(current_results)
-        memory.urls_seen.update(result.url for result in current_results)
-        _merge(merged, current_results)
-        checked, skipped = await _guarded_check(
-            _check(current_query, goal, current_results, checker_ctx), limits.checker_timeout_s, trace,
-        )
-        step_seconds.append(perf_counter() - step_started)
-        if checked is None:
-            return unchecked(skipped or "the checker failed")
-        verdict: CheckerVerdict = checked
-
-        while True:
-            trace.emit("check", **verdict.model_dump())
-            if engine_failed:
-                # An engine error is not a miss: move on without spending a rescue.
-                engine_failed = False
-                successor = _next_engine(engines, table)
-                if successor is None:
-                    if ok_runs == 0:
-                        raise TelemUnavailable(f"Telem search failed on every engine; last error: {error}")
-                    return not_found()
-                stop = limit_stop(config.PRICE_USD.get(successor, config.DEFAULT_PRICE_USD) + checker_estimate())
-                if stop:
-                    if ok_runs == 0:
-                        raise TelemUnavailable(f"Telem search failed and the {stop} prevented a retry; last error: {error}")
-                    return not_found(stop)
+    deadline = asyncio.timeout(limits.timeout_s)
+    try:
+        async with deadline:
+            while True:
+                step_started = perf_counter()
+                engines.append(engine)
+                memory.record_search(current_query, engine, [])
+                error: str | None = None
+                in_flight = {"engine": engine, "query": current_query, "started": step_started,
+                             "published_after": published_after}
+                try:
+                    runs = await search_engines(
+                        current_query, [engine], num_results=config.TELEM_NUM_RESULTS, goal=goal,
+                        published_after=published_after, session=ctx.session,
+                        **_supported_kwargs(search_engines, ledger(step_name, trigger, engine)),
+                    )
+                    run = runs.get(engine) or EngineRun(engine=engine, status="error")
+                except config.BudgetExceeded:
+                    raise
+                except Exception as exc:
+                    if ok_runs == 0 and len(engines) == 1:
+                        raise TelemUnavailable(f"Telem search failed: {_error_text(exc)}") from exc
+                    error = _error_text(exc)
+                    run = EngineRun(engine=engine, status="error", latency_ms=(perf_counter() - step_started) * 1000)
+                in_flight = None
+                if ctx.session is None and run.session_id:
+                    ctx.session = run.session_id
+                checker_ctx.session = ctx.session
+                engine_failed = run.status != "ok"
                 trace.emit(
-                    "rescue", action="RETRY_ENGINE", engine=successor, query=current_query,
-                    reason=f"Engine {engine} failed: {error}", counted=False, engine_error=error,
+                    "search", query=current_query, goal=goal, engines=[engine],
+                    n_results=min(len(run.results), config.TELEM_NUM_RESULTS) if not engine_failed else 0,
+                    latency_ms=run.latency_ms, cost_usd=run.cost_usd, cached=run.cached,
+                    published_after=published_after, session=ctx.session, status=run.status,
+                    **({"error": error or "Engine returned an unsuccessful response."} if engine_failed else {}),
                 )
-                engine = successor
-                step_name, trigger = "engine_retry", "ENGINE_ERROR"
-                break
+                if engine_failed:
+                    error = error or "Engine returned an unsuccessful response."
+                    current_results = []
+                else:
+                    ok_runs += 1
+                    current_results = run.results[:config.TELEM_NUM_RESULTS]
+                    _observe(seen, current_results)
+                    per_engine.setdefault(engine, []).extend(current_results)
+                    unchecked_pending = bool(current_results)
+                memory.urls_seen.update(result.url for result in current_results)
+                _merge(merged, current_results)
 
-            if verdict.verdict != "HIT" and rescues_used >= limits.max_rescues:
-                action = Action("NOT_FOUND")
-            else:
-                # The per call max_rescues gate above replaces the policy's global cap.
-                action = next_action(verdict, engines, 0, table)
-            if action.kind == "HIT":
-                evidence_url = verdict.best_url
-                if not evidence_url and verdict.evidence_rank and verdict.evidence_rank <= len(current_results):
-                    evidence_url = current_results[verdict.evidence_rank - 1].url
-                evidence = merged.get(evidence_url or "")
-                location = f"result {evidence.rank}" if evidence else "the returned evidence"
-                note = f"Answer is in {location}. You can stop searching for this."
-                proof = _hit_evidence(
-                    evidence=evidence, evidence_url=evidence_url, why=verdict.why,
-                    exclude=f"{query} {current_query} {goal}", page=page_read,
-                    current_results=current_results, merged=merged, seen=seen, per_engine=per_engine,
-                )
-                return finish("HIT", note, evidence_url=evidence.url if evidence else None, evidence=proof)
-            if action.kind == "NOT_FOUND":
-                return not_found()
+                if engine_failed:
+                    # An engine error is not a miss and gets no checker verdict: the error is in
+                    # the search event; move on without spending a rescue.
+                    step_seconds.append(perf_counter() - step_started)
+                    successor = _next_engine(engines, table)
+                    if successor is None:
+                        if ok_runs == 0:
+                            raise TelemUnavailable(f"Telem search failed on every engine; last error: {error}")
+                        return not_found()
+                    stop = limit_stop(config.PRICE_USD.get(successor, config.DEFAULT_PRICE_USD) + checker_estimate())
+                    if stop:
+                        if ok_runs == 0:
+                            raise TelemUnavailable(f"Telem search failed and the {stop} prevented a retry; last error: {error}")
+                        return not_found(stop)
+                    trace.emit(
+                        "rescue", action="RETRY_ENGINE", engine=successor, query=current_query,
+                        reason=f"Engine {engine} failed: {error}", counted=False, engine_error=error,
+                    )
+                    engine = successor
+                    step_name, trigger = "engine_retry", "ENGINE_ERROR"
+                    continue
 
-            if action.kind == "RETRY_ENGINE":
-                assert action.engine is not None
-                estimate = config.PRICE_USD.get(action.engine, config.DEFAULT_PRICE_USD) + checker_estimate()
-            else:
-                estimate = config.TAVILY_EXTRACT_PRICE_USD + checker_estimate()
-            stop = limit_stop(estimate)
-            if stop:
-                return not_found(stop)
-
-            rescues_used += 1
-            rewritten = action.kind == "RETRY_ENGINE" and bool(action.query) and action.query != current_query
-            trace.emit(
-                "rescue", action=action.kind, engine=action.engine,
-                query=action.query or current_query, reason=verdict.why,
-                counted=True, estimated_cost_usd=round(estimate, 6),
-                **({"url": action.url} if action.url else {}),
-                **({"original_query": query, "rewritten_query": action.query} if rewritten else {}),
-            )
-            if action.kind == "RETRY_ENGINE":
-                engine = action.engine
-                step_name, trigger = f"rescue_{rescues_used}", verdict.verdict
-                current_query = action.query or current_query
-                if action.fresh:
-                    published_after = freshness_cutoff(goal, ctx.today)
-                break
-
-            assert action.url is not None
-            step_started = perf_counter()
-            memory.record_fetch(action.url)
-            page = await _fetch(action.url, goal, ctx, trace, verdict.verdict)
-            if page.ok and page.text.strip():
-                page_read = _page_evidence(page, trace)
-                original = merged.get(action.url)
-                evidence = Result(
-                    rank=1, title=original.title if original else action.url,
-                    url=action.url, snippet=page.text[:config.PAGE_TEXT_CHARS],
-                    published=original.published if original else None,
-                    engine=original.engine if original else engine,
-                )
-                _merge(merged, [evidence])
-                current_results = [evidence]
                 checked, skipped = await _guarded_check(
-                    _check_page(current_query, goal, page.model_copy(update={"text": evidence.snippet}), checker_ctx),
-                    limits.checker_timeout_s, trace,
+                    _check(current_query, goal, current_results, checker_ctx), limits.checker_timeout_s, trace,
+                    flush_cancelled,
                 )
                 step_seconds.append(perf_counter() - step_started)
                 if checked is None:
                     return unchecked(skipped or "the checker failed")
-                verdict = checked
-                if verdict.verdict == "HIT":
-                    verdict = verdict.model_copy(update={"best_url": action.url})
-            else:
-                step_seconds.append(perf_counter() - step_started)
-                verdict = CheckerVerdict(
-                    verdict="DEAD", confidence=1.0, why="Neither page reader returned usable text.",
-                )
+                unchecked_pending = False
+                verdict: CheckerVerdict = checked
 
+                while True:
+                    trace.emit("check", **verdict.model_dump())
+
+                    if verdict.verdict != "HIT" and rescues_used >= limits.max_rescues:
+                        action = Action("NOT_FOUND")
+                    else:
+                        # The per call max_rescues gate above replaces the policy's global cap.
+                        action = next_action(verdict, engines, 0, table)
+                    if action.kind == "HIT":
+                        evidence_url = verdict.best_url
+                        if not evidence_url and verdict.evidence_rank and verdict.evidence_rank <= len(current_results):
+                            evidence_url = current_results[verdict.evidence_rank - 1].url
+                        evidence = merged.get(evidence_url or "")
+                        location = f"result {evidence.rank}" if evidence else "the returned evidence"
+                        note = f"Answer is in {location}. You can stop searching for this."
+                        proof = _hit_evidence(
+                            evidence=evidence, evidence_url=evidence_url, why=verdict.why,
+                            exclude=f"{query} {current_query} {goal}", page=page_read,
+                            current_results=current_results, merged=merged, seen=seen, per_engine=per_engine,
+                        )
+                        return finish("HIT", note, evidence_url=evidence.url if evidence else None, evidence=proof)
+                    if action.kind == "NOT_FOUND":
+                        return not_found()
+
+                    if action.kind == "RETRY_ENGINE":
+                        assert action.engine is not None
+                        estimate = config.PRICE_USD.get(action.engine, config.DEFAULT_PRICE_USD) + checker_estimate()
+                    else:
+                        estimate = config.TAVILY_EXTRACT_PRICE_USD + checker_estimate()
+                    stop = limit_stop(estimate)
+                    if stop:
+                        return not_found(stop)
+
+                    rescues_used += 1
+                    rewritten = action.kind == "RETRY_ENGINE" and bool(action.query) and action.query != current_query
+                    trace.emit(
+                        "rescue", action=action.kind, engine=action.engine,
+                        query=action.query or current_query, reason=verdict.why,
+                        counted=True, estimated_cost_usd=round(estimate, 6),
+                        **({"url": action.url} if action.url else {}),
+                        **({"original_query": query, "rewritten_query": action.query} if rewritten else {}),
+                    )
+                    if action.kind == "RETRY_ENGINE":
+                        engine = action.engine
+                        step_name, trigger = f"rescue_{rescues_used}", verdict.verdict
+                        current_query = action.query or current_query
+                        if action.fresh:
+                            published_after = freshness_cutoff(goal, ctx.today)
+                        break
+
+                    assert action.url is not None
+                    step_started = perf_counter()
+                    memory.record_fetch(action.url)
+                    page = await _fetch(action.url, goal, ctx, trace, verdict.verdict, page_reader)
+                    if page.ok and page.text.strip():
+                        page_read = _page_evidence(page, trace)
+                        original = merged.get(action.url)
+                        evidence = Result(
+                            rank=1, title=original.title if original else action.url,
+                            url=action.url, snippet=page.text[:config.PAGE_TEXT_CHARS],
+                            published=original.published if original else None,
+                            engine=original.engine if original else engine,
+                        )
+                        _merge(merged, [evidence])
+                        current_results = [evidence]
+                        unchecked_pending = True
+                        checked, skipped = await _guarded_check(
+                            _check_page(current_query, goal, page.model_copy(update={"text": evidence.snippet}), checker_ctx),
+                            limits.checker_timeout_s, trace, flush_cancelled,
+                        )
+                        step_seconds.append(perf_counter() - step_started)
+                        if checked is None:
+                            return unchecked(skipped or "the checker failed")
+                        unchecked_pending = False
+                        verdict = checked
+                        if verdict.verdict == "HIT":
+                            verdict = verdict.model_copy(update={"best_url": action.url})
+                    else:
+                        step_seconds.append(perf_counter() - step_started)
+                        verdict = CheckerVerdict(
+                            verdict="DEAD", confidence=1.0, why="Neither page reader returned usable text.",
+                        )
+
+    except TimeoutError:
+        if not deadline.expired():
+            raise
+        return timed_out()
 
 def _format_text(outcome: SearchOutcome) -> str:
     """Human-readable ranked results and trace for the CLI."""
