@@ -1,0 +1,77 @@
+/* Check a memo (S10). Reuses the race section's tokens (--r-*) through the shared
+   .race-section class; everything else is scoped to .memo-section. */
+.memo-section { --m-ok: #3d6b35; --m-ok-wash: rgba(61, 107, 53, 0.12); --m-bad: var(--accent); --m-bad-wash: var(--accent-wash);
+  --m-none: var(--muted); --m-none-wash: rgba(103, 105, 94, 0.1); }
+.memo-section[data-theme="dark"] { --m-ok: #9fca8f; --m-ok-wash: rgba(159, 202, 143, 0.16); --m-bad: var(--accent-light);
+  --m-bad-wash: rgba(232, 170, 139, 0.16); --m-none: var(--on-dark-muted); --m-none-wash: rgba(168, 172, 158, 0.14); }
+
+.memo-form { margin-top: 18px; padding: 12px; border: 1px solid var(--r-line); border-radius: var(--radius-lg); background: var(--r-card); }
+.memo-form textarea { display: block; width: 100%; min-height: 190px; resize: vertical; border: 0; background: transparent; color: var(--r-ink);
+  font: 500 16px/1.6 var(--sans); padding: 8px 10px; }
+.memo-form textarea:focus-visible { outline-offset: 0; }
+.memo-form-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 4px 0;
+  border-top: 1px solid var(--r-line); margin-top: 6px; }
+.memo-count { font-size: 13px; color: var(--r-muted); font-variant-numeric: tabular-nums; }
+.memo-count.is-over { color: var(--m-bad); font-weight: 650; }
+.memo-section .btn-dark { background: var(--r-ink); color: var(--r-bg); }
+
+.memo-progress { margin-top: 12px; font-size: 14px; color: var(--r-muted); display: flex; align-items: center; gap: 10px; }
+.memo-progress::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--r-accent); animation: live-pulse 1.4s ease-in-out infinite; }
+
+.memo-result { margin-top: 26px; }
+.memo-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; padding: 16px 20px;
+  border: 1px solid var(--r-line); border-radius: var(--radius-lg); background: var(--r-card); }
+.memo-totals { display: flex; flex-wrap: wrap; gap: 8px; font-weight: 650; font-size: 15px; }
+.memo-total { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid currentColor; }
+.memo-total b { font-variant-numeric: tabular-nums; font-size: 17px; }
+.memo-counters { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 13px; color: var(--r-muted); }
+.memo-counters div { display: flex; flex-direction: column-reverse; }
+.memo-counters dd { font: 650 20px/1.2 var(--sans); color: var(--r-ink); font-variant-numeric: tabular-nums; }
+.memo-session { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--r-muted); }
+.memo-session code { font-size: 12.5px; color: var(--r-ink); background: var(--r-chip); border: 1px solid var(--r-line); border-radius: 8px; padding: 3px 8px; overflow-wrap: anywhere; }
+.memo-session .chip-button { padding: 4px 10px; font-size: 12.5px; }
+.memo-replay-note { margin-top: 10px; font-size: 13px; color: var(--r-muted); }
+
+.memo-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; margin-top: 18px; align-items: start; }
+.memo-text { background: var(--r-card); border: 1px solid var(--r-line); border-radius: var(--radius-lg); padding: 22px 24px; font-size: 17px; line-height: 2.05;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.memo-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; font-size: 12.5px; line-height: 1.4; color: var(--r-muted); white-space: normal; }
+
+.claim { display: inline; font: inherit; color: inherit; text-align: left; border: 0; padding: 2px 3px; border-radius: 5px; line-height: inherit;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; border-bottom: 2px solid currentColor; cursor: pointer; }
+.claim-verified { background: var(--m-ok-wash); border-bottom-color: var(--m-ok); }
+.claim-contradicted { background: var(--m-bad-wash); border-bottom-color: var(--m-bad); }
+.claim-not_found { background: var(--m-none-wash); border-bottom: 2px dashed var(--m-none); }
+.claim:hover, .claim[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
+.claim-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font: 700 10.5px/1.7 var(--sans); letter-spacing: 0.06em;
+  text-transform: uppercase; vertical-align: 2px; white-space: nowrap; color: var(--r-bg); }
+.verdict-verified { color: var(--m-ok); }
+.verdict-contradicted { color: var(--m-bad); }
+.verdict-not_found { color: var(--m-none); }
+.claim-verified .claim-tag { background: var(--m-ok); }
+.claim-contradicted .claim-tag { background: var(--m-bad); }
+.claim-not_found .claim-tag { background: var(--m-none); }
+.memo-unplaced { margin-top: 14px; font-size: 14px; line-height: 1.6; white-space: normal; }
+.memo-unplaced p { color: var(--r-muted); margin-bottom: 6px; }
+.memo-unplaced ul { display: grid; gap: 6px; }
+
+.memo-panel { position: sticky; top: 88px; background: var(--r-card); border: 1px solid var(--r-line); border-top: 3px solid var(--r-line); border-radius: var(--radius-lg);
+  padding: 20px 22px; font-size: 15px; }
+.memo-panel.panel-verified { border-top-color: var(--m-ok); }
+.memo-panel.panel-contradicted { border-top-color: var(--m-bad); }
+.memo-panel.panel-not_found { border-top-color: var(--m-none); }
+.memo-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.memo-verdict { font: 700 13px/1.4 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
+.memo-panel h3 { margin-top: 10px; font-size: 19px; line-height: 1.35; font-weight: 650; letter-spacing: -0.01em; }
+.memo-panel .memo-why { margin-top: 10px; color: var(--r-muted); }
+.memo-panel blockquote { margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid var(--r-line); background: var(--r-chip); border-radius: 0 10px 10px 0; font-size: 14px; }
+.memo-panel .memo-source { display: inline-block; margin-top: 12px; font-weight: 600; color: var(--r-accent); overflow-wrap: anywhere; }
+.memo-meta { margin-top: 14px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; color: var(--r-muted); }
+.memo-meta dd { color: var(--r-ink); overflow-wrap: anywhere; }
+.memo-panel-empty { color: var(--r-muted); }
+
+@media (max-width: 900px) {
+  .memo-body { grid-template-columns: 1fr; }
+  .memo-panel { position: static; }
+  .memo-text { padding: 18px; font-size: 16px; }
+}

@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="/ui/style.css">
   <script type="module" src="/ui/app.js"></script>
   <script type="module" src="/ui/race.js"></script>
+  <link rel="stylesheet" href="/ui/memo.css">
+  <script type="module" src="/ui/memo.js"></script>
 </head>
 <body>
   <a class="skip" href="#race">Skip to the live race</a>
@@ -103,6 +105,52 @@
         <p class="race-honest" id="race-honest" hidden></p>
       </div>
       <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div title="Every engine query Telem runs and bills. One Telem default request can fan out to many engines."><dd class="engine-count">0</dd><dt>Engine calls</dt></div><div title="Engine calls, page reads and the checker."><dd class="search-cost">$0.0000</dd><dt>Search cost</dt></div><div title="Search cost plus the agent model's own turns."><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details><p class="grade-note" hidden>Not graded: live question</p><button class="chip-button watch-recorded" type="button" hidden>Watch a recorded run instead</button></div><p class="session">Session pending</p></article></template>
+    </section>
+
+    <!-- S10: Check a memo (ui/memo.js, ui/memo.css) -->
+    <section class="race-section memo-section" id="memo" data-theme="light" aria-labelledby="memo-title">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="label">Memo check</p>
+            <h2 id="memo-title">Paste a memo. Check every&nbsp;claim.</h2>
+          </div>
+          <p class="section-intro">Backstop splits an AI-written memo into its factual claims, searches all of them in one batched Telem call, and rescues the misses. Each claim comes back Verified, Contradicted or Not found, with the evidence and the source.</p>
+        </div>
+        <div class="race-bar">
+          <div class="race-modes"><span id="memo-mode" class="race-badge">Loading</span></div>
+          <div class="race-tools">
+            <button class="chip-button" id="memo-theme" type="button" aria-pressed="true" aria-label="Toggle memo check dark mode">Dark mode</button>
+            <button class="chip-button chip-button-strong" id="memo-export" type="button" disabled>Export report &#8595;</button>
+          </div>
+        </div>
+        <div class="example-chips" id="memo-examples" aria-label="Example memos" hidden></div>
+        <form id="memo-form" class="memo-form" novalidate>
+          <label class="sr-only" for="memo-input">Memo to check</label>
+          <textarea id="memo-input" maxlength="4000" placeholder="Paste a company memo or an AI-written diligence summary (up to 4,000 characters)" spellcheck="true" aria-describedby="memo-count"></textarea>
+          <div class="memo-form-foot">
+            <span class="memo-count" id="memo-count">0 / 4,000</span>
+            <button class="btn btn-dark" id="memo-run" type="submit" disabled>Check memo <span aria-hidden="true">&#8599;</span></button>
+          </div>
+        </form>
+        <p id="memo-live-off" class="race-note" hidden>Live checks are off on this server. Pick an example to see a recorded live check.</p>
+        <div id="memo-code-box" class="race-credentials" hidden><label for="memo-code">Demo code</label><input id="memo-code" type="password" autocomplete="off" spellcheck="false" aria-describedby="memo-code-help"><p id="memo-code-help">The same code as the live race. It is remembered in this browser.</p></div>
+        <div id="memo-key-box" class="race-credentials" hidden><label for="memo-key">Backstop API key</label><input id="memo-key" type="password" autocomplete="off" spellcheck="false"></div>
+        <p id="memo-progress" class="memo-progress" role="status" hidden></p>
+        <p id="memo-message" class="race-message" role="status"></p>
+        <div id="memo-result" class="memo-result" hidden>
+          <div class="memo-summary">
+            <div class="memo-totals" id="memo-totals" aria-label="Claim verdicts"></div>
+            <dl class="memo-counters" id="memo-counters"></dl>
+          </div>
+          <div class="memo-session" id="memo-session"></div>
+          <p class="memo-replay-note" id="memo-replay-note" hidden></p>
+          <div class="memo-body">
+            <div class="memo-text" id="memo-text" aria-label="Memo with checked claims highlighted"></div>
+            <aside class="memo-panel" id="memo-panel" aria-live="polite" aria-label="Claim details"></aside>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="how light" id="how" aria-labelledby="how-title">

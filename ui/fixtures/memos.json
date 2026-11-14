@@ -10,13 +10,13 @@
     {
       "id": "nvidia",
       "label": "NVIDIA company brief",
-      "text": "NVIDIA was founded in 1993 by Jensen Huang, Chris Malachowsky and Curtis Priem, and is headquartered in Santa Clara, California. Jensen Huang has led the company as CEO since its founding. NVIDIA went public in 1999. In 2020 it agreed to buy Arm for about $40 billion, a deal it abandoned in 2022. For fiscal year 2024 NVIDIA reported revenue of $96.0 billion. The engineering team behind the first GeForce chip was code-named Project Halcyon.",
+      "text": "NVIDIA was founded in 1993 by Jensen Huang, Chris Malachowsky and Curtis Priem, and is headquartered in Santa Clara, California. Jensen Huang was its first CEO. NVIDIA went public in 1999. In 2020 it agreed to buy Arm for about $40 billion, a deal it abandoned in 2022. For fiscal year 2024 NVIDIA reported revenue of $96.0 billion. The engineering team behind the first GeForce chip was code-named Project Halcyon.",
       "planted": {"wrong_number": "FY2024 revenue was $60.9 billion, not $96.0 billion", "unverifiable": "the Project Halcyon code name"}
     },
     {
       "id": "airbnb",
       "label": "Airbnb market summary",
-      "text": "Airbnb was founded in 2008 by Brian Chesky, Joe Gebbia and Nathan Blecharczyk and is headquartered in San Francisco. Brian Chesky is the CEO. Airbnb went public on the Nasdaq in December 2020 under the ticker ABNB. The company reported revenue of $9.9 billion for 2023. It had more than 25 million active listings at the end of 2023. Its internal hackathon trophy is a ceramic owl named Wally.",
+      "text": "Airbnb was founded in 2008 by Brian Chesky, Joe Gebbia and Nathan Blecharczyk and is headquartered in San Francisco. Airbnb went public on the Nasdaq in December 2020 under the ticker ABNB. The company reported revenue of $9.9 billion for 2023. It had more than 25 million active listings at the end of 2023. Its internal hackathon trophy is a ceramic owl named Wally.",
       "planted": {"wrong_number": "Airbnb reported more than 7.7 million active listings at the end of 2023, not 25 million", "unverifiable": "the ceramic owl trophy"}
     }
   ]
