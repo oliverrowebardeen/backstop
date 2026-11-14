@@ -20,7 +20,7 @@ async def test_provider_payload_normalization_and_cache(provider, monkeypatch):
     monkeypatch.setattr(config, "LLM_PROVIDER", provider)
     model = "claude-haiku-5-5" if provider == "anthropic" else "test-model"
     monkeypatch.setattr(config, "CHECKER_MODEL", model)
-    monkeypatch.setitem(config.LLM_PRICE_USD, model, (0.1, 0.5))
+    monkeypatch.setitem(config.LLM_PRICE_USD, model, {"input": 0.1, "output": 0.5})
     requests = []
 
     def respond(request):
@@ -93,3 +93,19 @@ def test_pydantic_schema_adaptation_preserves_field_names_and_input():
     assert original["properties"]["confidence"]["minimum"] == 0
     named_default = {"type": "object", "properties": {"default": {"type": "string", "default": "x"}}}
     assert llm._strict_schema(named_default)["properties"]["default"] == {"type": "string"}
+
+
+def test_custom_model_price_factors_drive_both_providers(monkeypatch):
+    monkeypatch.setitem(config.LLM_PRICE_USD, "custom", {"input": 2, "output": 4, "cache_read_factor": .25,
+        "cache_write_factor": 1.5, "cache_write_1h_factor": 3,
+        "long_context_threshold": 100, "long_input": 5, "long_output": 8})
+    assert llm._rates("custom", 100) == (2, 4)
+    assert llm._rates("custom", 101) == (5, 8)
+    response = llm._normalize({"content": [], "usage": {"input_tokens": 80, "output_tokens": 10,
+        "cache_read_input_tokens": 20, "cache_creation_input_tokens": 10,
+        "cache_creation": {"ephemeral_1h_input_tokens": 4}}}, "anthropic", "agent", "custom", 0)
+    assert response.cost_usd == pytest.approx((5 * (80 + 20 * .25 + 6 * 1.5 + 4 * 3) + 10 * 8) / 1e6)
+    response = llm._normalize({"choices": [{"message": {"content": "OK"}}], "usage": {
+        "prompt_tokens": 100, "completion_tokens": 10, "prompt_tokens_details": {"cached_tokens": 20}}},
+        "openai", "agent", "custom", 0)
+    assert response.cost_usd == pytest.approx((2 * (80 + 20 * .25) + 10 * 4) / 1e6)

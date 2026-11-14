@@ -7,7 +7,6 @@ models with id, name and parsed arguments. Callers emit the llm event.
 from __future__ import annotations
 
 import json
-import os
 import time
 from typing import Any, Literal
 
@@ -112,10 +111,10 @@ def _openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _rates(model: str, tokens_in: int = 0) -> tuple[float, float]:
     if model not in config.LLM_PRICE_USD:
         raise ValueError(f"Set verified input/output prices for {model} in LLM_PRICE_USD_JSON")
-    if model == "claude-haiku-5-5" and tokens_in > 100_000:
-        return 0.50, 2.50
     rates = config.LLM_PRICE_USD[model]
-    return float(rates[0]), float(rates[1])
+    if tokens_in > rates.get("long_context_threshold", float("inf")):
+        return float(rates["long_input"]), float(rates["long_output"])
+    return float(rates["input"]), float(rates["output"])
 
 
 def _normalize(raw: dict[str, Any], provider: str, role: Role, model: str, latency_ms: float) -> LLMResponse:
@@ -130,10 +129,12 @@ def _normalize(raw: dict[str, Any], provider: str, role: Role, model: str, laten
         tokens_in = plain_in + cache_read + cache_write
         tokens_out = usage["output_tokens"]
         input_rate, output_rate = _rates(model, tokens_in)
-        read_factor = 0.05 if model == "claude-sonnet-5-5" else 0.1
+        prices = config.LLM_PRICE_USD[model]
         creation = usage.get("cache_creation") or {}
         hour_write = creation.get("ephemeral_1h_input_tokens", 0)
-        cost_in = input_rate * (plain_in + cache_read * read_factor + (cache_write - hour_write) * 1.25 + hour_write * 2)
+        cost_in = input_rate * (plain_in + cache_read * prices.get("cache_read_factor", 1)
+            + (cache_write - hour_write) * prices.get("cache_write_factor", 1)
+            + hour_write * prices.get("cache_write_1h_factor", 1))
         stop = raw.get("stop_reason")
     else:
         choice = raw["choices"][0]
@@ -142,7 +143,9 @@ def _normalize(raw: dict[str, Any], provider: str, role: Role, model: str, laten
         calls = [_call(call) for call in message.get("tool_calls", [])]
         tokens_in, tokens_out = usage["prompt_tokens"], usage["completion_tokens"]
         input_rate, output_rate = _rates(model, tokens_in)
-        cost_in = tokens_in * input_rate
+        cached_tokens = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        read_factor = config.LLM_PRICE_USD[model].get("cache_read_factor", 1)
+        cost_in = input_rate * (tokens_in - cached_tokens + cached_tokens * read_factor)
         stop = choice.get("finish_reason")
     return LLMResponse(text=text, tool_calls=calls, tokens_in=tokens_in, tokens_out=tokens_out,
                        cost_usd=(cost_in + tokens_out * output_rate) / 1_000_000,
@@ -160,21 +163,20 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
     if provider not in {"anthropic", "openai"}:
         raise ValueError("LLM_PROVIDER must be anthropic or openai")
     model = models[role]
-    max_tokens = {"checker": 399, "agent": 2048, "judge": 1024}[role]
+    max_tokens = config.LLM_MAX_TOKENS[role]
     body: dict[str, Any] = {"model": model}
     if json_schema:
         json_schema = _strict_schema(json_schema)
     if provider == "anthropic":
-        endpoint = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+        endpoint = config.ANTHROPIC_MESSAGES_URL
         body.update(system=system, messages=_anthropic_messages(messages), max_tokens=max_tokens)
         if tools:
             body["tools"] = [_tool(tool) for tool in tools]
         if json_schema:
             body["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
-        headers = {"x-api-key": os.getenv("ANTHROPIC_API_KEY", ""), "anthropic-version": "2023-06-01"}
-        api_key = headers["x-api-key"]
+        headers = {"anthropic-version": config.ANTHROPIC_API_VERSION}
     else:
-        endpoint = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
+        endpoint = config.OPENAI_CHAT_URL
         body.update(messages=[{"role": "system", "content": system}] + _openai_messages(messages),
                     max_completion_tokens=max_tokens)
         if tools:
@@ -183,25 +185,27 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
         if json_schema:
             body["response_format"] = {"type": "json_schema", "json_schema": {
                 "name": "response", "schema": json_schema, "strict": True}}
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = {}
     request = {"provider": provider, "endpoint": endpoint, "role": role, "body": body}
     key = config.cache_key("llm-v1", request)
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
             return LLMResponse.model_validate(cached["normalized"]).model_copy(update={"cached": True})
-        if not api_key:
-            raise ValueError(f"{provider.upper()}_API_KEY is required")
+        api_key = config.api_key(provider)
+        if provider == "anthropic":
+            headers["x-api-key"] = api_key
+        else:
+            headers["Authorization"] = f"Bearer {api_key}"
         # UTF-8 byte length plus framing overhead is a conservative token reservation.
-        token_bound = len(json.dumps(body, ensure_ascii=False).encode()) + 1024
+        token_bound = len(json.dumps(body, ensure_ascii=False).encode()) + config.LLM_TOKEN_RESERVE_OVERHEAD
         input_rate, output_rate = _rates(model, token_bound)
         estimate = (token_bound * input_rate + max_tokens * output_rate) / 1_000_000
         async with config.semaphore("llm", config.LLM_MAX_CONCURRENCY):
             config.LLM_BUDGET.reserve(estimate)
             start = time.perf_counter()
             try:
-                async with httpx.AsyncClient(timeout=90) as client:
+                async with httpx.AsyncClient(timeout=config.LLM_TIMEOUT_S) as client:
                     async def send() -> dict[str, Any]:
                         response = await client.post(endpoint, headers=headers, json=body)
                         response.raise_for_status()

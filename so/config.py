@@ -109,9 +109,17 @@ CHECKER_MODEL = os.getenv("CHECKER_MODEL", "claude-haiku-5-5")
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5-5")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "claude-sonnet-5-5")
 # USD per million input/output tokens, verified in Claude pricing docs.
-LLM_PRICE_USD = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0)}
-# Set explicitly for OpenAI/custom models, e.g. {"model-id": [input, output]}.
-LLM_PRICE_USD.update(json.loads(os.getenv("LLM_PRICE_USD_JSON", "{}")))
+LLM_PRICE_USD = {
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read_factor": 0.1,
+        "cache_write_factor": 1.25, "cache_write_1h_factor": 2.0,
+        "long_context_threshold": 100_000, "long_input": 0.50, "long_output": 2.50},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read_factor": 0.05,
+        "cache_write_factor": 1.25, "cache_write_1h_factor": 2.0},
+}
+for _model, _prices in json.loads(os.getenv("LLM_PRICE_USD_JSON", "{}")).items():
+    if isinstance(_prices, list):
+        _prices = {"input": _prices[0], "output": _prices[1]}
+    LLM_PRICE_USD[_model] = {**LLM_PRICE_USD.get(_model, {}), **_prices}
 
 
 class BudgetExceeded(RuntimeError):
