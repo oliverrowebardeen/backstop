@@ -1,0 +1,8 @@
+{
+  "title": "Who is the CEO of Tavily?",
+  "fixture": false,
+  "golden": true,
+  "left": "golden-tavily/left.jsonl",
+  "right": "golden-tavily/right.jsonl",
+  "provenance": "Unmodified paired live acceptance run recorded by the O4 race server on 2026-11-14. Both agents answered correctly; this recording is not an evaluation or a savings claim."
+}

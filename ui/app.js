@@ -1,367 +1,223 @@
-import {SETUPS, VERDICTS, newRun, applyEvent, safeURL} from './race-state.js';
+import {newRun, applyEvent, VERDICTS, safeURL} from './race-state.js';
+import {proofMetrics, efficientFrontier} from './proof.js';
 
 const $ = selector => document.querySelector(selector);
-const elements = {};
-const states = {};
-let connections = [];
-let active = false;
-let generation = 0;
-let replayPairs = [];
-let firstEngine;
-const clockOrigins = {};
-
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function link(url, label) {
-  const safe = safeURL(url);
-  if (!safe) return null;
-  const node = element('a', '', label || safe.hostname.replace(/^www\./, ''));
-  node.href = safe.href;
-  node.target = '_blank';
-  node.rel = 'noopener noreferrer';
-  node.title = safe.href;
-  return node;
-}
-
-function notify(message) {
-  $('#notice').hidden = !message;
-  $('#notice').textContent = message;
-}
+const elements = {}, states = {};
+let firstEngine = 'tavily', active = false, replayPair = null, replaySource = null, controller = null;
+let replayMode = false, autoplayDone = false, raceVisible = false, ready = false, liveAvailable = false;
+const origins = {};
+const names = {single: 'Single engine', second_opinion: 'Backstop', telem_default: 'Telem default'};
+const element = (tag, cls, text) => { const node = document.createElement(tag); if(cls) node.className = cls; if(text !== undefined) node.textContent = text; return node; };
+const notify = text => { $('#race-message').textContent = text; };
 
 function setActive(value) {
-  const startClock = value && !active;
   active = value;
-  $('#run').disabled = value;
-  $('#run').textContent = value ? 'Race in progress' : 'Run race ↗';
-  $('#play').disabled = value || !$('#replay').value;
+  $('#run-button').disabled = value || !liveAvailable;
   $('#question').disabled = value;
-  $('#replay').disabled = value;
-  for (const column of Object.values(elements)) column.querySelector('.setup').disabled = value;
-  if (startClock) requestAnimationFrame(tick);
-}
-
-function tick(now) {
-  for (const side of ['left', 'right']) {
-    const state = states[side];
-    if (!state.finished && clockOrigins[side] !== undefined) {
-      const seconds = Math.max(state.elapsed, now - clockOrigins[side]) / 1000;
-      elements[side].querySelector('.time').replaceChildren(document.createTextNode(seconds.toFixed(1)), element('span', '', 's'));
-    }
-  }
-  if (active) requestAnimationFrame(tick);
-}
-
-function reset(left, right) {
-  connections.forEach(connection => connection.close());
-  connections = [];
-  generation += 1;
-  for (const [side, setup] of Object.entries({left, right})) {
-    delete clockOrigins[side];
-    states[side] = newRun(setup, firstEngine);
-    elements[side].querySelector('.setup').value = setup;
-    render(side);
-  }
-  notify('');
-  setActive(true);
+  $('#replay-button').disabled = value || !replayPair;
+  $('#stop-button').hidden = !value;
 }
 
 function render(side) {
-  const state = states[side];
-  const column = elements[side];
-  const find = selector => column.querySelector(selector);
-  column.dataset.setup = state.setup;
-  find('.setup-description').textContent = SETUPS[state.setup].description;
-  find('.engine-count').textContent = state.engineCalls;
-  find('.cost').textContent = `$${state.cost.toFixed(4)}`;
-  find('.time').replaceChildren(document.createTextNode((state.elapsed / 1000).toFixed(1)), element('span', '', 's'));
-  find('.telem-count').textContent = state.telemCalls;
-  find('.session').textContent = state.session ? `Session ${state.session}` : (state.finished ? 'No session recorded' : 'Session pending');
-  find('.session').title = state.session ? `Telem session: ${state.session}` : 'No Telem session recorded yet';
+  const state = states[side], column = elements[side], find = selector => column.querySelector(selector);
+  find('.telem-count').textContent = String(state.telemCalls);
+  find('.cost-count').textContent = `$${state.cost.toFixed(4)}`;
+  find('.time-count').replaceChildren(document.createTextNode((state.elapsed / 1000).toFixed(1)), element('span', '', 's'));
   find('.run-status').textContent = state.status;
-  find('.run-status').classList.toggle('running', state.status === 'Running');
-  find('.event-count').textContent = `${state.events.length} events recorded`;
-  find('.export').disabled = !state.events.length;
+  find('.session').textContent = state.session ? `Telem session · ${state.session}` : state.finished ? 'No Telem session recorded' : 'Session pending';
   const steps = find('.steps');
   if (state.steps.length) {
-    const nodes = state.steps.map((step, index) => {
-      const row = element('li', 'step');
-      const query = element('div', 'step-query');
-      query.append(element('span', 'step-number', String(index + 1).padStart(2, '0')), element('span', '', step.query));
-      row.append(query);
-      const meta = element('div', 'step-meta');
-      step.engines.forEach(engine => meta.append(element('span', `chip ${engine === firstEngine ? 'first-engine' : ''}`, engine)));
-      if (step.verdict) meta.append(element('span', `verdict ${step.verdict.toLowerCase()}`, VERDICTS[step.verdict] || step.verdict));
-      if (step.cached) meta.append(element('span', 'chip', 'Cached'));
-      if (meta.childNodes.length) row.append(meta);
+    steps.replaceChildren(...state.steps.map((step, i) => {
+      const row = element('li'), title = element('div', 'step-query');
+      title.append(element('span', 'step-num', String(i + 1).padStart(2, '0')), element('span', '', step.query));
+      row.append(title);
+      const chips = element('div', 'step-chips');
+      step.engines.forEach(engine => chips.append(element('span', 'chip', engine)));
+      if (step.verdict) chips.append(element('span', 'verdict', VERDICTS[step.verdict] || step.verdict));
+      if (step.cached) chips.append(element('span', 'chip', 'Cached'));
+      if (chips.childNodes.length) row.append(chips);
       if (step.why) row.append(element('p', 'step-note', step.why));
-      if (step.url) {
-        const source = link(step.url);
-        if (source) { const note = element('p', 'step-note'); note.append(source); row.append(note); }
-      }
-      if (step.goal) row.title = `Goal: ${step.goal}`;
       return row;
-    });
-    steps.replaceChildren(...nodes);
+    }));
     steps.scrollTop = steps.scrollHeight;
-  } else {
-    const empty = element('li', 'empty-step');
-    empty.append(element('span', '', '↗'), element('strong', '', 'The evidence will unfold here.'),
-      element('span', '', 'Queries, engines, checks, and page reads.'));
-    steps.replaceChildren(empty);
-  }
+  } else steps.replaceChildren(element('li', 'empty', 'Waiting for the question.'));
   const declined = state.answer?.status === 'NOT_FOUND';
-  find('.answer').classList.toggle('declined', declined);
-  find('.answer').classList.toggle('waiting', !state.answer);
-  find('.answer-label').textContent = declined ? 'NOT FOUND · A DELIBERATE OUTCOME' : 'FINAL ANSWER';
-  find('.answer-text').textContent = state.answer?.final || (state.events.length ? 'Following the evidence…' : 'Waiting for a question.');
-  find('.sources').replaceChildren(...(state.answer?.citations || []).map((url, index) => {
-    const safe = safeURL(url);
-    return safe ? link(url, `[${index + 1}] ${safe.hostname.replace(/^www\./, '')}`) : null;
+  find('.answer-label').textContent = declined ? 'Not found · a deliberate outcome' : 'Final answer';
+  find('.answer-text').textContent = state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
+  find('.sources').replaceChildren(...(state.answer?.citations || []).map((url, i) => {
+    const safe = safeURL(url); if (!safe) return null;
+    const link = element('a', '', `[${i + 1}] ${safe.hostname.replace(/^www\./, '')} ↗`);
+    link.href = safe.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
   }).filter(Boolean));
+  $('#export-audit').disabled = !states.left?.events.length && !states.right?.events.length;
 }
 
+function closeConnections() { replaySource?.close(); replaySource = null; controller?.abort(); controller = null; }
+function reset(mode) {
+  closeConnections(); replayMode = mode !== 'live';
+  for (const [side, setup] of Object.entries({left:'single',right:'second_opinion'})) {
+    states[side] = newRun(setup, firstEngine); states[side].status = 'Starting'; origins[side] = null; render(side);
+  }
+  $('#race-mode').textContent = mode === 'live' ? 'Live run' : mode === 'fixture' ? 'Synthetic fixture · not a live run' : 'Replay of a live run';
+  setActive(true);
+}
 function receive(side, event) {
+  if (!states[side]) throw new Error('Unrecognized race side.');
   if (applyEvent(states[side], event)) {
-    clockOrigins[side] = performance.now() - states[side].elapsed;
-    render(side);
+    origins[side] = performance.now() - states[side].elapsed; render(side);
   }
-  if (states.left.finished && states.right.finished) setActive(false);
+  if (states.left.finished && states.right.finished) finish();
 }
-
-function streamFailure(connection, sides, message) {
-  connection.close();
+function finish() { setActive(false); const interrupted = Object.values(states).some(state => state.status === 'Interrupted'); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? 'Recorded run complete. Run your own question above.' : 'Both agents have finished. Export the audit trail below.'); }
+function fail(message, side) {
+  for (const name of side ? [side] : ['left', 'right']) {
+    if (!states[name].finished) { states[name].finished = true; states[name].status = 'Interrupted'; render(name); }
+  }
   notify(message);
-  for (const side of sides) {
-    if (!states[side].finished) {
-      states[side].status = 'Interrupted';
-      states[side].finished = true;
-      render(side);
-    }
-  }
   if (states.left.finished && states.right.finished) setActive(false);
 }
 
-function connect(url, sides, replay = false) {
-  const connection = new EventSource(url);
-  connections.push(connection);
-  connection.addEventListener('log', message => {
-    try {
-      const payload = JSON.parse(message.data);
-      if (replay) receive(payload.side, payload.event);
-      else receive(sides[0], payload);
-    } catch (error) { streamFailure(connection, sides, error.message); }
-  });
-  connection.addEventListener('complete', () => connection.close());
-  connection.addEventListener('stream_error', message => streamFailure(connection, sides, JSON.parse(message.data).message));
-  connection.onerror = () => streamFailure(connection, sides, 'The event stream was interrupted. Recorded events can still be exported.');
-}
-
-for (const [side, setup] of Object.entries({left: 'single', right: 'second_opinion'})) {
+for (const [side, setup] of Object.entries({left:'single',right:'second_opinion'})) {
   const column = $('#column-template').content.firstElementChild.cloneNode(true);
   column.id = `column-${side}`;
-  column.querySelector('.column-letter').textContent = side === 'left' ? 'A' : 'B';
-  const picker = column.querySelector('.setup');
-  picker.value = setup;
-  picker.setAttribute('aria-label', `${side} setup`);
-  picker.addEventListener('change', () => { states[side] = newRun(picker.value, firstEngine); render(side); });
-  column.querySelector('.export').addEventListener('click', () => {
-    const state = states[side];
-    const blob = new Blob([JSON.stringify(state.events, null, 2)], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const anchor = element('a');
-    anchor.href = url;
-    anchor.download = `${state.runId || side}-audit.json`;
-    anchor.hidden = true;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    requestAnimationFrame(() => URL.revokeObjectURL(url));
-  });
-  elements[side] = column;
-  states[side] = newRun(setup, firstEngine);
-  $('#columns').append(column);
-  render(side);
+  if (side === 'right') column.classList.add('ours');
+  column.querySelector('.column-tag').textContent = side === 'left' ? 'The first search' : 'The second opinion';
+  column.querySelector('.column-name').textContent = names[setup];
+  elements[side] = column; states[side] = newRun(setup, firstEngine); $('#columns').append(column);
 }
+render('left'); render('right');
 
+setInterval(() => {
+  if (!active || document.hidden) return;
+  for (const side of ['left', 'right']) {
+    if (!states[side].finished && origins[side] !== null) {
+      states[side].elapsed = Math.max(states[side].elapsed, performance.now() - origins[side]);
+      elements[side].querySelector('.time-count').replaceChildren(document.createTextNode((states[side].elapsed / 1000).toFixed(1)),element('span','','s'));
+    }
+  }
+}, 100);
+
+function playReplay() {
+  if (!replayPair || active) return;
+  autoplayDone = true;
+  reset(replayPair.fixture ? 'fixture' : 'replay');
+  $('#question').value = replayPair.question;
+  notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded evidence, played at its original pace.');
+  const source = new EventSource(`/replay/${encodeURIComponent(replayPair.name)}`);
+  replaySource = source;
+  source.addEventListener('log', message => { try { const payload = JSON.parse(message.data); receive(payload.side, payload.event); } catch { source.close(); fail('The recording contains an invalid event.'); } });
+  source.addEventListener('complete', () => { source.close(); if (!(states.left.finished && states.right.finished)) fail('The recording ended before final totals.'); });
+  source.addEventListener('stream_error', () => { source.close(); fail('The recorded stream was interrupted.'); });
+  source.onerror = () => { source.close(); if (active) fail('The recording disconnected. You can replay it or run a question.'); };
+}
+$('#replay-button').addEventListener('click', playReplay);
+$('#stop-button').addEventListener('click', () => { closeConnections(); fail('Stopped. The received events are still available to export.'); });
+
+async function consumeStream(response) {
+  if (!response.body) throw new Error('Streaming is unavailable in this browser.');
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let pending = '';
+  while (true) {
+    const {done,value} = await reader.read();
+    if (done) break;
+    pending += decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n');
+    let end;
+    while ((end = pending.indexOf('\n\n')) >= 0) {
+      const block = pending.slice(0,end); pending = pending.slice(end+2);
+      const kind = block.split('\n').find(line=>line.startsWith('event:'))?.slice(6).trim();
+      const raw = block.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+      if (!raw) continue;
+      const payload = JSON.parse(raw);
+      if (kind === 'log') receive(payload.side,payload.event);
+      if (kind === 'stream_error') fail(payload.message || 'One agent stopped.',payload.side);
+    }
+  }
+  if (!(states.left.finished && states.right.finished)) throw new Error('The connection ended before both agents recorded final totals.');
+}
 $('#race-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  if (active) return;
-  const question = $('#question').value.trim();
-  if (!question) { notify('Enter a question first.'); return; }
-  const left = elements.left.querySelector('.setup').value;
-  const right = elements.right.querySelector('.setup').value;
-  reset(left, right);
-  const current = generation;
-  $('#mode').textContent = 'Live run';
-  $('#mode').classList.remove('recording');
+  event.preventDefault(); if (active || !liveAvailable) return;
+  const question = $('#question').value.trim(); if (!question) return;
+  autoplayDone = true; reset('live'); notify('Both agents are searching. Every counter comes from the event log.');
+  const abort = new AbortController(); controller = abort;
   try {
-    const response = await fetch('/race', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, left, right})});
-    const data = await response.json();
-    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'The question could not be submitted.');
-    if (current !== generation) return;
-    connect(`/stream/${encodeURIComponent(data.left_run_id)}`, ['left']);
-    connect(`/stream/${encodeURIComponent(data.right_run_id)}`, ['right']);
-  } catch (error) { notify(error.message); setActive(false); }
+    const response = await fetch('/race-stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,left:'single',right:'second_opinion'}),signal:abort.signal});
+    if (!response.ok) { const error = await response.json(); throw new Error(typeof error.detail === 'string' ? error.detail : 'The race could not start.'); }
+    await consumeStream(response);
+  } catch(error) { if (error.name !== 'AbortError') fail(error.message); }
+});
+$('#export-audit').addEventListener('click', () => {
+  const data = {product:'Backstop',mode:$('#race-mode').textContent,question:$('#question').value,left:states.left.events,right:states.right.events};
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)+'\n'],{type:'application/json'}));
+  const anchor = element('a'); anchor.href=url; anchor.download='backstop-race-audit.json';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 
-$('#replay').addEventListener('change', () => { $('#play').disabled = active || !$('#replay').value; });
-$('#play').addEventListener('click', () => {
-  const pair = replayPairs.find(item => item.name === $('#replay').value);
-  if (!pair || active) return;
-  reset(pair.left, pair.right);
-  $('#question').value = pair.question;
-  $('#mode').textContent = pair.fixture ? 'Fixture replay · synthetic demonstration' : 'Replay of a live run';
-  $('#mode').classList.add('recording');
-  connect(`/replay/${encodeURIComponent(pair.name)}`, ['left', 'right'], true);
-});
-
-async function loadReplays() {
+function svgNode(tag, attributes={}, text) { const node=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attributes).forEach(([k,v])=>node.setAttribute(k,v));if(text!==undefined)node.textContent=text;return node; }
+function drawFrontier(results) {
+  const points=Object.entries(results.setups).filter(([key])=>names[key]).map(([key,value])=>({key,name:names[key],accuracy:value.accuracy,cost:value.cost_per_q_total}));
+  const max=Math.max(...points.map(p=>p.cost),.001)*1.2, x=v=>85+v/max*790,y=v=>260-v*220;
+  const svg=svgNode('svg',{viewBox:'0 0 1000 320',role:'img','aria-label':`Measured answer accuracy versus total cost per question. ${results.n_test} held-out questions per setup.`});
+  for(let i=0;i<=4;i++) {const gy=y(i/4);svg.append(svgNode('line',{x1:85,x2:950,y1:gy,y2:gy,stroke:'#d0d0c4'}),svgNode('text',{x:67,y:gy+4,'text-anchor':'end'},`${i*25}%`),svgNode('text',{x:x(max*i/4),y:284,'text-anchor':'middle'},`$${(max*i/4).toFixed(3)}`));}
+  const frontier=efficientFrontier(points);
+  if(frontier.length>1) svg.append(svgNode('polyline',{points:frontier.map(p=>`${x(p.cost)},${y(p.accuracy)}`).join(' '),fill:'none',stroke:'#555c49','stroke-width':1.5}));
+  points.forEach((p,i)=>{const circle=svgNode('circle',{cx:x(p.cost),cy:y(p.accuracy),r:p.key==='second_opinion'?7:5,fill:p.key==='second_opinion'?'#a3432c':'#696f5d'});circle.append(svgNode('title',{},`${p.name}: ${(p.accuracy*100).toFixed(1)}% accuracy, $${p.cost.toFixed(4)}, n=${results.n_test}`));svg.append(circle);const offset=p.key==='second_opinion'?-16:18+i*5;svg.append(svgNode('text',{x:x(p.cost)+12,y:y(p.accuracy)+offset,class:'chart-label'},p.name));});
+  svg.append(svgNode('text',{x:510,y:313,'text-anchor':'middle'},'Total cost per question (search + page reads + model calls)'),svgNode('text',{transform:'translate(24 150) rotate(-90)','text-anchor':'middle'},'Answer accuracy'));
+  $('#frontier-chart').replaceChildren(svg);$('#chart-note').textContent=`Observed frontier · n = ${results.n_test} per setup`;
+}
+function metric(selector, value, unit='') { const node=$(selector);node.replaceChildren(document.createTextNode(value));if(unit)node.append(element('small','',unit)); }
+const emptyProof = $('.proof-numbers').innerHTML, emptyFrontier = $('#frontier-chart').innerHTML;
+function renderProof(results) {
+  const p=proofMetrics(results);
+  if(!p){$('.proof-numbers').innerHTML=emptyProof;$('#frontier-chart').innerHTML=emptyFrontier;$('#chart-note').textContent='Measured points appear when the evaluation is complete.';return;}
+  if(p.wrong===null){metric('#wrong-value',String(p.ours.wrong));$('#wrong-label').textContent='Wrong answers';}
+  else {metric('#wrong-value',Math.abs(p.wrong).toFixed(1),'%');$('#wrong-label').textContent=p.wrong>=0?'Wrong answers cut':'More wrong answers';}
+  $('#wrong-count').textContent=`${p.single.wrong} → ${p.ours.wrong} wrong · n = ${p.n} per setup`;
+  metric('#accuracy-value',Math.abs(p.accuracy).toFixed(1),'pp');
+  $('#accuracy-label').textContent=Math.abs(p.accuracy)<.005?'Accuracy tied with Telem default':p.accuracy>0?'Accuracy above Telem default':'Accuracy below Telem default';
+  $('#accuracy-count').textContent=`${p.baseline.correct} → ${p.ours.correct} correct · n = ${p.n}`;
+  if(p.cost!==null){metric('#cost-value',Math.abs(p.cost).toFixed(1),'%');$('#cost-label').textContent=p.cost>=0?'Lower total cost':'Higher total cost';}
+  $('#cost-count').textContent=`$${p.baseline.cost_per_q_total.toFixed(4)} → $${p.ours.cost_per_q_total.toFixed(4)} · n = ${p.n}`;
+  drawFrontier(results);
+}
+async function loadPresentation() {
   try {
-    const response = await fetch('/replays');
-    if (!response.ok) throw new Error('Replays could not be loaded.');
-    replayPairs = await response.json();
-    for (const pair of replayPairs) {
-      const option = element('option', '', `${pair.fixture ? 'Fixture: ' : ''}${pair.title}`);
-      option.value = pair.name;
-      $('#replay').append(option);
-    }
-  } catch (error) { notify(error.message); }
+    const response=await fetch('/presentation',{cache:'no-store'});if(!response.ok)throw new Error();const data=await response.json();
+    firstEngine=data.first_engine||'tavily';liveAvailable=data.live_available===true;
+    if(data.miss){metric('#miss-number',(data.miss.rate*100).toFixed(1),'%');$('#miss-count').textContent=`${data.miss.misses} / ${data.miss.n} held-out ${data.miss.engine} searches · answer absent from top five results`;}
+    $('#proof-status').textContent=data.status;renderProof(data.results);if(!active)setActive(false);
+  } catch {$('#proof-status').textContent='Results unavailable · reconnect to load the artifacts';}
 }
-
-function svgNode(tag, attributes = {}, text) {
-  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
-  if (text !== undefined) node.textContent = text;
-  return node;
+function maybeAutoplay(){if(ready&&raceVisible&&!autoplayDone&&replayPair&&!replayPair.fixture)playReplay();}
+new IntersectionObserver(entries=>{raceVisible=entries[0].isIntersecting;maybeAutoplay();},{threshold:.2}).observe($('#race'));
+async function initialize(){
+  await loadPresentation();
+  try{const response=await fetch('/replays');if(!response.ok)throw new Error();const pairs=await response.json();replayPair=pairs.find(p=>!p.fixture&&p.name.includes('golden'))||pairs.find(p=>!p.fixture)||pairs[0]||null;
+    if(replayPair){$('#question').value=replayPair.question;$('#race-mode').textContent=replayPair.fixture?'Synthetic fixture available':'Replay of a live run';}
+    else{$('#race-mode').textContent=liveAvailable?'Ready for a live question':'Live server not configured';notify(liveAvailable?'Enter a question to run both agents. A golden recording is not available yet.':'A recorded golden run will appear here when available.');}
+  }catch{$('#race-mode').textContent='Live server unavailable';notify('Connect the race server to run questions or replay a recording.');}
+  ready=true;setActive(false);maybeAutoplay();
 }
+initialize();setInterval(()=>{if(!document.hidden)loadPresentation();},30000);
 
-function drawFrontier(frontier) {
-  const container = $('#frontier');
-  container.replaceChildren();
-  if (!frontier?.points.length) { container.append(element('p', 'chart-empty', 'The held-out frontier has not been published yet.')); return; }
-  const chart = svgNode('svg', {viewBox: '0 0 760 285', role: 'img', 'aria-label': 'Held-out search coverage versus cost per question'});
-  const points = frontier.points;
-  const maxCost = Math.max(...points.map(point => point.cost_per_q), 0.001) * 1.12;
-  const colors = {combo: 'var(--muted)', telem_default: 'var(--amber)', second_opinion: 'var(--accent)'};
-  for (let i = 0; i <= 4; i++) {
-    const y = 225 - i * 49;
-    chart.append(svgNode('line', {x1: 75, x2: 725, y1: y, y2: y, stroke: 'var(--line)'}));
-    chart.append(svgNode('text', {x: 65, y: y + 4, 'text-anchor': 'end'}, `${i * 25}%`));
-    const x = 75 + i * 162.5;
-    chart.append(svgNode('text', {x, y: 246, 'text-anchor': 'middle'}, `$${(maxCost * i / 4).toFixed(3)}`));
+// The diagram is the only decorative motion. Tokens follow the actual branch paths.
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+let diagramVisible=false,diagramPaused=reduced.matches,frame=0,start=null;
+const mobileParticles = Array.from({length: 5}, () => { const dot = element('i','mobile-particle'); dot.setAttribute('aria-hidden','true'); $('.diagram-mobile').append(dot); return dot; });
+const tracks=[['query',0,1.4],['engine',1.4,2.8],['hit',2.8,4.7],['rescue',2.8,4.7],['stop',2.8,4.7]].map(([name,from,to])=>({dot:$(`.${name}-dot`),path:$(`#${name}-track`),from,to}));
+function animateDiagram(now){
+  if(!diagramVisible||diagramPaused){frame=0;return;}start??=now;const t=((now-start)/1000)%5.8;
+  tracks.forEach(({dot,path,from,to})=>{const running=t>=from&&t<=to;dot.style.opacity=running?'1':'0';if(running){const point=path.getPointAtLength(path.getTotalLength()*(t-from)/(to-from));dot.setAttribute('cx',point.x);dot.setAttribute('cy',point.y);}});
+  if (innerWidth <= 540) {
+    const container = $('.diagram-mobile').getBoundingClientRect();
+    const nodes = [$('.mobile-route > span'), ...document.querySelectorAll('.mobile-route strong'), ...document.querySelectorAll('.mobile-paths > div')].map(el => el.getBoundingClientRect());
+    const routes = [[0,1],[1,2],[2,3],[2,4],[2,5]];
+    tracks.forEach(({from,to},i) => { const dot=mobileParticles[i], running=t>=from&&t<=to;dot.style.opacity=running?'1':'0';if(running){const a=nodes[routes[i][0]],b=nodes[routes[i][1]],progress=(t-from)/(to-from);const ax=a.left+a.width/2-container.left,ay=a.bottom-container.top+4,bx=b.left+b.width/2-container.left,by=b.top-container.top-4;dot.style.left=`${ax+(bx-ax)*progress}px`;dot.style.top=`${ay+(by-ay)*progress}px`;} });
   }
-  chart.append(svgNode('text', {x: 400, y: 275, 'text-anchor': 'middle'}, 'Cost per question (USD)'));
-  chart.append(svgNode('text', {transform: 'translate(17 127) rotate(-90)', 'text-anchor': 'middle'}, 'Answer found in results'));
-  for (const point of points) {
-    const name = point.kind === 'combo' ? point.engines.join(' + ') : SETUPS[point.kind].name;
-    const dot = svgNode('circle', {cx: 75 + point.cost_per_q / maxCost * 650, cy: 225 - point.coverage * 196,
-      r: point.kind === 'combo' ? 5 : 8, fill: colors[point.kind], opacity: point.kind === 'combo' ? .55 : 1, tabindex: 0});
-    const label = `${name}: ${(point.coverage * 100).toFixed(1)}% coverage, $${point.cost_per_q.toFixed(4)} per question`;
-    dot.setAttribute('aria-label', label);
-    dot.append(svgNode('title', {}, label));
-    chart.append(dot);
-  }
-  container.append(chart);
-  const legend = element('div', 'chart-legend');
-  for (const [kind, label] of Object.entries({combo: 'Engine combinations', telem_default: 'Telem default', second_opinion: 'Second Opinion'})) {
-    const item = element('span');
-    const dot = element('span', 'legend-dot');
-    dot.style.background = colors[kind];
-    item.append(dot, document.createTextNode(label));
-    legend.append(item);
-  }
-  container.append(legend);
+  frame=requestAnimationFrame(animateDiagram);
 }
+function diagramButton(){ $('#diagram-play').textContent=diagramPaused?'Play diagram ▷':'Pause diagram Ⅱ';$('#diagram-play').setAttribute('aria-pressed',String(diagramPaused)); }
+$('#diagram-play').addEventListener('click',()=>{diagramPaused=!diagramPaused;diagramButton();if(!diagramPaused&&!frame)frame=requestAnimationFrame(animateDiagram);});
+new IntersectionObserver(entries=>{diagramVisible=entries[0].isIntersecting;if(diagramVisible&&!diagramPaused&&!frame)frame=requestAnimationFrame(animateDiagram);},{threshold:.2}).observe($('#mechanism'));
+reduced.addEventListener('change',()=>{diagramPaused=reduced.matches;diagramButton();if(!diagramPaused&&!frame)frame=requestAnimationFrame(animateDiagram);});diagramButton();
 
-async function loadResults() {
-  const notice = $('#results-notice');
-  notice.hidden = false;
-  notice.textContent = 'Loading held-out results…';
-  try {
-    const response = await fetch('/results');
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || 'Results could not be loaded.');
-    const results = payload.results;
-    $('#results-content').replaceChildren();
-    $('#result-counts').textContent = results ? `${results.n_test} held-out questions · ${results.n_traps} traps reported separately · Updated ${results.generated_at}` : 'No evaluation counts available yet.';
-    notice.hidden = Boolean(results);
-    notice.textContent = 'Evaluation results have not been published yet. Replay fixtures are demonstrations, not measured results.';
-    if (results) {
-      const metrics = [
-        ['Correct', row => row.correct], ['Wrong', row => row.wrong], ['Declined', row => row.declined],
-        ['Accuracy', row => `${(row.accuracy * 100).toFixed(1)}%`], ['Wrong rate', row => `${(row.wrong_rate * 100).toFixed(1)}%`],
-        ['Engines / Q', row => row.engine_calls_per_q.toFixed(2)], ['Search $ / Q', row => `$${row.cost_per_q_search.toFixed(4)}`],
-        ['Total $ / Q', row => `$${row.cost_per_q_total.toFixed(4)}`], ['Cost / correct', row => row.cost_per_correct == null ? 'n/a' : `$${row.cost_per_correct.toFixed(4)}`],
-        ['Cost / search', row => row.cost_per_search_call == null ? 'n/a' : `$${row.cost_per_search_call.toFixed(4)}`],
-        ['P50 time', row => `${(row.latency_p50_ms / 1000).toFixed(1)}s`], ['P95 time', row => `${(row.latency_p95_ms / 1000).toFixed(1)}s`],
-        ['Trap confident wrong', row => `${row.trap_confident_wrong} / ${row.trap_n}`],
-      ];
-      const table = element('table');
-      const head = element('thead');
-      const headings = element('tr');
-      ['Setup', ...metrics.map(([label]) => label)].forEach(label => headings.append(element('th', '', label)));
-      head.append(headings);
-      const body = element('tbody');
-      for (const [setup, row] of Object.entries(results.setups)) {
-        const line = element('tr', setup === 'second_opinion' ? 'highlight' : '');
-        line.append(element('td', '', SETUPS[setup].name));
-        metrics.forEach(([, format]) => line.append(element('td', '', format(row))));
-        body.append(line);
-      }
-      table.append(head, body);
-      const wrap = element('div', 'table-wrap');
-      wrap.append(table);
-      $('#results-content').append(wrap);
-    }
-    drawFrontier(payload.frontier);
-  } catch (error) { notice.hidden = false; notice.textContent = error.message; }
-}
-
-for (const view of ['race', 'results']) {
-  $(`#${view}-tab`).addEventListener('click', () => {
-    for (const candidate of ['race', 'results']) {
-      $(`#${candidate}-view`).hidden = candidate !== view;
-      $(`#${candidate}-tab`).classList.toggle('active', candidate === view);
-      if (candidate === view) $(`#${candidate}-tab`).setAttribute('aria-current', 'page');
-      else $(`#${candidate}-tab`).removeAttribute('aria-current');
-    }
-    if (view === 'results') loadResults();
-  });
-}
-$('#refresh-results').addEventListener('click', loadResults);
-
-function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  $('#theme').textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
-}
-let savedTheme;
-try { savedTheme = localStorage.getItem('second-opinion-theme'); } catch { /* Storage is optional. */ }
-setTheme(savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-$('#theme').addEventListener('click', () => {
-  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  setTheme(theme);
-  try { localStorage.setItem('second-opinion-theme', theme); } catch { /* Storage is optional. */ }
-});
-async function initialize() {
-  $('#run').disabled = true;
-  try {
-    const response = await fetch('/config');
-    if (!response.ok) throw new Error('Server settings could not be loaded. Reload after checking the server.');
-    const settings = await response.json();
-    firstEngine = settings.first_engine;
-    $('#question').maxLength = settings.max_question_chars;
-    const engineName = firstEngine.charAt(0).toUpperCase() + firstEngine.slice(1);
-    $('#engine-note').textContent = `${engineName} first. Evidence at every step.`;
-    SETUPS.single.description = `${engineName} through Telem. No result check.`;
-    SETUPS.second_opinion.description = `${engineName} first. Check the evidence. Rescue a miss.`;
-    for (const side of ['left', 'right']) { states[side].firstEngine = firstEngine; render(side); }
-    $('#run').disabled = false;
-    await loadReplays();
-  } catch (error) { notify(error.message); }
-}
-initialize();
+// A fresh commit link keeps the pitch connected to the team's ongoing work.
+fetch('https://api.github.com/repos/oliverrowebardeen/backstop/commits?sha=main&per_page=1',{signal:AbortSignal.timeout(5000)}).then(r=>r.ok?r.json():[]).then(([commit])=>{if(/^[a-f0-9]{40}$/.test(commit?.sha)){$('#build-link').textContent=`Build ${commit.sha.slice(0,7)} ↗`;$('#build-link').href=`https://github.com/oliverrowebardeen/backstop/commit/${commit.sha}`;}}).catch(()=>{});

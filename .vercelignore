@@ -1,0 +1,12 @@
+.env
+.env.*
+.venv
+cache
+out/logs
+tests
+.git
+.paradev
+SHARED_CONTEXT.md
+OLIVER.md
+SHIKHAR.md
+REVIEW.md

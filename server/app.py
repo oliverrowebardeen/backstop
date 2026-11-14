@@ -163,7 +163,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    app = FastAPI(title="Second Opinion", lifespan=lifespan)
+    app = FastAPI(title="Backstop", lifespan=lifespan)
     app.mount("/ui", StaticFiles(directory=settings.ui_dir), name="ui")
 
     @app.get("/")
@@ -345,6 +345,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                     raise HTTPException(503, f"The {name} artifact is not ready to display.") from None
         return output
 
+    from server.presentation import install_presentation
+    install_presentation(app, settings, runner)
     return app
 
 

@@ -1,7 +1,7 @@
 export const SETUPS = {
   single: {name: 'Single engine', description: 'One engine through Telem. No result check.'},
   telem_default: {name: 'Telem default', description: 'Telem accuracy routing across multiple engines.'},
-  second_opinion: {name: 'Second Opinion', description: 'Check the evidence. Rescue a miss.'},
+  second_opinion: {name: 'Backstop', description: 'Check the evidence. Rescue a miss.'},
 };
 
 export const VERDICTS = {
