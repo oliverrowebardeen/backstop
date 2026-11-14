@@ -55,6 +55,26 @@ async def test_search_uses_order_after_routed_engine(query, expected, routed_sea
     assert [event["data"]["engine"] for event in outcome.trace if event["type"] == "rescue"] == expected[1:]
 
 
+@pytest.mark.first_engine_routing
+async def test_routed_search_loads_rescue_order_for_selected_engine(routed_search, monkeypatch):
+    table = RescueTable(order_after={"exa": ["tavily"]}, fallback_order=["perplexity"])
+    config.RESCUE_TABLE_PATH.write_text(table.model_dump_json(), encoding="utf-8")
+    fake = Retrieval(hit="tavily")
+    monkeypatch.setattr(second_opinion, "_check", fake.check)
+
+    outcome = await second_opinion.search(
+        "What was the annual revenue?", "Find revenue evidence", routed_search, engine_search=fake.search,
+    )
+
+    assert config.FIRST_ENGINE_ROUTING == "on"
+    assert outcome.status == "HIT"
+    assert [call["engine"] for call in fake.calls] == ["exa", "tavily"]
+    assert outcome.engines_called == ["exa", "tavily"]
+    rescue, = [event["data"] for event in outcome.trace if event["type"] == "rescue"]
+    assert rescue["engine"] == table.order_after["exa"][0]
+    assert rescue["engine"] != table.fallback_order[0]
+
+
 async def test_missing_order_uses_fallback_and_never_repeats_engine(routed_search, monkeypatch):
     table = RescueTable(fallback_order=["perplexity", "tavily", "exa", "tavily"])
     monkeypatch.setattr(second_opinion, "load_rescue_table", lambda: table)
