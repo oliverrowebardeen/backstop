@@ -16,6 +16,7 @@ import random
 import textwrap
 
 from data.load import load_all
+from evals.contamination import filter_results
 from evals.deps import OUT
 from evals.matrix import MATRIX, RESULTS, _read_jsonl
 
@@ -25,7 +26,8 @@ SEED = 14
 
 
 def _sample() -> list[dict]:
-    rows = [r for r in _read_jsonl(MATRIX) if not r["question_id"].startswith("trap-")]
+    rows = [r for r in _read_jsonl(MATRIX)
+            if not r["question_id"].startswith("trap-") and not r.get("engine_error")]
     rng = random.Random(SEED)
     hits = [r for r in rows if r["hit"]]
     misses = [r for r in rows if not r["hit"]]
@@ -37,33 +39,39 @@ def _sample() -> list[dict]:
     return sample
 
 
-def _load_state() -> dict:
+def _load_state(labeler: str) -> dict:
     if AGREEMENT.exists():
-        return json.loads(AGREEMENT.read_text())
-    return {"n_checked": 0, "agree": 0, "labels": []}
+        state = json.loads(AGREEMENT.read_text())
+        if state.get("labeler", labeler) != labeler:
+            raise SystemExit(f"{AGREEMENT} was labelled by {state['labeler']!r}; "
+                             f"move it aside before labelling as {labeler!r}.")
+        return state
+    return {"n_checked": 0, "agree": 0, "labeler": labeler, "labels": []}
 
 
 def _save(state: dict) -> None:
     labels = state["labels"]
     state["n_checked"] = len(labels)
-    state["agree"] = sum(1 for l in labels if l["human_hit"] == l["judge_hit"])
+    state["agree"] = sum(1 for l in labels if l["labeler_hit"] == l["judge_hit"])
     state["agreement_rate"] = round(state["agree"] / state["n_checked"], 3) if labels else None
     AGREEMENT.write_text(json.dumps(state, indent=2))
 
 
 def report(state: dict) -> None:
     n, a = state["n_checked"], state["agree"]
-    print(f"judge agreement: {a}/{n}" + (f" = {a / n:.0%}" if n else ""))
-    fp = sum(1 for l in state["labels"] if l["judge_hit"] and not l["human_hit"])
-    fn = sum(1 for l in state["labels"] if not l["judge_hit"] and l["human_hit"])
-    print(f"  judge said hit, human said miss: {fp}\n  judge said miss, human said hit: {fn}")
+    print(f"judge agreement ({state.get('labeler', 'human')}): {a}/{n}" + (f" = {a / n:.0%}" if n else ""))
+    fp = sum(1 for l in state["labels"] if l["judge_hit"] and not l["labeler_hit"])
+    fn = sum(1 for l in state["labels"] if not l["judge_hit"] and l["labeler_hit"])
+    print(f"  judge said hit, labeler said miss: {fp}\n  judge said miss, labeler said hit: {fn}")
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--report", action="store_true")
+    p.add_argument("--labeler", default="human",
+                   help='who labels: "human" (default) or e.g. "model:claude-opus-5-5"; stored in the output')
     a = p.parse_args()
-    state = _load_state()
+    state = _load_state(a.labeler)
     if a.report:
         report(state)
         return
@@ -79,7 +87,8 @@ def main() -> None:
         print(textwrap.fill("QUESTION: " + q.question, 78))
         print("GOLD:     " + " | ".join(q.gold))
         print("-" * 78)
-        for j, r in enumerate(results.get((q.id, row["engine"]), []), 1):
+        shown, _ = filter_results(q.question, results.get((q.id, row["engine"]), []))  # what the judge saw
+        for j, r in enumerate(shown, 1):
             print(textwrap.fill(f"[{j}] {r.get('title') or ''}", 78))
             print(textwrap.indent(textwrap.fill(r.get("snippet") or "", 74), "    "))
         print("-" * 78)
@@ -92,7 +101,7 @@ def main() -> None:
         if ans == "s":
             continue
         state["labels"].append({"question_id": q.id, "engine": row["engine"],
-                                "judge_hit": bool(row["hit"]), "human_hit": ans == "y"})
+                                "judge_hit": bool(row["hit"]), "labeler_hit": ans == "y"})
         _save(state)
     _save(state)
     report(state)

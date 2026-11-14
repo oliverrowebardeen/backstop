@@ -40,8 +40,9 @@ def response(*calls, text="", cost=0.01):
                        model="same-agent", tokens_in=20, tokens_out=10)
 
 
-def search_call(index=1):
-    return ToolCall(id=f"s{index}", name="search", arguments={"query": "CEO", "goal": "Find current CEO"})
+def search_call(index=1, *, query=None):
+    return ToolCall(id=f"s{index}", name="search",
+                    arguments={"query": f"CEO {index}" if query is None else query, "goal": "Find current CEO"})
 
 
 def final_response():
@@ -277,3 +278,75 @@ async def test_configured_search_limit_and_log_directory(question, wrappers, tmp
     assert answer.searches == wrappers.pinned.await_count == 2
     assert "at most 2 times" in wrappers.complete.await_args.args[1]
     assert len(list(tmp_path.glob("*.jsonl"))) == 1
+
+
+@pytest.mark.parametrize("setup,engine_calls,cost", [
+    ("single", 1, .005), ("telem_default", 3, .015), ("second_opinion", 1, .005),
+])
+async def test_exact_query_reuse_preserves_outcome_without_new_cost(
+        question, wrappers, tmp_path, monkeypatch, setup, engine_calls, cost):
+    from so import checker
+
+    check = AsyncMock(return_value=checker.CheckedVerdict(
+        verdict="HIT", confidence=1, why="The answer is present.", evidence_rank=1,
+        best_url=URL, model="test-checker", cost_usd=.003, latency_ms=100,
+    ))
+    monkeypatch.setattr(checker, "check", check)
+    monkeypatch.setattr(config, "AGENT_MAX_SEARCHES", 1)
+    repeat = search_call(2, query="CEO 1")
+    repeat.arguments["goal"] = "Verify a different detail"
+    wrappers.complete.side_effect = [response(search_call()), response(repeat), final_response()]
+
+    answer = await agent.run_question(question, setup, log_dir=tmp_path)
+
+    assert answer.searches == 1
+    wrapper = wrappers.default if setup == "telem_default" else wrappers.pinned
+    assert wrapper.await_count == 1
+    assert check.await_count == (1 if setup == "second_opinion" else 0)
+    replies = [json.loads(message["content"]) for message in wrappers.complete.await_args.args[2]
+               if message["role"] == "tool"]
+    original, reused = replies
+    assert "already ran this exact query" in reused["note"]
+    assert "Find current CEO" in reused["note"]
+    assert reused["note"].endswith(original["note"])
+    assert "already ran" not in original["note"]
+    assert {key: value for key, value in reused.items() if key != "note"} == {
+        key: value for key, value in original.items() if key != "note"}
+    log = events(tmp_path)
+    assert sum(event["type"] == "search_done" for event in log) == 1
+    totals = log[-1]["data"]
+    assert totals["engine_calls"] == engine_calls and totals["searches"] == 1
+    assert totals["cost_usd_search"] == pytest.approx(cost)
+    assert totals["cost_usd_llm"] == pytest.approx(.033 if setup == "second_opinion" else .03)
+    assert all(call.args[1] == Path(config.AGENT_PROMPT_PATH).read_text().replace("{{max_searches}}", "1")
+               for call in wrappers.complete.await_args_list)
+
+
+async def test_query_reuse_is_exact_and_handles_same_turn_duplicates(question, wrappers, tmp_path):
+    queries = ["CEO", "ceo", "CEO ", "CEO"]
+    wrappers.complete.side_effect = [response(*(search_call(i, query=query) for i, query in enumerate(queries))),
+                                       final_response()]
+    answer = await agent.run_question(question, "single", log_dir=tmp_path)
+    assert answer.searches == wrappers.pinned.await_count == 3
+    assert [call.args[0] for call in wrappers.pinned.await_args_list] == queries[:3]
+
+
+async def test_previous_searches_are_scoped_to_one_run(question, wrappers, tmp_path):
+    wrappers.complete.side_effect = [response(search_call()), final_response()] * 2
+    first = await agent.run_question(question, "single", log_dir=tmp_path)
+    second = await agent.run_question(question, "single", log_dir=tmp_path)
+    assert first.searches == second.searches == 1
+    assert wrappers.pinned.await_count == 2
+    assert len(list(tmp_path.glob("*.jsonl"))) == 2
+
+
+async def test_not_found_outcome_is_also_reused(question, wrappers, tmp_path, monkeypatch):
+    search = AsyncMock(return_value=SearchOutcome(status="NOT_FOUND", note="No evidence found.", calls=3))
+    monkeypatch.setattr(agent, "get_search_tool", lambda setup: search)
+    wrappers.complete.side_effect = [response(search_call(), search_call(2, query="CEO 1")),
+                                       response(text="NOT FOUND")]
+    answer = await agent.run_question(question, "single", log_dir=tmp_path)
+    assert answer.searches == search.await_count == 1
+    reused = json.loads(wrappers.complete.await_args.args[2][-1]["content"])
+    assert reused["status"] == "NOT_FOUND" and reused["calls"] == 3
+    assert reused["note"].endswith("No evidence found.")

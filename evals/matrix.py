@@ -127,7 +127,7 @@ async def _default_for_question(q) -> None:
     })
 
 
-async def run(limit: int | None, concurrency: int, skip_default: bool) -> None:
+async def run(limit: int | None, concurrency: int, skip_default: bool, record_errors: bool = False) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     qs = load_all()
     if limit:
@@ -160,14 +160,25 @@ async def run(limit: int | None, concurrency: int, skip_default: bool) -> None:
                     raise
                 SPEND["errors"] += 1
                 print(f"  ! {q.id}: {name}: {e}", file=sys.stderr)
+                if record_errors:
+                    # A persistent engine failure is a miss with zero results; say why.
+                    for engine in missing:
+                        await _append(MATRIX, {
+                            "question_id": q.id, "engine": engine, "hit": False, "hit_rank": None,
+                            "judge_reason": f"engine error after retries: {name}: {str(e)[:160]}",
+                            "n_contaminated": 0, "n_results": 0, "latency_ms": 0, "cost_usd": 0,
+                            "engine_error": True})
             done += 1
             if done % 5 == 0 or done == len(todo):
                 print(_spend_line(done, len(todo), t0), flush=True)
 
     await asyncio.gather(*(one(*t) for t in todo))
     print("done. " + _spend_line(done, len(todo), t0))
-    if SPEND["errors"]:
-        print(f"{SPEND['errors']} engine errors were not written. Re-run to retry them.")
+    if SPEND["errors"] and record_errors:
+        print(f"{SPEND['errors']} engine errors recorded as zero-result misses (engine_error: true).")
+    elif SPEND["errors"]:
+        print(f"{SPEND['errors']} engine errors were not written. Re-run to retry them, "
+              "or pass --record-errors if the engine fails persistently.")
 
 
 async def rejudge(concurrency: int) -> None:
@@ -182,6 +193,8 @@ async def rejudge(concurrency: int) -> None:
 
     async def redo(row):
         async with sem:
+            if row.get("engine_error"):
+                return row  # no results were ever returned; nothing to rejudge
             results = stored.get((row["question_id"], row["engine"]))
             if results is None:
                 raise RuntimeError(f"no stored results for {row['question_id']} {row['engine']}")
@@ -238,6 +251,8 @@ def main() -> None:
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--no-default", action="store_true", help="skip the Telem default pass")
     p.add_argument("--top-k", type=int, default=TOP_K, help="results judged per engine")
+    p.add_argument("--record-errors", action="store_true",
+                   help="write persistent engine failures as zero-result misses (flagged engine_error)")
     a = p.parse_args()
     globals()["TOP_K"] = a.top_k
     if a.summary:
@@ -246,7 +261,7 @@ def main() -> None:
     if a.rejudge:
         asyncio.run(rejudge(a.concurrency))
         return
-    asyncio.run(run(a.limit, a.concurrency, a.no_default))
+    asyncio.run(run(a.limit, a.concurrency, a.no_default, a.record_errors))
 
 
 if __name__ == "__main__":

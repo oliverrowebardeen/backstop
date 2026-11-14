@@ -1,0 +1,227 @@
+{
+  "built_on_split": "learn",
+  "n_questions": 100,
+  "miss_counts": {
+    "tavily": 30,
+    "exa": 20,
+    "brave": 30,
+    "perplexity": 22,
+    "parallel": 26,
+    "ceramic": 98
+  },
+  "rescue": {
+    "tavily": {
+      "exa": {
+        "rescued": 15,
+        "misses": 30,
+        "rate": 0.5
+      },
+      "brave": {
+        "rescued": 12,
+        "misses": 30,
+        "rate": 0.4
+      },
+      "perplexity": {
+        "rescued": 13,
+        "misses": 30,
+        "rate": 0.4333
+      },
+      "parallel": {
+        "rescued": 13,
+        "misses": 30,
+        "rate": 0.4333
+      },
+      "ceramic": {
+        "rescued": 0,
+        "misses": 30,
+        "rate": 0.0
+      }
+    },
+    "exa": {
+      "tavily": {
+        "rescued": 5,
+        "misses": 20,
+        "rate": 0.25
+      },
+      "brave": {
+        "rescued": 4,
+        "misses": 20,
+        "rate": 0.2
+      },
+      "perplexity": {
+        "rescued": 6,
+        "misses": 20,
+        "rate": 0.3
+      },
+      "parallel": {
+        "rescued": 6,
+        "misses": 20,
+        "rate": 0.3
+      },
+      "ceramic": {
+        "rescued": 0,
+        "misses": 20,
+        "rate": 0.0
+      }
+    },
+    "brave": {
+      "tavily": {
+        "rescued": 12,
+        "misses": 30,
+        "rate": 0.4
+      },
+      "exa": {
+        "rescued": 14,
+        "misses": 30,
+        "rate": 0.4667
+      },
+      "perplexity": {
+        "rescued": 12,
+        "misses": 30,
+        "rate": 0.4
+      },
+      "parallel": {
+        "rescued": 12,
+        "misses": 30,
+        "rate": 0.4
+      },
+      "ceramic": {
+        "rescued": 0,
+        "misses": 30,
+        "rate": 0.0
+      }
+    },
+    "perplexity": {
+      "tavily": {
+        "rescued": 5,
+        "misses": 22,
+        "rate": 0.2273
+      },
+      "exa": {
+        "rescued": 8,
+        "misses": 22,
+        "rate": 0.3636
+      },
+      "brave": {
+        "rescued": 4,
+        "misses": 22,
+        "rate": 0.1818
+      },
+      "parallel": {
+        "rescued": 4,
+        "misses": 22,
+        "rate": 0.1818
+      },
+      "ceramic": {
+        "rescued": 0,
+        "misses": 22,
+        "rate": 0.0
+      }
+    },
+    "parallel": {
+      "tavily": {
+        "rescued": 9,
+        "misses": 26,
+        "rate": 0.3462
+      },
+      "exa": {
+        "rescued": 12,
+        "misses": 26,
+        "rate": 0.4615
+      },
+      "brave": {
+        "rescued": 8,
+        "misses": 26,
+        "rate": 0.3077
+      },
+      "perplexity": {
+        "rescued": 8,
+        "misses": 26,
+        "rate": 0.3077
+      },
+      "ceramic": {
+        "rescued": 0,
+        "misses": 26,
+        "rate": 0.0
+      }
+    },
+    "ceramic": {
+      "tavily": {
+        "rescued": 68,
+        "misses": 98,
+        "rate": 0.6939
+      },
+      "exa": {
+        "rescued": 78,
+        "misses": 98,
+        "rate": 0.7959
+      },
+      "brave": {
+        "rescued": 68,
+        "misses": 98,
+        "rate": 0.6939
+      },
+      "perplexity": {
+        "rescued": 76,
+        "misses": 98,
+        "rate": 0.7755
+      },
+      "parallel": {
+        "rescued": 72,
+        "misses": 98,
+        "rate": 0.7347
+      }
+    }
+  },
+  "order_after": {
+    "tavily": [
+      "exa",
+      "parallel",
+      "perplexity",
+      "brave",
+      "ceramic"
+    ],
+    "exa": [
+      "parallel",
+      "perplexity",
+      "tavily",
+      "brave",
+      "ceramic"
+    ],
+    "brave": [
+      "exa",
+      "parallel",
+      "tavily",
+      "perplexity",
+      "ceramic"
+    ],
+    "perplexity": [
+      "exa",
+      "tavily",
+      "parallel",
+      "brave",
+      "ceramic"
+    ],
+    "parallel": [
+      "exa",
+      "tavily",
+      "brave",
+      "perplexity",
+      "ceramic"
+    ],
+    "ceramic": [
+      "exa",
+      "perplexity",
+      "parallel",
+      "tavily",
+      "brave"
+    ]
+  },
+  "fallback_order": [
+    "exa",
+    "parallel",
+    "perplexity",
+    "brave",
+    "ceramic"
+  ]
+}

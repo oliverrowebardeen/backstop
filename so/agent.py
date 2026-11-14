@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from so import config, llm, telem_client
-from so.contracts import AgentAnswer, Question, RunContext, ToolCall
+from so.contracts import AgentAnswer, Question, RunContext, SearchOutcome, ToolCall
 from so.eventlog import EventLog
 from so.setups import SearchTool, get_search_tool, single
 
@@ -106,16 +106,27 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
 
 
 async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
-                       counts: dict[str, int], sources: set[str]) -> dict[str, Any]:
+                       counts: dict[str, int], sources: set[str],
+                       previous_searches: dict[str, tuple[str, SearchOutcome]]) -> dict[str, Any]:
     arguments = call.arguments
     if call.name == "search":
-        if counts["searches"] >= config.AGENT_MAX_SEARCHES:
-            return {"error": "Search limit reached. Answer from existing evidence or NOT FOUND."}
         if any(not isinstance(arguments.get(key), str) or not arguments[key].strip()
                for key in ("query", "goal")):
             return {"error": "search requires nonempty query and goal strings."}
+        query, goal = arguments["query"], arguments["goal"]
+        if query in previous_searches:
+            original_goal, previous = previous_searches[query]
+            result = previous.model_dump(mode="json")
+            result["note"] = (
+                f"You already ran this exact query with goal {original_goal!r}. "
+                f"Reusing its previous outcome without a new search. {previous.note}"
+            )
+            return result
+        if counts["searches"] >= config.AGENT_MAX_SEARCHES:
+            return {"error": "Search limit reached. Answer from existing evidence or NOT FOUND."}
         counts["searches"] += 1
-        outcome = await search(arguments["query"], arguments["goal"], ctx)
+        outcome = await search(query, goal, ctx)
+        previous_searches[query] = (goal, outcome)
         sources.update(result.url for result in outcome.results if _http_url(result.url))
         return outcome.model_dump(mode="json")
     if call.name == "read_page":
@@ -154,6 +165,7 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
             "{{max_searches}}", str(config.AGENT_MAX_SEARCHES))
         messages: list[dict[str, Any]] = [{"role": "user", "content": question.question}]
         sources: set[str] = set()
+        previous_searches: dict[str, tuple[str, SearchOutcome]] = {}
         answer: AgentAnswer | None = None
         for turn in range(config.AGENT_MAX_TURNS + 1):
             finishing = turn == config.AGENT_MAX_TURNS
@@ -176,7 +188,7 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                                  "name": call.name, "arguments": json.dumps(call.arguments),
                              }} for call in response.tool_calls]})
             for call in response.tool_calls:
-                result = await _tool_result(call, ctx, search, counts, sources)
+                result = await _tool_result(call, ctx, search, counts, sources, previous_searches)
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result)})
         if answer is None:

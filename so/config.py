@@ -250,3 +250,29 @@ async def retry(call: Callable[[], Awaitable[T]]) -> T:
                 raise
             await asyncio.sleep(API_RETRY_BACKOFF_S * 2**attempt)
     raise AssertionError("Retry loop exhausted")
+
+
+# Server
+SERVER_UI_DIR = Path(os.getenv("SERVER_UI_DIR", str(ROOT / "ui")))
+SERVER_DEMO_DIR = Path(os.getenv("SERVER_DEMO_DIR", str(ROOT / "demo")))
+_server_fixture_dir = os.getenv("SERVER_FIXTURE_DIR", "").strip()
+SERVER_FIXTURE_DIR = Path(_server_fixture_dir) if _server_fixture_dir else None
+SERVER_LOG_DIR = Path(os.getenv("SERVER_LOG_DIR", str(SO_LOG_DIR)))
+SERVER_RESULTS_PATH = Path(os.getenv("SERVER_RESULTS_PATH", str(OUT_DIR / "results.json")))
+SERVER_FRONTIER_PATH = Path(os.getenv("SERVER_FRONTIER_PATH", str(OUT_DIR / "frontier.json")))
+SERVER_MAX_ACTIVE_RUNS = int(os.getenv("SERVER_MAX_ACTIVE_RUNS", "8"))
+SERVER_MAX_QUESTION_CHARS = int(os.getenv("SERVER_MAX_QUESTION_CHARS", "2000"))
+SERVER_START_TIMEOUT_SECONDS = float(os.getenv("SERVER_START_TIMEOUT_SECONDS", "10"))
+SERVER_RUN_TIMEOUT_SECONDS = float(os.getenv("SERVER_RUN_TIMEOUT_SECONDS", "180"))
+SERVER_POLL_SECONDS = float(os.getenv("SERVER_POLL_SECONDS", "0.05"))
+SERVER_KEEPALIVE_SECONDS = float(os.getenv("SERVER_KEEPALIVE_SECONDS", "10"))
+SERVER_HOST = os.getenv("SERVER_HOST", "127.0.0.1")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+if SERVER_MAX_ACTIVE_RUNS < 2 or SERVER_MAX_QUESTION_CHARS < 1:
+    raise ValueError("SERVER_MAX_ACTIVE_RUNS must be at least 2 and SERVER_MAX_QUESTION_CHARS must be positive")
+for _server_setting in ("SERVER_START_TIMEOUT_SECONDS", "SERVER_RUN_TIMEOUT_SECONDS",
+                        "SERVER_POLL_SECONDS", "SERVER_KEEPALIVE_SECONDS"):
+    if not math.isfinite(globals()[_server_setting]) or globals()[_server_setting] <= 0:
+        raise ValueError(f"{_server_setting} must be finite and positive")
+if not SERVER_HOST.strip() or not 1 <= SERVER_PORT <= 65535:
+    raise ValueError("SERVER_HOST must be nonempty and SERVER_PORT must be between 1 and 65535")

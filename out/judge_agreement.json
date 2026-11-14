@@ -1,0 +1,188 @@
+{
+  "n_checked": 30,
+  "agree": 29,
+  "labeler": "model:claude-opus-5-5 (blind, not human)",
+  "labels": [
+    {
+      "question_id": "sqa-1022",
+      "engine": "exa",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-2466",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-2758",
+      "engine": "tavily",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3133",
+      "engine": "tavily",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-0909",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-3899",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "fb-02981",
+      "engine": "brave",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "fb-04700",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-0444",
+      "engine": "tavily",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-2412",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-2210",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3838",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "fb-00540",
+      "engine": "tavily",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-3247",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "fb-04481",
+      "engine": "brave",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "fb-04660",
+      "engine": "exa",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-2466",
+      "engine": "parallel",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3362",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-2212",
+      "engine": "parallel",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-1456",
+      "engine": "exa",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-0163",
+      "engine": "tavily",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3620",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-0191",
+      "engine": "ceramic",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-2505",
+      "engine": "exa",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3300",
+      "engine": "tavily",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-2758",
+      "engine": "brave",
+      "judge_hit": true,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-3533",
+      "engine": "exa",
+      "judge_hit": false,
+      "labeler_hit": false
+    },
+    {
+      "question_id": "sqa-3973",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-4123",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    },
+    {
+      "question_id": "sqa-3247",
+      "engine": "perplexity",
+      "judge_hit": true,
+      "labeler_hit": true
+    }
+  ],
+  "agreement_rate": 0.967
+}

@@ -45,3 +45,17 @@ def test_grade_answer_declines_not_found_without_a_call(fake_env):
     before = judge.SPEND["judge_calls"]
     assert asyncio.run(judge.grade_answer(q, "NOT FOUND")) == "declined"
     assert judge.SPEND["judge_calls"] == before
+
+
+def test_record_errors_writes_flagged_miss(fake_env, monkeypatch):
+    matrix = importlib.import_module("evals.matrix")
+
+    async def boom(*a, **k):
+        raise RuntimeError("503 from engine")
+
+    monkeypatch.setattr(matrix.telem_client, "search_engines", boom)
+    asyncio.run(matrix.run(limit=1, concurrency=1, skip_default=True, record_errors=True))
+    rows = [json.loads(l) for l in matrix.MATRIX.read_text().splitlines()]
+    assert len(rows) == len(fake_env.ENGINES)
+    assert all(r["engine_error"] and r["hit"] is False and r["n_results"] == 0 for r in rows)
+    asyncio.run(matrix.rejudge(concurrency=1))  # must not fail on rows without results

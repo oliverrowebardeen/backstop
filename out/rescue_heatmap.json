@@ -1,0 +1,224 @@
+{
+  "split": "learn",
+  "n_questions": 100,
+  "engines": [
+    "tavily",
+    "exa",
+    "brave",
+    "perplexity",
+    "parallel",
+    "ceramic"
+  ],
+  "cells": [
+    {
+      "missed": "tavily",
+      "rescuer": "exa",
+      "rescued": 15,
+      "misses": 30,
+      "rate": 0.5
+    },
+    {
+      "missed": "tavily",
+      "rescuer": "brave",
+      "rescued": 12,
+      "misses": 30,
+      "rate": 0.4
+    },
+    {
+      "missed": "tavily",
+      "rescuer": "perplexity",
+      "rescued": 13,
+      "misses": 30,
+      "rate": 0.4333
+    },
+    {
+      "missed": "tavily",
+      "rescuer": "parallel",
+      "rescued": 13,
+      "misses": 30,
+      "rate": 0.4333
+    },
+    {
+      "missed": "tavily",
+      "rescuer": "ceramic",
+      "rescued": 0,
+      "misses": 30,
+      "rate": 0.0
+    },
+    {
+      "missed": "exa",
+      "rescuer": "tavily",
+      "rescued": 5,
+      "misses": 20,
+      "rate": 0.25
+    },
+    {
+      "missed": "exa",
+      "rescuer": "brave",
+      "rescued": 4,
+      "misses": 20,
+      "rate": 0.2
+    },
+    {
+      "missed": "exa",
+      "rescuer": "perplexity",
+      "rescued": 6,
+      "misses": 20,
+      "rate": 0.3
+    },
+    {
+      "missed": "exa",
+      "rescuer": "parallel",
+      "rescued": 6,
+      "misses": 20,
+      "rate": 0.3
+    },
+    {
+      "missed": "exa",
+      "rescuer": "ceramic",
+      "rescued": 0,
+      "misses": 20,
+      "rate": 0.0
+    },
+    {
+      "missed": "brave",
+      "rescuer": "tavily",
+      "rescued": 12,
+      "misses": 30,
+      "rate": 0.4
+    },
+    {
+      "missed": "brave",
+      "rescuer": "exa",
+      "rescued": 14,
+      "misses": 30,
+      "rate": 0.4667
+    },
+    {
+      "missed": "brave",
+      "rescuer": "perplexity",
+      "rescued": 12,
+      "misses": 30,
+      "rate": 0.4
+    },
+    {
+      "missed": "brave",
+      "rescuer": "parallel",
+      "rescued": 12,
+      "misses": 30,
+      "rate": 0.4
+    },
+    {
+      "missed": "brave",
+      "rescuer": "ceramic",
+      "rescued": 0,
+      "misses": 30,
+      "rate": 0.0
+    },
+    {
+      "missed": "perplexity",
+      "rescuer": "tavily",
+      "rescued": 5,
+      "misses": 22,
+      "rate": 0.2273
+    },
+    {
+      "missed": "perplexity",
+      "rescuer": "exa",
+      "rescued": 8,
+      "misses": 22,
+      "rate": 0.3636
+    },
+    {
+      "missed": "perplexity",
+      "rescuer": "brave",
+      "rescued": 4,
+      "misses": 22,
+      "rate": 0.1818
+    },
+    {
+      "missed": "perplexity",
+      "rescuer": "parallel",
+      "rescued": 4,
+      "misses": 22,
+      "rate": 0.1818
+    },
+    {
+      "missed": "perplexity",
+      "rescuer": "ceramic",
+      "rescued": 0,
+      "misses": 22,
+      "rate": 0.0
+    },
+    {
+      "missed": "parallel",
+      "rescuer": "tavily",
+      "rescued": 9,
+      "misses": 26,
+      "rate": 0.3462
+    },
+    {
+      "missed": "parallel",
+      "rescuer": "exa",
+      "rescued": 12,
+      "misses": 26,
+      "rate": 0.4615
+    },
+    {
+      "missed": "parallel",
+      "rescuer": "brave",
+      "rescued": 8,
+      "misses": 26,
+      "rate": 0.3077
+    },
+    {
+      "missed": "parallel",
+      "rescuer": "perplexity",
+      "rescued": 8,
+      "misses": 26,
+      "rate": 0.3077
+    },
+    {
+      "missed": "parallel",
+      "rescuer": "ceramic",
+      "rescued": 0,
+      "misses": 26,
+      "rate": 0.0
+    },
+    {
+      "missed": "ceramic",
+      "rescuer": "tavily",
+      "rescued": 68,
+      "misses": 98,
+      "rate": 0.6939
+    },
+    {
+      "missed": "ceramic",
+      "rescuer": "exa",
+      "rescued": 78,
+      "misses": 98,
+      "rate": 0.7959
+    },
+    {
+      "missed": "ceramic",
+      "rescuer": "brave",
+      "rescued": 68,
+      "misses": 98,
+      "rate": 0.6939
+    },
+    {
+      "missed": "ceramic",
+      "rescuer": "perplexity",
+      "rescued": 76,
+      "misses": 98,
+      "rate": 0.7755
+    },
+    {
+      "missed": "ceramic",
+      "rescuer": "parallel",
+      "rescued": 72,
+      "misses": 98,
+      "rate": 0.7347
+    }
+  ]
+}
