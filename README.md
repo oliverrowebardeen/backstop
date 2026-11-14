@@ -201,6 +201,28 @@ verifies with the SDK's `verify_webhook` against that monitor's secret, or it is
 401. `pause` and `resume` PATCH every monitor. Every Monitors failure is logged with its HTTP
 status and body and the run continues, so the sheet always renders.
 
+## Race screen
+
+```sh
+python -m server        # serves SERVER_HOST:SERVER_PORT, 127.0.0.1:8000 by default
+```
+
+Open the root page, type a question and pick a setup for each column: `single` (one
+engine, unchecked), `telem_default` (Telem's accuracy routing, unchecked) or
+`second_opinion` (Backstop). Both agents run live on the same question with the same
+model, prompt and tools. Each column streams its searches with the Telem engines called,
+the checker's verdict in words, page reads (Tavily Extract or Telem fetch), running
+counters for engine calls, cost and time, and the cited final answer. A not-found answer
+is shown as a deliberate outcome. Each column can export its full audit trail as JSON.
+
+Recorded races in [`demo/`](demo/) play back with their original timing and are
+labelled on screen as replays of a live run. To record new ones from evaluation results:
+
+```sh
+python -m demo.candidates --write   # test-split runs that show each story -> demo/golden.json
+python -m demo.record --golden      # re-run each pair live, cache off, and save it for replay
+```
+
 ## Results
 
 Results land here after the held-out eval runs.
