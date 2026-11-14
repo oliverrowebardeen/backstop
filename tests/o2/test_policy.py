@@ -1,10 +1,8 @@
 from datetime import date
-from types import ModuleType
-import sys
-
 import pytest
 from pydantic import ValidationError
 
+from so import config
 from so.contracts import CheckerVerdict, RescueTable, Result
 from so.memory import RunMemory
 from so.policy import freshness_cutoff, load_rescue_table, next_action
@@ -53,9 +51,7 @@ def test_exhausted_engines_stop():
 
 
 def test_missing_table_uses_config_and_picks_up_new_file(tmp_path, monkeypatch):
-    config = ModuleType("so.config")
-    config.fallback_order = ["brave", "exa"]
-    monkeypatch.setitem(sys.modules, "so.config", config)
+    monkeypatch.setattr(config, "fallback_order", ["brave", "exa"])
     path = tmp_path / "rescue_table.json"
     assert load_rescue_table(path).fallback_order == ["brave", "exa"]
     path.write_text(RescueTable(order_after={"tavily": ["ceramic"]}).model_dump_json())
@@ -63,9 +59,6 @@ def test_missing_table_uses_config_and_picks_up_new_file(tmp_path, monkeypatch):
 
 
 def test_test_split_table_is_rejected(tmp_path, monkeypatch):
-    config = ModuleType("so.config")
-    config.fallback_order = ["exa"]
-    monkeypatch.setitem(sys.modules, "so.config", config)
     path = tmp_path / "rescue_table.json"
     path.write_text('{"built_on_split": "test"}')
     with pytest.raises(ValidationError):
@@ -100,3 +93,13 @@ def test_memory_is_per_run_and_preserves_rewrites():
     assert memory.urls_seen == {"https://example.com", "https://example.com/page"}
     assert RunMemory().queries == []
     assert RunMemory().urls_seen == set()
+
+
+def test_config_can_lower_the_rescue_cap(monkeypatch):
+    monkeypatch.setattr(config, "MAX_RESCUES", 1)
+    assert next_action(verdict("DEAD"), ["tavily"], 1, RescueTable()).kind == "NOT_FOUND"
+
+
+def test_config_controls_freshness_window(monkeypatch):
+    monkeypatch.setattr(config, "FRESHNESS_DAYS", 14)
+    assert freshness_cutoff("current valuation", date(2026, 11, 14)) == "2026-10-31"

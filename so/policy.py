@@ -10,10 +10,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
+from so import config
 from so.contracts import CheckerVerdict, RescueTable
-
-MAX_RESCUES = 2
-RESCUE_TABLE_PATH = Path(__file__).resolve().parents[1] / "out" / "rescue_table.json"
 
 
 @dataclass(frozen=True)
@@ -27,13 +25,11 @@ class Action:
 
 def load_rescue_table(path: str | Path | None = None) -> RescueTable:
     """Read current learn-split rankings, or use configured engine ordering."""
-    from so.config import fallback_order
-
-    target = Path(path) if path is not None else RESCUE_TABLE_PATH
+    target = Path(path) if path is not None else Path(config.RESCUE_TABLE_PATH)
     try:
         return RescueTable.model_validate_json(target.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return RescueTable(fallback_order=list(fallback_order))
+        return RescueTable(fallback_order=list(config.fallback_order))
 
 
 def next_action(
@@ -45,7 +41,7 @@ def next_action(
     """Choose one action; tried engines must be in their attempted order."""
     if verdict.verdict == "HIT":
         return Action("HIT")
-    if rescues_used >= MAX_RESCUES:
+    if rescues_used >= config.MAX_RESCUES:
         return Action("NOT_FOUND")
     if verdict.verdict == "SHALLOW" and verdict.best_url:
         return Action("FETCH_PAGE", url=verdict.best_url)
@@ -93,4 +89,4 @@ def freshness_cutoff(goal: str, today: date) -> str:
     for match in re.finditer(r"\b(?:19|20)\d{2}\b", goal):
         if not any(start <= match.start() < end for start, end in spans):
             dates.append(date(int(match[0]), 1, 1))
-    return (min(dates) if dates else today - timedelta(days=90)).isoformat()
+    return (min(dates) if dates else today - timedelta(days=config.FRESHNESS_DAYS)).isoformat()
