@@ -122,12 +122,15 @@ def format_results(results) -> str:
     return "\n".join(lines) if lines else "(no results)"
 
 
+# Structured-output compatible: no type unions, additionalProperties false.
 HIT_SCHEMA = {"type": "object", "properties": {
-    "hit": {"type": "boolean"}, "hit_rank": {"type": ["integer", "null"]},
-    "reason": {"type": "string"}}, "required": ["hit", "hit_rank", "reason"]}
+    "hit": {"type": "boolean"}, "hit_rank": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+    "reason": {"type": "string"}}, "required": ["hit", "hit_rank", "reason"],
+    "additionalProperties": False}
 GRADE_SCHEMA = {"type": "object", "properties": {
     "grade": {"type": "string", "enum": ["correct", "wrong", "declined"]},
-    "reason": {"type": "string"}}, "required": ["grade", "reason"]}
+    "reason": {"type": "string"}}, "required": ["grade", "reason"],
+    "additionalProperties": False}
 
 
 async def judge_hit(question, results) -> tuple[bool, int | None, str]:
