@@ -263,4 +263,18 @@ into `out/logs/<run_id>.jsonl`:
 | `check` | `verdict`, `confidence`, `why`, `evidence_rank`, `best_url`, `rewrite` |
 | `rescue` | `action` (`RETRY_ENGINE`, `FETCH_PAGE`), `engine`, `query`, `reason`, `counted`, `estimated_cost_usd`, `original_query` and `rewritten_query` when the checker's rewrite is used |
 | `fetch` | `url`, `ok`, `via` (`tavily` or `telem`), `latency_ms`, `cost_usd` |
-| `search_done` | `status`, `calls`, `fetches`, `cost_usd`, `latency_ms`, `note`, `ranking`, plus `stopped_by` or `check_skipped` when a limit or checker failure ended the search |
+| `search_done` | `status`, `calls`, `fetches`, `cost_usd`, `latency_ms`, `note`, `ranking`, plus `stopped_by` or `check_skipped` when a limit or checker failure ended the search, and `evidence` on every HIT |
+
+On the SHALLOW path the page is read with Tavily Extract (basic depth, the goal as its
+query, `TAVILY_EXTRACT_CHUNKS` chunks of at most 500 characters, `TAVILY_EXTRACT_TIMEOUT_S`
+timeout, priced at `TAVILY_EXTRACT_PRICE_USD`); a failed or empty Extract falls back to
+the Telem fetch. The HIT `evidence` object makes no extra calls:
+
+| Field | Meaning |
+|---|---|
+| `verified` | always `true` (the checker returned HIT) |
+| `snippet` | the chunk, page text or result snippet that states the answer, at most 500 characters |
+| `url` | the evidence URL |
+| `engines_agreeing`, `agreeing_engines` | engines whose already-fetched top results contain the answer the checker quoted (string or normalized number) |
+| `rank_reason` | the evidence URL's ranking reason without the evidence boost |
+| `source`, `chunks` | `search`, `tavily_extract` (with the chunk count) or `telem_fetch` |
