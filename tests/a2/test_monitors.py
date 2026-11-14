@@ -285,3 +285,105 @@ def test_cli_build_poll_show_teardown_with_fakes(tmp_path, capsys, monkeypatch):
     assert json.loads(capsys.readouterr().out)[0]["company"] == COMPANY
     assert cli_main(["--db", db, "teardown"]) == 0
     assert "deleted 2" in capsys.readouterr().out and api.monitors == {}
+
+
+class FlakyCheck(FakeCheck):
+    """Raises (an outage or a budget stop) for the first `failures` calls, then behaves."""
+
+    def __init__(self, failures: int, hit_words: tuple[str, ...] = ("John Roe",)) -> None:
+        super().__init__(hit_words)
+        self.failures = failures
+
+    async def __call__(self, query, goal, results):
+        if self.failures > 0:
+            self.failures -= 1
+            self.calls.append((query, goal, results))
+            raise RuntimeError("Budget exceeded: LLM_BUDGET_USD")
+        return await super().__call__(query, goal, results)
+
+
+ROE = {"url": "https://news.example/acme-ceo", "title": "Acme names John Roe CEO",
+       "summary": "Acme Robotics appointed John Roe as chief executive."}
+
+
+async def test_item_whose_check_failed_is_rechecked_on_the_next_poll(store):
+    api = FakeMonitorsAPI()
+    check = FlakyCheck(failures=1)
+    runner = make_runner(store, api, check=check)
+    await runner.build(COMPANY, ["ceo"])
+    monitor_id = by_field(runner.sheet(COMPANY))["ceo"]["monitor_id"]
+    api.queued[monitor_id] = [ROE]
+    first = await runner.poll_all()
+    ceo = by_field(runner.sheet(COMPANY))["ceo"]
+    assert first.stale_fields == [] and ceo["verdict"] == "VERIFIED"
+    assert ceo["items"][0]["check_verdict"] == "ERROR" and ceo["items"][0]["check_attempts"] == 1
+
+    api.queued[monitor_id] = [ROE]  # Telem redelivers it, or delivers nothing: either way it is rechecked
+    second = await runner.poll_all()
+    ceo = by_field(runner.sheet(COMPANY))["ceo"]
+    assert second.new_items == 0 and second.stale_fields == [f"ceo#{ceo['id']}"]
+    assert ceo["verdict"] == "STALE" and ceo["stale_url"] == ROE["url"]
+    assert ceo["items"][0]["check_verdict"] == "HIT" and ceo["items"][0]["check_attempts"] == 2
+
+
+async def test_item_left_unchecked_by_a_crash_is_rechecked(store):
+    api = FakeMonitorsAPI()
+    runner = make_runner(store, api)
+    await runner.build(COMPANY, ["ceo"])
+    row = by_field(runner.sheet(COMPANY))["ceo"]
+    # A crash between add_item and the check leaves the item stored with no verdict.
+    store.add_item(row["id"], monitor_id=row["monitor_id"], item_key=ROE["url"], url=ROE["url"],
+                   title=ROE["title"], snippet=ROE["summary"], published=None, via="poll")
+    report = await runner.poll_all()
+    assert report.stale_fields == [f"ceo#{row['id']}"]
+    assert by_field(runner.sheet(COMPANY))["ceo"]["verdict"] == "STALE"
+
+
+async def test_recheck_retries_are_bounded_and_recorded(store):
+    from server.monitors.runner import MAX_CHECK_ATTEMPTS
+
+    api = FakeMonitorsAPI()
+    check = FlakyCheck(failures=100)
+    runner = make_runner(store, api, check=check)
+    await runner.build(COMPANY, ["ceo"])
+    api.queued[by_field(runner.sheet(COMPANY))["ceo"]["monitor_id"]] = [ROE]
+    for _ in range(MAX_CHECK_ATTEMPTS + 3):
+        await runner.poll_all()
+    item = by_field(runner.sheet(COMPANY))["ceo"]["items"][0]
+    assert len(check.calls) == MAX_CHECK_ATTEMPTS
+    assert item["check_attempts"] == MAX_CHECK_ATTEMPTS and item["check_verdict"] == "ERROR"
+    assert "Budget exceeded" in item["check_why"]
+
+
+async def test_webhook_delivery_rechecks_failed_items(store):
+    runner, row = await _webhook_setup(store)
+    runner.check = FlakyCheck(failures=1)
+    client = TestClient(create_app(runner))
+    body = json.dumps({"results": [ROE]}).encode()
+    headers = {"Telem-Signature": _sign(body, "whsec_test")}
+    assert client.post(f"/monitors/webhook/{row['id']}", content=body, headers=headers).json()["stale"] is False
+    body = json.dumps({"results": [ROE]}).encode()
+    headers = {"Telem-Signature": _sign(body, "whsec_test")}
+    resp = client.post(f"/monitors/webhook/{row['id']}", content=body, headers=headers).json()
+    assert resp == {"field_id": row["id"], "new_items": 0, "stale": True}
+
+
+async def test_rebuild_aborts_when_an_old_monitor_cannot_be_deleted(store):
+    from server.monitors import FactSheetError
+
+    api = FakeMonitorsAPI()
+    runner = make_runner(store, api)
+    await runner.build(COMPANY, ["ceo", "hq_city"])
+    old = by_field(runner.sheet(COMPANY))
+    api.fail = {"delete": 503}
+    with pytest.raises(FactSheetError) as err:
+        await runner.build(COMPANY, ["ceo"])
+    assert old["ceo"]["monitor_id"] in str(err.value) and old["hq_city"]["monitor_id"] in str(err.value)
+    kept = by_field(runner.sheet(COMPANY))
+    assert {key: row["monitor_id"] for key, row in kept.items()} == {key: row["monitor_id"] for key, row in old.items()}
+    assert all("status=503" in row["monitor_error"] for row in kept.values())
+    assert len([call for call in api.calls if call[0] == "create"]) == 2  # nothing new was created
+
+    api.fail = {}
+    await runner.teardown(COMPANY)  # teardown still finds them
+    assert api.monitors == {}

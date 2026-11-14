@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 VERIFIED, NOT_FOUND, STALE = "VERIFIED", "NOT_FOUND", "STALE"
 EVIDENCE_CHARS = 500
 VALUE_CHARS = 200
+#: Checks per item before a failing item is left as ERROR for good (each attempt is recorded).
+MAX_CHECK_ATTEMPTS = 3
 
 #: async (query, goal, session) -> a BackstopSearchResponse-shaped object.
 SearchFn = Callable[[str, str, str | None], Awaitable[Any]]
@@ -178,7 +180,13 @@ class FactSheetRunner:
         existing = self.store.get_sheet(company)
         if existing is not None:
             logger.info("Replacing the existing fact sheet for %s", existing["company"])
-            await self._delete_monitors(self.store.fields(existing["id"]))
+            report = await self._delete_monitors(self.store.fields(existing["id"]))
+            if report.failed:
+                # Deleting the rows would lose the ids of monitors that keep running and billing.
+                kept = [row["monitor_id"] for row in self.store.fields(existing["id"]) if row["monitor_id"]]
+                raise FactSheetError(
+                    f"rebuild of {existing['company']!r} aborted: {report.failed} Telem monitor(s) could not be "
+                    f"deleted ({', '.join(kept)}); the sheet is kept, run teardown and build again")
             self.store.delete_sheet(existing["id"])
         sheet_id = self.store.create_sheet(company)
         session: str | None = None
@@ -261,6 +269,10 @@ class FactSheetRunner:
     async def ingest(self, field_id: int, items: list[MonitorItem], *, via: str) -> tuple[int, bool]:
         """Store items for one field and check each new one.
 
+        Every stored item of the field without a verdict (new, or left by a crash) or whose
+        check failed is checked too, up to MAX_CHECK_ATTEMPTS times each: Telem returns an item
+        only once, so a failed check must not lose it.
+
         Returns how many items were new and whether the field went STALE.
         Raises:
             FactSheetError: No field has this id.
@@ -270,19 +282,21 @@ class FactSheetRunner:
             raise FactSheetError(f"no fact sheet field with id {field_id}")
         company = self._company(row["sheet_id"])
         new = 0
-        went_stale = False
         for item in items:
             item_id = self.store.add_item(field_id, monitor_id=row["monitor_id"], item_key=item.key, url=item.url,
                                           title=item.title, snippet=item.snippet, published=item.published, via=via)
-            if item_id is None:
-                continue
-            new += 1
-            if await self._check_item(row, company, item_id, item):
+            new += item_id is not None
+        went_stale = False
+        for stored in self.store.unchecked_items(field_id, MAX_CHECK_ATTEMPTS):
+            item = MonitorItem(url=stored["url"] or "", title=stored["title"] or "", snippet=stored["snippet"] or "",
+                               published=stored["published"], provider="telem_monitor")
+            if await self._check_item(row, company, stored["id"], item, attempt=stored["check_attempts"] + 1):
                 went_stale = True
                 row = self.store.get_field(field_id) or row
         return new, went_stale
 
-    async def _check_item(self, row: dict[str, Any], company: str, item_id: int, item: MonitorItem) -> bool:
+    async def _check_item(self, row: dict[str, Any], company: str, item_id: int, item: MonitorItem,
+                          *, attempt: int) -> bool:
         if row["value"]:
             goal = supersede_goal(row["label"], company, row["value"])
         else:
@@ -292,11 +306,15 @@ class FactSheetRunner:
         try:
             verdict = await self.check(row["query"], goal, [result])
         except Exception as exc:
-            logger.error("Checker failed on a monitor item for field %s: %s", row["id"], exc)
-            self.store.update_item(item_id, check_verdict="ERROR", check_why=f"{type(exc).__name__}: {exc}"[:300])
+            final = " (giving up)" if attempt >= MAX_CHECK_ATTEMPTS else ", will retry on the next poll or delivery"
+            logger.error("Checker failed on monitor item %s for field %s, attempt %s of %s%s: %s",
+                         item_id, row["id"], attempt, MAX_CHECK_ATTEMPTS, final, exc)
+            self.store.update_item(item_id, check_verdict="ERROR", check_attempts=attempt,
+                                   check_why=f"{type(exc).__name__}: {exc}"[:300])
             return False
         supersedes = verdict.verdict == "HIT"
         self.store.update_item(item_id, check_verdict=verdict.verdict, check_why=str(verdict.why)[:300],
+                               check_attempts=attempt,
                                check_cost_usd=float(getattr(verdict, "cost_usd", 0.0) or 0.0),
                                supersedes=int(supersedes))
         if supersedes:

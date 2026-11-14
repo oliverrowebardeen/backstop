@@ -193,12 +193,15 @@ report on Form 10-K with the SEC.", with `include_domains=["sec.gov"]` for filin
 Backstop checker on each new item against the field's query, goal and stored value. When an
 item states a different or newer value, the field turns `STALE` and keeps the old value next
 to the new evidence, URL, the checker's reason and a timestamp. A field that was `NOT_FOUND`
-turns `STALE` when an item answers its goal.
+turns `STALE` when an item answers its goal. Telem returns an item only once, so an item whose check fails
+(a checker outage or a budget stop) is kept and checked again on each later poll or
+delivery, up to three attempts, each recorded on the item.
 
 For push delivery, pass `--webhook-base https://your-host` to `build` and serve the receiver
 with `uvicorn server.monitors.webhook:app`. Each delivery must carry a `Telem-Signature` that
 verifies with the SDK's `verify_webhook` against that monitor's secret, or it is rejected with
-401. `pause` and `resume` PATCH every monitor. Every Monitors failure is logged with its HTTP
+401. `pause` and `resume` PATCH every monitor. A rebuild deletes the old monitors first and stops,
+keeping the old sheet, if any of them cannot be deleted. Every Monitors failure is logged with its HTTP
 status and body and the run continues, so the sheet always renders.
 
 ## Race screen

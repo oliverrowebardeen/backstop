@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS items (
     check_verdict TEXT,
     check_why TEXT,
     check_cost_usd REAL NOT NULL DEFAULT 0,
+    check_attempts INTEGER NOT NULL DEFAULT 0,
     supersedes INTEGER NOT NULL DEFAULT 0,
     UNIQUE (field_id, item_key)
 );
@@ -92,6 +93,10 @@ class FactSheetStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(items)")}
+        if "check_attempts" not in columns:  # a database made before retries were recorded
+            with self._tx() as conn:
+                conn.execute("ALTER TABLE items ADD COLUMN check_attempts INTEGER NOT NULL DEFAULT 0")
 
     def close(self) -> None:
         """Close the connection."""
@@ -185,6 +190,14 @@ class FactSheetStore:
         sets = ", ".join(f"{key} = ?" for key in values)
         with self._tx() as conn:
             conn.execute(f"UPDATE items SET {sets} WHERE id = ?", (*values.values(), item_id))
+
+    def unchecked_items(self, field_id: int, max_attempts: int) -> list[dict[str, Any]]:
+        """Items of one field with no verdict yet (new, or left by a crash) or whose check
+        failed, that have had fewer than ``max_attempts`` checks, oldest first."""
+        rows = self._conn.execute(
+            "SELECT * FROM items WHERE field_id = ? AND (check_verdict IS NULL OR check_verdict = 'ERROR')"
+            " AND check_attempts < ? ORDER BY id", (field_id, max_attempts))
+        return [dict(row) for row in rows]
 
     def items(self, field_id: int) -> list[dict[str, Any]]:
         """Every item received for one field, oldest first."""
