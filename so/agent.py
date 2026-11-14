@@ -14,6 +14,7 @@ from uuid import uuid4
 from so import config, llm, telem_client
 from so.contracts import AgentAnswer, LLMResponse, Question, RunContext, SearchOutcome, ToolCall
 from so.eventlog import EventLog
+from so.ledger import ledger
 from so.setups import SearchTool, get_search_setup, get_search_tool
 
 TOOLS = [
@@ -181,7 +182,10 @@ async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
         if not _http_url(url):
             return {"error": "read_page requires an HTTP or HTTPS URL."}
         counts["reads"] += 1
-        page = await telem_client.fetch_page(url, session=ctx.session)
+        page = await telem_client.fetch_page(
+            url, session=ctx.session,
+            metadata=ledger("read_page", None, config.TELEM_FETCH_PROVIDER)["metadata"],
+        )
         if ctx.session is None and page.session_id:
             ctx.session = page.session_id
         ctx.log.emit("fetch", url=page.url, ok=page.ok, via="telem",

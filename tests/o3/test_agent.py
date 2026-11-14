@@ -105,7 +105,10 @@ async def test_read_page_carries_same_session_and_counts_cost(question, wrappers
     wrappers.complete.side_effect = [response(search_call()), response(ToolCall(
         id="read1", name="read_page", arguments={"url": URL})), final_response()]
     await agent.run_question(question, "single", log_dir=tmp_path)
-    wrappers.fetch.assert_awaited_once_with(URL, session="session-one")
+    wrappers.fetch.assert_awaited_once_with(
+        URL, session="session-one",
+        metadata=ledger("read_page", None, config.TELEM_FETCH_PROVIDER)["metadata"],
+    )
     log = events(tmp_path)
     fetch_event = next(item for item in log if item["type"] == "fetch")
     assert fetch_event["data"]["via"] == "telem"
@@ -118,8 +121,55 @@ async def test_first_page_read_opens_the_session_for_later_searches(question, wr
     wrappers.complete.side_effect = [response(ToolCall(id="read1", name="read_page", arguments={"url": URL})),
                                        response(search_call()), final_response()]
     await agent.run_question(question, "single", log_dir=tmp_path)
-    wrappers.fetch.assert_awaited_once_with(URL, session=None)
+    wrappers.fetch.assert_awaited_once_with(
+        URL, session=None,
+        metadata=ledger("read_page", None, config.TELEM_FETCH_PROVIDER)["metadata"],
+    )
     assert wrappers.pinned.await_args.kwargs["session"] == "session-one"
+
+
+@pytest.mark.parametrize("setup", ["single", "telem_default", "second_opinion"])
+@pytest.mark.parametrize("read_first", [False, True])
+async def test_ledger_labels_follow_one_session_per_question(
+        question, wrappers, tmp_path, monkeypatch, setup, read_first):
+    from so import checker
+
+    monkeypatch.setattr(config, "TELEM_FETCH_PROVIDER", "configured-fetch-provider")
+    monkeypatch.setattr(checker, "check", AsyncMock(return_value=checker.CheckedVerdict(
+        verdict="HIT", confidence=1, why="The requested fact is present.", evidence_rank=1,
+        best_url=URL,
+    )))
+    wrapper = wrappers.default if setup == "telem_default" else wrappers.pinned
+    for index, session in enumerate(("session-first", "session-next")):
+        wrapper.reset_mock()
+        wrappers.fetch.reset_mock()
+        wrapper.return_value = {
+            "tavily": run().model_copy(update={"session_id": session}),
+        }
+        wrappers.fetch.return_value = wrappers.fetch.return_value.model_copy(update={"session_id": session})
+        read = ToolCall(id="read1", name="read_page", arguments={"url": URL})
+        calls = [read, search_call()] if read_first else [search_call(), read]
+        calls += [search_call(2), read.model_copy(update={"id": "read2"})]
+        wrappers.complete.side_effect = [response(call) for call in calls] + [final_response()]
+
+        answer = await agent.run_question(question.model_copy(update={"id": f"q-{index}"}), setup,
+                                          log_dir=tmp_path)
+
+        assert answer.searches == wrapper.await_count == 2
+        assert [call.kwargs["session"] for call in wrapper.await_args_list] == [
+            session if read_first else None, session,
+        ]
+        assert [call.kwargs["session"] for call in wrappers.fetch.await_args_list] == [
+            None if read_first else session, session,
+        ]
+        for call in wrappers.fetch.await_args_list:
+            assert call.kwargs["metadata"] == ledger("read_page", None, "configured-fetch-provider")["metadata"]
+            assert "context" not in call.kwargs
+        if setup != "second_opinion":
+            label = ledger("initial", "UNCHECKED", config.FIRST_ENGINE if setup == "single" else "auto")
+            for call in wrapper.await_args_list:
+                assert {key: call.kwargs[key] for key in label} == label
+    assert len(list(tmp_path.glob("*.jsonl"))) == 2
 
 
 async def test_cached_search_does_not_reuse_a_previous_runs_session(question, wrappers, tmp_path):

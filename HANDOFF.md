@@ -13,9 +13,9 @@
 - Run: python -m evals.run_eval --limit 20 && python -m evals.score (full: drop --limit; at 2:30 if short on time: --max-test 120). Fake check: SO_FAKE=1 python -m evals.matrix, then the same two commands. Tests: python -m pytest tests/s4.
 - Not done: real run pending so.agent.run_question (the one switch is load_agent() in evals/run_eval.py). After the real run, re-run python -m analysis.frontier so the measured Second Opinion point replaces the simulated one.
 
-- O3 built: goal-specific query reuse now keys on both query and goal, preserving O5's reasoning replay and idle-turn handling. Disabled Second Opinion raises instead of substituting single; unknown or mismatched setup implementations are rejected before paid work or run logs.
-- O3 run: `BACKSTOP_LIVE_TESTS=0 .venv/bin/pytest -q` passes 546 tests; `node --test tests/o4/test_ui.mjs tests/site/test_proof.mjs` passes 18 tests. Coverage includes fresh checks for changed goals, reuse at the search limit, and every setup mismatch.
-- O3 not done: the requested page-read ledger propagation follow-up remains separate from these evaluation-integrity fixes.
+- O3 built: baseline searches and agent page reads carry Telem ledger labels with the configured provider and one session per question. Query reuse requires the same goal; disabled, unknown or mismatched setups are rejected before paid work. O5's reasoning replay and idle-turn handling are preserved.
+- O3 run: `BACKSTOP_LIVE_TESTS=0 .venv/bin/pytest -q` passes 585 tests; `node --test tests/o4/test_ui.mjs tests/site/test_proof.mjs` passes 18 tests. Ledger coverage checks all three setups, search-first and page-first sessions, and session isolation between questions.
+- O3 not done: none.
 
 - O0 built: deployable wheel with runtime prompts, UI assets and evaluation datasets; bounded retries for Tavily SDK rate limits and timeouts; expiring failed Telem responses; explicit rejection of torn event logs before append.
 - O0 run: full Python suite passed 563 tests and JavaScript suite passed 18. The wheel test built and installed outside the checkout, imported so.checker and so.agent, loaded 3 prompts and 330 records, and served 8 UI routes. Commands: SO_ENV_FILE=/dev/null python -m pytest -q; node --test tests/o4/test_ui.mjs tests/site/test_proof.mjs.
