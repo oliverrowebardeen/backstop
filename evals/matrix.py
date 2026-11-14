@@ -23,7 +23,7 @@ import time
 from collections import defaultdict
 
 from data.load import load_all
-from evals import judge
+from evals import contamination, judge
 from evals.deps import ENGINES, OUT, get, telem_client
 
 MATRIX = OUT / "matrix.jsonl"
@@ -76,6 +76,15 @@ def _spend_line(done: int, total: int, t0: float) -> str:
             f"(+{judge.SPEND['judge_cached']} cached) | errors {SPEND['errors']} | {time.time() - t0:.0f}s")
 
 
+async def _judge_row(q, results: list) -> dict:
+    """Drop benchmark copies, judge the rest, report hit_rank as the position in `results`."""
+    kept, n_contam = contamination.filter_results(q.question, results)
+    hit, rank, reason = await judge.judge_hit(q, kept)
+    if hit and rank is not None:
+        rank = next(i for i, r in enumerate(results, 1) if r is kept[rank - 1])
+    return {"hit": hit, "hit_rank": rank, "judge_reason": reason, "n_contaminated": n_contam}
+
+
 async def _engines_for_question(q, engines: list[str]) -> None:
     runs = await telem_client.search_engines(q.question, engines, num_results=TOP_K, goal=q.question)
     for engine in engines:
@@ -87,11 +96,10 @@ async def _engines_for_question(q, engines: list[str]) -> None:
             continue
         _count_spend(run)
         results = list(get(run, "results") or [])[:TOP_K]
-        hit, rank, reason = await judge.judge_hit(q, results)
+        verdict = await _judge_row(q, results)
         await _append(RESULTS, {"question_id": q.id, "engine": engine, "results": _results_dump(results)})
         await _append(MATRIX, {
-            "question_id": q.id, "engine": engine, "hit": hit, "hit_rank": rank,
-            "judge_reason": reason, "n_results": len(results),
+            "question_id": q.id, "engine": engine, **verdict, "n_results": len(results),
             "latency_ms": get(run, "latency_ms", 0), "cost_usd": get(run, "cost_usd", 0),
         })
 
@@ -108,11 +116,10 @@ async def _default_for_question(q) -> None:
         _count_spend(r)
     for e, r in ok.items():
         combined.extend(list(get(r, "results") or [])[:TOP_K])
-    hit, rank, reason = await judge.judge_hit(q, combined)
+    verdict = await _judge_row(q, combined)
     await _append(RESULTS, {"question_id": q.id, "engine": "telem_default", "results": _results_dump(combined)})
     await _append(DEFAULT_MATRIX, {
-        "question_id": q.id, "engine": "telem_default", "hit": hit, "hit_rank": rank,
-        "judge_reason": reason, "n_results": len(combined),
+        "question_id": q.id, "engine": "telem_default", **verdict, "n_results": len(combined),
         # Telem queries its engines in parallel: wall clock is the slowest one.
         "latency_ms": max(float(get(r, "latency_ms", 0) or 0) for r in runs.values()),
         "cost_usd": sum(float(get(r, "cost_usd", 0) or 0) for r in runs.values()),
@@ -163,6 +170,37 @@ async def run(limit: int | None, concurrency: int, skip_default: bool) -> None:
         print(f"{SPEND['errors']} engine errors were not written. Re-run to retry them.")
 
 
+async def rejudge(concurrency: int) -> None:
+    """Recompute hit fields for every row from the stored raw results (no new searches).
+
+    Used after a judge or contamination-filter change. Unchanged judge inputs come
+    from the judge cache at no cost. Files are rewritten atomically.
+    """
+    qs = {q.id: q for q in load_all()}
+    stored = {(r["question_id"], r["engine"]): r["results"] for r in _read_jsonl(RESULTS)}
+    sem = asyncio.Semaphore(concurrency)
+
+    async def redo(row):
+        async with sem:
+            results = stored.get((row["question_id"], row["engine"]))
+            if results is None:
+                raise RuntimeError(f"no stored results for {row['question_id']} {row['engine']}")
+            return {**row, **await _judge_row(qs[row["question_id"]], results)}
+
+    for path in (MATRIX, DEFAULT_MATRIX):
+        rows = _read_jsonl(path)
+        new = await asyncio.gather(*(redo(r) for r in rows))
+        tmp = path.with_suffix(".jsonl.tmp")
+        tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in new))
+        tmp.replace(path)
+        changed = sum(a["hit"] != b["hit"] for a, b in zip(rows, new))
+        dropped = sum(r["n_contaminated"] for r in new)
+        print(f"{path.name}: {len(new)} rows rejudged, {changed} hit labels changed, "
+              f"{dropped} benchmark-copy results excluded")
+    print(f"judge spend ${judge.SPEND['judge_usd']:.3f} ({judge.SPEND['judge_calls']} calls, "
+          f"{judge.SPEND['judge_cached']} cached)")
+
+
 def summary() -> dict:
     split_of = {q.id: q.split for q in load_all()}
     cat_of = {q.id: q.category for q in load_all()}
@@ -195,6 +233,8 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int)
     p.add_argument("--summary", action="store_true")
+    p.add_argument("--rejudge", action="store_true",
+                   help="recompute hits from stored results (after a judge/filter change)")
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--no-default", action="store_true", help="skip the Telem default pass")
     p.add_argument("--top-k", type=int, default=TOP_K, help="results judged per engine")
@@ -202,6 +242,9 @@ def main() -> None:
     globals()["TOP_K"] = a.top_k
     if a.summary:
         summary()
+        return
+    if a.rejudge:
+        asyncio.run(rejudge(a.concurrency))
         return
     asyncio.run(run(a.limit, a.concurrency, a.no_default))
 
