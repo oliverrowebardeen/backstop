@@ -80,3 +80,16 @@ def test_haiku_long_context_price_and_cached_tokens():
                              "anthropic", "checker", "claude-haiku-5-5", 1)
     assert response.tokens_in == 100201
     assert response.cost_usd == pytest.approx((100001 * .5 + 100 * .05 + 100 * .625 + 10 * 2.5) / 1e6)
+
+
+def test_pydantic_schema_adaptation_preserves_field_names_and_input():
+    from so.contracts import CheckerVerdict
+    original = CheckerVerdict.model_json_schema()
+    strict = llm._strict_schema(original)
+    assert strict["additionalProperties"] is False
+    assert set(strict["required"]) == set(original["properties"])
+    assert "minimum" not in strict["properties"]["confidence"]
+    assert "maximum" in strict["properties"]["confidence"]["description"]
+    assert original["properties"]["confidence"]["minimum"] == 0
+    named_default = {"type": "object", "properties": {"default": {"type": "string", "default": "x"}}}
+    assert llm._strict_schema(named_default)["properties"]["default"] == {"type": "string"}

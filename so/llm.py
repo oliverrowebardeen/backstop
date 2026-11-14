@@ -19,6 +19,35 @@ from so.contracts import LLMResponse, ToolCall
 Role = Literal["agent", "checker", "judge"]
 
 
+def _strict_schema(value: Any) -> Any:
+    """Adapt Pydantic schemas to the providers' shared structured-output subset."""
+    if isinstance(value, list):
+        return [_strict_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    unsupported = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                   "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "uniqueItems"}
+    schema = {}
+    constraints = {}
+    for key, item in value.items():
+        if key == "default":
+            continue
+        if key in unsupported:
+            constraints[key] = item
+        elif key in {"properties", "$defs", "definitions"}:
+            schema[key] = {name: _strict_schema(child) for name, child in item.items()}
+        else:
+            schema[key] = _strict_schema(item)
+    if constraints:
+        schema["description"] = (schema.get("description", "") +
+                                  " Constraints: " + json.dumps(constraints, sort_keys=True)).strip()
+    if schema.get("type") == "object":
+        schema["additionalProperties"] = False
+        if "properties" in schema:
+            schema["required"] = list(schema["properties"])
+    return schema
+
+
 def _tool(tool: dict[str, Any]) -> dict[str, Any]:
     value = tool.get("function", tool)
     return {"name": value["name"], "description": value.get("description", ""),
@@ -133,6 +162,8 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
     model = models[role]
     max_tokens = {"checker": 399, "agent": 2048, "judge": 1024}[role]
     body: dict[str, Any] = {"model": model}
+    if json_schema:
+        json_schema = _strict_schema(json_schema)
     if provider == "anthropic":
         endpoint = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/") + "/v1/messages"
         body.update(system=system, messages=_anthropic_messages(messages), max_tokens=max_tokens)
