@@ -63,7 +63,7 @@
 - Run: `pytest tests/s6 -q`; `python -m so.second_opinion "What was Stripe's valuation in its 2023 round?" --goal "find the valuation figure" --format text`; `uvicorn server.app:app --port 8000` then `curl -H "Authorization: Bearer <key>" -H "Content-Type: application/json" -d '{"query":"...","goal":"..."}' localhost:8000/v1/search`.
 - Not done: README "## Results" awaits O5 and the held-out eval; the 12s timeout_s and 4s checker_timeout_s defaults can cut the second rescue or mark slow checks UNCHECKED live, so set SEARCH_TIMEOUT_S and CHECKER_TIMEOUT_S for the eval if needed; the rate limiter is in-memory per process; the client path skips the disk cache by design.
 
-S4 EVAL PAUSED 11:56: stopped before completion while Oliver fixes a bug; partial runs discarded. Behavior freeze lifted: search, checker and agent changes may merge now (they should land before the eval restarts). The eval restarts from scratch after the fix.
+S4 FULL EVAL STARTED 12:32 at commit 928449f (20-question dry run clean: 69/69). Do not merge changes to search, checker or agent behavior until "S4 FULL EVAL FINISHED" appears here.
 Agent fix "fix: keep the agent's reasoning between turns and stop placeholder tool calls" merged by decision of Oliver; S4 full eval must restart on this commit.
 
 ## Site: seven-beat pitch and Vercel entry point
