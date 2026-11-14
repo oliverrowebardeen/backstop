@@ -27,7 +27,16 @@ if FAKE:
     from tests.s2 import fakes as telem_client  # noqa: F401
     from tests.s2 import fakes as llm  # noqa: F401
 else:
-    from so import llm, telem_client  # noqa: F401
+    try:
+        from so import llm, telem_client  # noqa: F401
+    except ImportError:
+        if os.getenv("SO_INTERIM") != "1":
+            raise
+        # O0's wrappers not merged yet: same signatures, Oliver's config helpers.
+        print("[evals] SO_INTERIM=1: so.telem_client/so.llm missing, using evals/interim_so.py",
+              file=sys.stderr)
+        from evals import interim_so as llm  # noqa: F401
+        from evals import interim_so as telem_client  # noqa: F401
 
 try:
     from so.config import ENGINES  # noqa: F401
