@@ -128,7 +128,15 @@ class Event(BaseModel):
         return self
 
 
+# Published artifacts (results.json, frontier.json) carry provenance beyond the frozen
+# fields: per-setup n, warnings, notes, contamination counts, the judge labeler, and
+# simulated/label/n_questions/note on frontier points. Keep those extras on validation and
+# dump so GET /results never strips them; the required fields are unchanged.
+_KEEP_PROVENANCE = ConfigDict(extra="allow")
+
+
 class SetupResults(BaseModel):
+    model_config = _KEEP_PROVENANCE
     correct: int = 0
     wrong: int = 0
     declined: int = 0
@@ -146,6 +154,7 @@ class SetupResults(BaseModel):
 
 
 class CheckerMetrics(BaseModel):
+    model_config = _KEEP_PROVENANCE
     n_searches: int = 0
     miss_recall: float = 0
     false_alarm_rate: float = 0
@@ -153,11 +162,13 @@ class CheckerMetrics(BaseModel):
 
 
 class JudgeAgreement(BaseModel):
+    model_config = _KEEP_PROVENANCE
     n_checked: int = 0
     agree: int = 0
 
 
 class Results(BaseModel):
+    model_config = _KEEP_PROVENANCE
     generated_at: str
     n_test: int
     n_traps: int
@@ -167,6 +178,7 @@ class Results(BaseModel):
 
 
 class FrontierPoint(BaseModel):
+    model_config = _KEEP_PROVENANCE
     kind: Literal["combo", "telem_default", "second_opinion"]
     engines: list[str] = Field(default_factory=list)
     coverage: float = Field(ge=0, le=1)
@@ -174,6 +186,7 @@ class FrontierPoint(BaseModel):
 
 
 class Frontier(BaseModel):
+    model_config = _KEEP_PROVENANCE
     split: Literal["test"] = "test"
     points: list[FrontierPoint] = Field(default_factory=list)
 

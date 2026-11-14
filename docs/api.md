@@ -239,6 +239,15 @@ is limited to what the key's remaining cap covers.
 
 `{"status": "ok", "version": "0.1.0"}`. Needs no key.
 
+### `GET /results`
+
+Serves the published evaluation artifacts as `{"results": ..., "frontier": ...}` (`null`
+until each file exists). Both are validated against `so/contracts.py`, and every field
+beyond the contract is kept, so provenance reaches the client unchanged: per-setup `n`,
+`notes`, top-level `warnings` and `contamination` counts, `judge_agreement.labeler`, and on
+frontier points `simulated`, `label`, `n_questions` and `note`. A point with
+`"simulated": true` is a model of Backstop's cost and coverage, not a measured run.
+
 ### HTTP errors
 
 Errors are JSON: `{"detail": {"code": "...", "message": "..."}}`. A 422 uses FastAPI's
