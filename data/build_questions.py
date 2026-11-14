@@ -173,8 +173,9 @@ def stratified_split(rows: list[dict], n_learn: int, rng: random.Random) -> None
             r["split"] = "learn" if j < alloc[c] else "test"
 
 
-def build() -> list[dict]:
-    rng = random.Random(SEED)
+def build(seed: int = SEED, n_fact: int = N_FACT, n_finance: int = N_FINANCE,
+          n_learn: int = N_LEARN, n_test: int = N_TEST) -> list[dict]:
+    rng = random.Random(seed)
     sqa_text = _fetch(SIMPLEQA_URL, "simple_qa_test_set.csv")
     fb_text = _fetch(FINANCEBENCH_URL, "financebench_open_source.jsonl")
     if sqa_text is None and fb_text is None:
@@ -185,21 +186,21 @@ def build() -> list[dict]:
     rng.shuffle(fact_pool)
     rng.shuffle(fin_pool)
 
-    finance = fin_pool[:N_FINANCE]
-    n_fact = N_FACT + (N_FINANCE - len(finance))
-    if len(finance) < N_FINANCE:
-        print(f"!! FinanceBench gave {len(finance)} usable questions, not {N_FINANCE}. "
-              f"Filling {N_FINANCE - len(finance)} from SimpleQA.", file=sys.stderr)
-    fact = fact_pool[:n_fact]
-    if len(fact) < n_fact:
-        short = n_fact - len(fact)
+    finance = fin_pool[:n_finance]
+    n_fact_total = n_fact + (n_finance - len(finance))
+    if len(finance) < n_finance:
+        print(f"!! FinanceBench gave {len(finance)} usable questions, not {n_finance}. "
+              f"Filling {n_finance - len(finance)} from SimpleQA.", file=sys.stderr)
+    fact = fact_pool[:n_fact_total]
+    if len(fact) < n_fact_total:
+        short = n_fact_total - len(fact)
         print(f"!! SimpleQA short by {short}. Filling from FinanceBench.", file=sys.stderr)
-        finance += fin_pool[N_FINANCE:N_FINANCE + short]
+        finance += fin_pool[n_finance:n_finance + short]
 
     rows = fact + finance
-    if len(rows) != N_LEARN + N_TEST:
-        sys.exit(f"Only {len(rows)} usable questions, need {N_LEARN + N_TEST}.")
-    stratified_split(rows, N_LEARN, rng)
+    if len(rows) != n_learn + n_test:
+        sys.exit(f"Only {len(rows)} usable questions, need {n_learn + n_test}.")
+    stratified_split(rows, n_learn, rng)
 
     out = []
     for r in sorted(rows, key=lambda r: r["id"]):
@@ -212,8 +213,14 @@ def build() -> list[dict]:
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__).parse_args()
-    rows = build()
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--n-fact", type=int, default=N_FACT)
+    p.add_argument("--n-finance", type=int, default=N_FINANCE)
+    p.add_argument("--n-learn", type=int, default=N_LEARN)
+    p.add_argument("--n-test", type=int, default=N_TEST)
+    a = p.parse_args()
+    rows = build(a.seed, a.n_fact, a.n_finance, a.n_learn, a.n_test)
     OUT.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     print(f"wrote {len(rows)} questions to {OUT.relative_to(ROOT)}")
 

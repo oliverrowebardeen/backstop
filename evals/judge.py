@@ -13,9 +13,9 @@ import json
 import re
 from pathlib import Path
 
-from evals.deps import ROOT, FAKE, get, llm
+from evals.deps import JUDGE_CACHE, get, llm
 
-CACHE = ROOT / "cache" / ("judge_fake" if FAKE else "judge")
+CACHE = JUDGE_CACHE
 SPEND = {"judge_usd": 0.0, "judge_calls": 0, "judge_cached": 0}
 
 HIT_SYSTEM = """You grade search results for an evaluation. You are given a question,

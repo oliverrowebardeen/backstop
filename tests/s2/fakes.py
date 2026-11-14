@@ -11,10 +11,10 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from tests.s2.fake_contracts import EngineRun, Result
+from so import config
+from so.contracts import EngineRun, Result
 
-PRICE = {"tavily": 0.005, "exa": 0.005, "brave": 0.005, "perplexity": 0.005,
-         "parallel": 0.001, "ceramic": 0.00005}
+PRICE = config.PRICE_USD
 GOLD_MARKER = "<<gold>>"
 CALLS = {"search": 0, "default": 0, "llm": 0}
 
@@ -32,7 +32,7 @@ def _run(query: str, engine: str, n: int) -> EngineRun:
         for i in range(1, n + 1)
     ]
     return EngineRun(engine=engine, status="ok", results=results, latency_ms=100 + _h(engine) % 900,
-                     cost_usd=PRICE.get(engine, 0.005), cached=False)
+                     cost_usd=PRICE.get(engine, config.DEFAULT_PRICE_USD), cached=False)
 
 
 async def search_engines(query, engines, *, num_results=5, goal=None, published_after=None, session=None):
@@ -44,7 +44,7 @@ async def search_engines(query, engines, *, num_results=5, goal=None, published_
 async def search_default(query, *, goal=None, session=None):
     CALLS["default"] += 1
     await asyncio.sleep(0)
-    chosen = ["tavily", "exa", "brave"]
+    chosen = config.ENGINES[:3]
     return {e: _run(query, e, 5) for e in chosen}
 
 

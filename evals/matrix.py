@@ -29,7 +29,7 @@ from evals.deps import ENGINES, OUT, get, telem_client
 MATRIX = OUT / "matrix.jsonl"
 DEFAULT_MATRIX = OUT / "default_matrix.jsonl"
 RESULTS = OUT / "matrix_results.jsonl"
-TOP_K = 5
+TOP_K = 5  # section 6.5 hit rule: top 5 results per engine (--top-k overrides)
 
 SPEND = {"search_usd": 0.0, "search_calls": 0, "cached_calls": 0, "errors": 0}
 _lock = asyncio.Lock()
@@ -197,7 +197,9 @@ def main() -> None:
     p.add_argument("--summary", action="store_true")
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--no-default", action="store_true", help="skip the Telem default pass")
+    p.add_argument("--top-k", type=int, default=TOP_K, help="results judged per engine")
     a = p.parse_args()
+    globals()["TOP_K"] = a.top_k
     if a.summary:
         summary()
         return

@@ -9,10 +9,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-try:
-    from so.contracts import Question
-except ImportError:  # O0 not merged yet
-    from tests.s1.fake_contracts import Question
+from so.contracts import Question
 
 DATA = Path(__file__).resolve().parent
 QUESTIONS = DATA / "questions.jsonl"
