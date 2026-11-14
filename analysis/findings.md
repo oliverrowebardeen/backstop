@@ -1,0 +1,3 @@
+> GENERATED FROM FAKE DATA (SO_FAKE=1). Numbers are placeholders, regenerate on the real matrix with `python -m analysis.findings`.
+
+On the learn split (100 questions) tavily missed 41, and the best single rescue was parallel, which found the answer in 31 of them. The most surprising pair is exa then tavily: tavily found the answer in 22 of 34 exa misses (65%) against a 59% hit rate overall, above its average by 6 points. On the test split (200 non-trap questions) the learned order (parallel, exa) covers 96.5% against 94.5% for the fixed order (exa, perplexity), a gap of +2.0 points (paired bootstrap 95% interval -1.0 to +5.0; 7 questions favour learned, 3 favour fixed), so the learned order does not beat the fixed order by more than noise.
