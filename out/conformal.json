@@ -1,0 +1,168 @@
+{
+  "engine": "tavily",
+  "headline_alpha": 0.1,
+  "slide_sentence": "Calibrated on the learn split to keep wrong HITs at or below 10%, checker HITs at confidence 0.80 or higher were wrong 16.7% of the time on 18 held-out searches (95% CI 3.6% to 41.4%), covering 58.1% of first-engine searches; that is above the 10% target.",
+  "test_source": "DRY RUN logs (full eval logs not available yet)",
+  "test_log_dir": "out/logs_dryrun2",
+  "test_counts": {
+    "finished_runs": 20,
+    "unjoined": 0,
+    "outside_test": 3
+  },
+  "leakage": {
+    "learn_ids": 100,
+    "test_ids": 20,
+    "overlap": 0
+  },
+  "calibration_summary": {
+    "split": "learn",
+    "today": "2026-11-14",
+    "n_checks": 100,
+    "hits": 67,
+    "wrong_hits": 4
+  },
+  "test_summary": {
+    "lambda": null,
+    "n_checks": 31,
+    "n_questions": 20,
+    "hits_total": 18,
+    "hits_kept": 0,
+    "wrong_hits_kept": 0,
+    "wrong_hit_rate": null,
+    "wrong_hit_rate_ci95": [
+      0.0,
+      1.0
+    ],
+    "coverage": 0.0,
+    "hit_retention": 0.0,
+    "wrong_hits_all": 3
+  },
+  "alphas": [
+    {
+      "calibration": {
+        "alpha": 0.1,
+        "lam": 0.8,
+        "n_hits": 67,
+        "n_wrong": 4,
+        "bound": 0.073529,
+        "vacuous": false,
+        "n_calibration": 100
+      },
+      "test": {
+        "lambda": 0.8,
+        "n_checks": 31,
+        "n_questions": 20,
+        "hits_total": 18,
+        "hits_kept": 18,
+        "wrong_hits_kept": 3,
+        "wrong_hit_rate": 0.1667,
+        "wrong_hit_rate_ci95": [
+          0.0358,
+          0.4142
+        ],
+        "coverage": 0.5806,
+        "hit_retention": 1.0,
+        "wrong_hits_all": 3
+      }
+    },
+    {
+      "calibration": {
+        "alpha": 0.05,
+        "lam": 0.93,
+        "n_hits": 36,
+        "n_wrong": 0,
+        "bound": 0.027027,
+        "vacuous": false,
+        "n_calibration": 100
+      },
+      "test": {
+        "lambda": 0.93,
+        "n_checks": 31,
+        "n_questions": 20,
+        "hits_total": 18,
+        "hits_kept": 6,
+        "wrong_hits_kept": 1,
+        "wrong_hit_rate": 0.1667,
+        "wrong_hit_rate_ci95": [
+          0.0042,
+          0.6412
+        ],
+        "coverage": 0.1935,
+        "hit_retention": 0.3333,
+        "wrong_hits_all": 3
+      }
+    },
+    {
+      "calibration": {
+        "alpha": 0.15,
+        "lam": 0.8,
+        "n_hits": 67,
+        "n_wrong": 4,
+        "bound": 0.073529,
+        "vacuous": false,
+        "n_calibration": 100
+      },
+      "test": {
+        "lambda": 0.8,
+        "n_checks": 31,
+        "n_questions": 20,
+        "hits_total": 18,
+        "hits_kept": 18,
+        "wrong_hits_kept": 3,
+        "wrong_hit_rate": 0.1667,
+        "wrong_hit_rate_ci95": [
+          0.0358,
+          0.4142
+        ],
+        "coverage": 0.5806,
+        "hit_retention": 1.0,
+        "wrong_hits_all": 3
+      }
+    }
+  ],
+  "calibration_curve": [
+    {
+      "lambda": 0.8,
+      "hits": 67,
+      "wrong": 4,
+      "ratio": 0.0735
+    },
+    {
+      "lambda": 0.85,
+      "hits": 65,
+      "wrong": 4,
+      "ratio": 0.0758
+    },
+    {
+      "lambda": 0.88,
+      "hits": 64,
+      "wrong": 3,
+      "ratio": 0.0615
+    },
+    {
+      "lambda": 0.9,
+      "hits": 63,
+      "wrong": 3,
+      "ratio": 0.0625
+    },
+    {
+      "lambda": 0.93,
+      "hits": 36,
+      "wrong": 0,
+      "ratio": 0.027
+    },
+    {
+      "lambda": 0.95,
+      "hits": 15,
+      "wrong": 0,
+      "ratio": 0.0625
+    },
+    {
+      "lambda": 0.96,
+      "hits": 5,
+      "wrong": 0,
+      "ratio": 0.1667
+    }
+  ],
+  "rule": "lambda = smallest HIT confidence such that (wrong>=lambda + 1)/(hits>=lambda + 1) <= alpha"
+}
