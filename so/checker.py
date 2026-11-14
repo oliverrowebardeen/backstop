@@ -54,6 +54,7 @@ VERDICT_SCHEMA: dict[str, Any] = {
         "rewrite": {"type": ["string", "null"]},
     },
     "required": ["verdict", "confidence", "why", "evidence_rank", "best_url", "rewrite"],
+    "additionalProperties": False,
 }
 
 
