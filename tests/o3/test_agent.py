@@ -208,6 +208,16 @@ def test_explicit_decline_and_parenthesized_citations():
     assert agent._answer(text, {url}, 1).citations == [url]
 
 
+def test_fenced_answer_after_explanation_is_validated():
+    body = json.dumps({"final": "Ada is the CEO.", "status": "ANSWERED", "citations": [URL]})
+    answer = agent._answer(f"The sources identify the CEO.\n\n```json\n{body}\n```", {URL}, 2)
+    assert answer.final == "Ada is the CEO." and answer.searches == 2
+    with pytest.raises(ValueError, match="retrieved evidence"):
+        agent._answer(f"Explanation.\n```json\n{body}\n```", set(), 2)
+    with pytest.raises(ValueError, match="one JSON answer block"):
+        agent._answer(f"```json\n{body}\n```\n```json\n{body}\n```", {URL}, 2)
+
+
 async def test_baseline_deduplicates_urls_and_keeps_uncertainty(wrappers):
     ctx = RunContext(run_id="r", question_id="q", setup="telem_default", session="session-one")
     outcome = await setups.telem_default("query", "goal", ctx)

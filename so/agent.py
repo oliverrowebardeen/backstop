@@ -72,8 +72,11 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
     final = text.strip()
     if final == "NOT FOUND":
         return AgentAnswer(final=final, status="NOT_FOUND", searches=searches)
+    blocks = re.findall(r"```(?:json)?\s*(.*?)```", final, flags=re.IGNORECASE | re.DOTALL)
+    if len(blocks) > 1:
+        raise ValueError("Invalid agent answer: expected one JSON answer block")
     try:
-        payload = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", final))
+        payload = json.loads(blocks[0] if blocks else final)
     except json.JSONDecodeError as exc:
         raise ValueError("Invalid agent answer: expected a JSON object or NOT FOUND") from exc
     if not isinstance(payload, dict):
