@@ -1,74 +1,265 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f2eb">
-  <title>Backstop · A second opinion for every search</title>
-  <meta name="description" content="Backstop checks every search, rescues a miss, and says not found instead of guessing. See two agents race on the same question.">
-  <meta property="og:title" content="Backstop · A second opinion for every search">
-  <meta property="og:description" content="One question. Two agents. Watch the evidence make the difference.">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#161714">
+  <title>Backstop · Verified search on Telem</title>
+  <meta name="description" content="Backstop checks every Telem search against the agent's goal, rescues misses on the engine that catches them, and says not found instead of guessing.">
+  <meta property="og:title" content="Backstop · When search misses, Backstop catches it.">
+  <meta property="og:description" content="Verified search for AI agents, built on Telem and Tavily.">
   <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/ui/fonts/LibreCaslonDisplay-Regular.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="stylesheet" href="/ui/style.css"><script type="module" src="/ui/app.js"></script>
+  <link rel="stylesheet" href="/ui/style.css">
+  <script type="module" src="/ui/app.js"></script>
 </head>
 <body>
-  <a class="skip" href="#race">Skip to the live race</a>
+  <a class="skip" href="#simulate">Skip to Simulate a miss</a>
+
+  <header class="nav" id="top">
+    <div class="wrap nav-inner">
+      <a class="wordmark" href="/" aria-label="Backstop home">
+        <svg viewBox="0 0 64 64" aria-hidden="true" class="mark"><path d="M39 14h12v36H39M14 32h29M29 18l14 14-14 14" fill="none" stroke="currentColor" stroke-width="6"/></svg>
+        <span>Backstop</span>
+      </a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#simulate">Simulate</a>
+        <a href="#results">Results</a>
+        <a href="#developers">Developers</a>
+        <a href="/race">Race</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="nav-github" href="https://github.com/oliverrowebardeen/backstop" rel="noopener noreferrer">GitHub</a>
+        <a class="btn btn-primary" href="/race">Try the live race</a>
+      </div>
+    </div>
+  </header>
+
   <main>
-    <section class="hook beat" id="hook" aria-labelledby="hook-title">
-      <div class="wrap"><h1 id="hook-title">AI agents trust whatever <br>the first search returns.</h1><p>Backstop checks every search, and says “not found” instead of guessing.</p></div>
-    </section>
-    <section class="problem beat wrap" id="problem" aria-labelledby="problem-title">
-      <p class="eyebrow">01 / The blind spot</p>
-      <div class="problem-grid"><div><p class="giant-number" id="miss-number">—<span>%</span></p><p class="number-caption" id="miss-count">Waiting for the held-out search matrix.</p></div><div><h2 id="problem-title">of first searches<br>miss the answer.</h2><p>A missed search makes an agent<br>confidently wrong, not cautious.</p></div></div>
-    </section>
-    <section class="mechanism beat wrap" id="mechanism" aria-labelledby="mechanism-title">
-      <div class="beat-heading"><p class="eyebrow">02 / The intervention</p><h2 id="mechanism-title">Search. Check. <em>Then decide.</em></h2><button class="quiet-button" id="diagram-play" aria-pressed="false">Pause diagram <span aria-hidden="true">Ⅱ</span></button></div>
-      <div class="diagram" role="img" aria-label="A query travels to Tavily through Telem, then a checker returns a hit, rescues a miss with another engine or page read, or returns not found after two failed rescues.">
-        <svg viewBox="0 0 1200 330" aria-hidden="true">
-          <defs><marker id="arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="none" stroke="currentColor"/></marker></defs>
-          <g class="diagram-lines" fill="none" stroke="currentColor" stroke-width="1.2">
-            <path id="query-track" d="M105 165H285" marker-end="url(#arrowhead)"/><path id="engine-track" d="M435 165H605" marker-end="url(#arrowhead)"/>
-            <path id="hit-track" d="M765 165H825V65H940" marker-end="url(#arrowhead)"/><path id="rescue-track" d="M765 165H940" marker-end="url(#arrowhead)"/><path id="stop-track" d="M765 165H825V265H940" marker-end="url(#arrowhead)"/>
-            <path d="M965 198H900V310H360V207" class="return-line" marker-end="url(#arrowhead)"/>
-          </g>
-          <g class="diagram-node"><rect x="285" y="123" width="150" height="84"/><rect x="605" y="123" width="160" height="84"/></g>
-          <text x="55" y="172" class="diagram-main">Query</text><text x="360" y="160" text-anchor="middle" class="diagram-main">One engine</text><text x="360" y="185" text-anchor="middle" class="diagram-small">Tavily via Telem</text><text x="685" y="172" text-anchor="middle" class="diagram-main">Checker</text>
-          <text x="961" y="60" class="diagram-main">Hit</text><text x="961" y="83" class="diagram-small">Return the evidence.</text><text x="961" y="160" class="diagram-main">Rescue</text><text x="961" y="183" class="diagram-small">Another engine. Or read the page.</text><text x="961" y="260" class="diagram-main">Not found</text><text x="961" y="283" class="diagram-small">Stop before guessing.</text><text x="590" y="302" class="diagram-small">At most two rescues</text>
-          <circle class="query-dot" r="5"/><circle class="engine-dot" r="5"/><circle class="hit-dot" r="5"/><circle class="rescue-dot" r="5"/><circle class="stop-dot" r="5"/>
-        </svg>
-      </div>
-      <div class="diagram-mobile" aria-hidden="true"><div class="mobile-route"><span>Query</span><span>↓</span><strong>Tavily via Telem</strong><span>↓</span><strong>Checker</strong></div><div class="mobile-paths"><div>Hit<small>Return evidence</small></div><div>Rescue<small>Search or read</small></div><div>Not found<small>Stop guessing</small></div></div><p>At most two rescues.</p></div>
-      <p class="diagram-caption">The next move depends on what came back.</p>
-    </section>
-    <section class="race beat" id="race" aria-labelledby="race-title">
-      <div class="wrap"><div class="beat-heading"><p class="eyebrow">03 / The race</p><h2 id="race-title">One question. <em>Two agents.</em></h2><span id="race-mode" class="mode">Golden run loading</span></div>
-        <p id="replay-only" class="mode">Replay-only mode. Live races are disabled on this server.</p>
-        <form id="race-form"><label class="sr-only" for="question">Ask both agents a question</label><input id="question" name="question" readonly value="What was Stripe's valuation in its 2023 round?" maxlength="2000" required autocomplete="off"><button class="button" id="run-button" type="submit" hidden disabled>Run live <span aria-hidden="true">↗</span></button></form>
-        <div id="credentials" hidden><label for="api-key">Backstop API key</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><p id="key-help">Required for live races. Kept only in this page until you close or reload it.</p></div>
-        <div class="race-toolbar"><p id="race-message" role="status">The recorded golden question plays when this section comes into view.</p><div><button class="quiet-button" id="race-theme" aria-pressed="false" aria-label="Toggle race light mode">Light mode</button><button class="quiet-button" id="replay-button" disabled>Play golden run ↺</button><button class="quiet-button" id="stop-button" hidden>Stop run ■</button></div></div>
-        <div class="columns" id="columns"></div>
-        <p class="race-footnote">Same model. Same question. Only the search tool changes. <span>Costs include the checker.</span></p>
+    <section class="hero dark" aria-labelledby="hero-title">
+      <canvas class="dots" aria-hidden="true"></canvas>
+      <div class="wrap hero-inner">
+        <p class="label label-dark"><span class="live-dot" aria-hidden="true"></span>Verified search on Telem</p>
+        <h1 id="hero-title">When search misses, <span class="nowrap">Backstop</span> catches&nbsp;it.</h1>
+        <p class="hero-sub">Backstop checks every Telem search against the agent's goal, rescues misses on the engine that catches them, and says not found instead of guessing.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-accent btn-lg" href="#simulate" data-play><span aria-hidden="true">&#9654;</span> Simulate a miss</a>
+          <a class="btn btn-ghost btn-lg" href="/race">Try the live race</a>
+        </div>
+        <ul class="hero-engines" aria-label="Engines Backstop can call through Telem">
+          <li>Tavily</li><li>Exa</li><li>Brave</li><li>Perplexity</li><li>Parallel</li><li>Ceramic</li>
+        </ul>
       </div>
     </section>
-    <section class="proof beat wrap" id="proof" aria-labelledby="proof-title">
-      <div class="beat-heading"><p class="eyebrow">04 / The proof</p><h2 id="proof-title">Let the results <em>answer.</em></h2><span class="data-status" id="proof-status">Awaiting the held-out evaluation</span></div>
-      <div class="proof-numbers"><div><p class="metric" id="wrong-value">—</p><h3 id="wrong-label">Wrong answers cut</h3><p id="wrong-count">Question count pending</p></div><div><p class="metric" id="accuracy-value">—</p><h3 id="accuracy-label">Accuracy vs. Telem default</h3><p id="accuracy-count">Question count pending</p></div><div><p class="metric" id="cost-value">—</p><h3 id="cost-label">Lower total cost</h3><p id="cost-count">Question count pending</p></div></div>
-      <figure class="frontier"><div class="frontier-heading"><figcaption>Cost against answer accuracy</figcaption><span id="chart-note">Measured points appear when the evaluation is complete.</span></div><div id="frontier-chart"><svg viewBox="0 0 1000 320" role="img" aria-label="Cost versus answer accuracy chart. Awaiting measured results."><path d="M75 30V265H955" fill="none" stroke="currentColor"/><text x="500" y="140" text-anchor="middle">Waiting for measured results</text><text x="515" y="310" text-anchor="middle">Total cost per question →</text><text transform="translate(25 150) rotate(-90)" text-anchor="middle">Answer accuracy →</text></svg></div></figure>
+
+    <section class="sim dark" id="simulate" aria-labelledby="sim-title">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="label label-dark">Simulate a miss</p>
+            <h2 id="sim-title">Watch one search get&nbsp;caught.</h2>
+          </div>
+          <p class="section-intro">Each scenario replays a recorded event log step by step: the real query, the engines Telem called, the checker's verdicts, the rescues, the costs and the timings.</p>
+        </div>
+        <div class="sim-controls">
+          <div class="sim-switch" role="radiogroup" aria-label="Scenario"></div>
+          <p class="data-label"><span class="data-badge">Loading recordings</span><span class="data-caption"></span></p>
+        </div>
+        <div class="sim-stage">
+          <svg class="leaders" aria-hidden="true"></svg>
+          <aside class="ghost ghost-left" hidden></aside>
+          <aside class="ghost ghost-right" hidden></aside>
+          <article class="sim-card" aria-label="One search, as Backstop handles it"><p class="card-loading">Loading the recorded run.</p></article>
+          <div class="notes" aria-hidden="true"></div>
+        </div>
+        <ul class="notes-list" aria-label="Annotations"></ul>
+        <dl class="sim-counters" aria-label="This search so far">
+          <div><dt>Engine calls</dt><dd data-counter="engines">0</dd></div>
+          <div><dt>Page reads</dt><dd data-counter="reads">0</dd></div>
+          <div><dt>Cost, checker included</dt><dd data-counter="cost">$0.0000</dd></div>
+          <div><dt>Time in the recorded run</dt><dd data-counter="time">0.0s</dd></div>
+        </dl>
+        <p class="sim-status" role="status" aria-live="polite"></p>
+        <div class="timeline">
+          <button id="sim-play" class="play" type="button" aria-pressed="false"><span class="play-icon" aria-hidden="true">&#9654;</span><span class="play-label">Simulate a miss</span></button>
+          <div class="track" role="slider" tabindex="0" aria-label="Simulation timeline. Space plays or pauses, arrow keys step." aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+            <div class="rail"><div class="rail-fill"></div><div class="thumb"></div></div>
+            <div class="ticks"></div>
+          </div>
+        </div>
+        <p class="kbd-hint">Space plays or pauses. Arrow keys step through the timeline. Drag the bar to scrub.</p>
+      </div>
     </section>
-    <section class="built beat wrap" id="built" aria-labelledby="built-title">
-      <p class="eyebrow">05 / The infrastructure</p><h2 id="built-title">Built on Telem <em>and Tavily.</em></h2>
-      <div class="engine-chips" aria-label="Six search providers"><span>Tavily</span><span>Exa</span><span>Brave</span><span>Perplexity</span><span>Parallel</span><span>Ceramic</span></div>
-      <div class="sponsor-lines"><p><a href="https://telem.ai" target="_blank" rel="noopener noreferrer">Telem ↗</a><span>Six engines. One API. Every search, grouped in a session.</span></p><p><a href="https://tavily.com" target="_blank" rel="noopener noreferrer">Tavily ↗</a><span>The first search. Extract reads the page when a snippet falls short.</span></p></div>
-      <div class="audit-row"><p>Every query. Every check. Every reason to stop.</p><button class="button" id="export-audit" disabled>Export audit trail <span aria-hidden="true">↓</span></button></div>
+
+    <section class="how light" id="how" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="label">How it works</p>
+            <h2 id="how-title">Search. Check. Then&nbsp;decide.</h2>
+          </div>
+          <p class="section-intro">Telem's default routing picks several engines before any results exist. Backstop puts the decision after the results.</p>
+        </div>
+        <div class="flow">
+          <svg class="flow-lines" aria-hidden="true"></svg>
+          <div class="flow-col">
+            <p class="col-label">Agent asks</p>
+            <div class="fcard" id="f-ask">
+              <code class="fcode">search(query, goal)</code>
+              <p>The agent says what it needs, not only what to type.</p>
+            </div>
+          </div>
+          <div class="flow-col">
+            <p class="col-label">Telem searches</p>
+            <div class="fcard" id="f-telem">
+              <ul class="chip-row" aria-label="Engines">
+                <li class="engine-tag is-first">Tavily</li><li class="engine-tag">Exa</li><li class="engine-tag">Brave</li><li class="engine-tag">Perplexity</li><li class="engine-tag">Parallel</li><li class="engine-tag">Ceramic</li>
+              </ul>
+              <p>One API, pinned engines, goals and sessions.</p>
+            </div>
+          </div>
+          <div class="flow-col">
+            <p class="col-label">Checker decides</p>
+            <div class="fcard" id="f-check">
+              <ul class="verdict-list">
+                <li><span class="verdict verdict-hit">Hit</span><span>A top result states the answer.</span></li>
+                <li><span class="verdict verdict-stale">Stale</span><span>On topic, but older than the goal needs.</span></li>
+                <li><span class="verdict verdict-wrong-entity">Wrong entity</span><span>A similar name, a different thing.</span></li>
+                <li><span class="verdict verdict-shallow">Shallow</span><span>The right page, a thin snippet.</span></li>
+                <li><span class="verdict verdict-dead">Dead</span><span>Nothing relevant came back.</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="flow-col">
+            <p class="col-label">Rescue</p>
+            <div class="fcard fcard-sm" id="f-r1"><strong>Retry</strong><span>on the engine the rescue table picks</span></div>
+            <div class="fcard fcard-sm" id="f-r2"><strong>Read the page</strong><span>with Tavily Extract</span></div>
+            <div class="fcard fcard-sm" id="f-r3"><strong>Rewrite</strong><span>the query for the miss it had</span></div>
+          </div>
+          <div class="flow-col">
+            <p class="col-label">Answer</p>
+            <div class="fcard outcome outcome-ok" id="f-ok"><span class="outcome-title">Verified</span><span>Evidence and citations go back to the agent.</span></div>
+            <div class="fcard outcome outcome-nf" id="f-nf"><span class="outcome-title">Not found</span><span>After two failed rescues Backstop declines instead of guessing.</span></div>
+          </div>
+        </div>
+        <p class="answer-key" id="answer-key">The checker never sees the answer key.</p>
+        <p class="flow-source"></p>
+        <div class="strip">
+          <article class="strip-card"><p class="label">Telem sessions</p><p>Every run is grouped in one Telem session, so each search and rescue shows up together in the Telem console.</p></article>
+          <article class="strip-card"><p class="label">Tavily Extract</p><p>When a snippet is thin, Extract reads the page with the goal as its query and hands evidence chunks to the checker.</p></article>
+          <article class="strip-card"><p class="label">Exportable audit trail</p><p>Every search, check and rescue is recorded as an event. The live race exports the whole trail as JSON.</p></article>
+          <article class="strip-card"><p class="label">Telem Monitors</p><p>Fact sheets that re-verify themselves: a daily Monitor per field marks a value stale when new evidence disagrees.</p></article>
+        </div>
+      </div>
     </section>
-    <section class="business beat wrap" id="business" aria-labelledby="business-title">
-      <p class="eyebrow">06 / The business</p><h2 id="business-title">For work where<br><em>a wrong fact costs money.</em></h2>
-      <dl class="business-lines"><div><dt>Who pays</dt><dd>Teams building research and diligence agents.</dd></div><div><dt>What they buy</dt><dd>Verified search, priced per search.</dd></div><div><dt>What compounds</dt><dd>Every checked search can teach us which engine rescues which miss.</dd></div><div><dt>The market</dt><dd><a href="https://exa.ai/blog/announcing-series-c" target="_blank" rel="noopener noreferrer">Exa: $2.2B valuation ↗</a><span> / </span><a href="https://www.prnewswire.com/news-releases/parallel-raises-at-2-billion-valuation-to-scale-web-infrastructure-for-agents-302756350.html" target="_blank" rel="noopener noreferrer">Parallel: $2B ↗</a><small>Announced May and April 2026.</small></dd></div></dl>
-      <div class="closing"><p>Backstop<span>.</span></p><a href="https://github.com/oliverrowebardeen/backstop">Read the code on GitHub <span aria-hidden="true">↗</span></a></div>
+
+    <section class="results light" id="results" aria-labelledby="results-title">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="label">Results</p>
+            <h2 id="results-title">Measured on questions we never tuned&nbsp;on.</h2>
+          </div>
+          <p class="results-status is-pending">Loading results</p>
+        </div>
+        <div class="headline-numbers"></div>
+        <div class="results-grid">
+          <div class="table-card">
+            <table class="results-table">
+              <caption class="sr-only">Single engine, Telem default and Backstop on the held-out questions</caption>
+              <thead><tr><th scope="col"><span class="sr-only">Metric</span></th><th scope="col">Single engine</th><th scope="col">Telem default</th><th scope="col" class="is-ours">Backstop</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <figure class="chart-card">
+            <figcaption><p class="label">Coverage against cost</p><p class="chart-title">Every engine combination on one&nbsp;chart.</p></figcaption>
+            <div class="frontier-chart"></div>
+            <p class="chart-note"></p>
+          </figure>
+        </div>
+        <div class="findings"></div>
+      </div>
+    </section>
+
+    <section class="autopsy light" id="autopsy" aria-labelledby="autopsy-title">
+      <div class="wrap autopsy-grid">
+        <div>
+          <p class="label">Miss autopsy</p>
+          <h2 id="autopsy-title">Find the search that went&nbsp;wrong.</h2>
+          <p class="section-intro">Give a Telem session id from a Backstop search. The autopsy replays every search in it through the checker and marks the first miss.</p>
+          <form class="autopsy-form" id="autopsy-form">
+            <label for="autopsy-key">Backstop API key</label>
+            <input id="autopsy-key" type="password" autocomplete="off" spellcheck="false" required aria-describedby="autopsy-help">
+            <label for="autopsy-session">Telem session id</label>
+            <input id="autopsy-session" class="mono" autocomplete="off" spellcheck="false" required maxlength="200" placeholder="8a30f5f0-f0e9-4821-...">
+            <button class="btn btn-dark" type="submit">Run autopsy</button>
+            <p id="autopsy-help" class="form-help">Calls GET /v1/autopsy/{session_id}. The key stays in this page. Each step is checked once and metered to your key, and only sessions created by that key are visible.</p>
+          </form>
+        </div>
+        <div class="autopsy-panel">
+          <p class="autopsy-message" role="status" aria-live="polite">No session loaded yet.</p>
+          <ol class="autopsy-steps"></ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="dev dark" id="developers" aria-labelledby="dev-title">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="label label-dark">Developers</p>
+            <h2 id="dev-title">One line to&nbsp;switch.</h2>
+          </div>
+          <p class="section-intro">BackstopTelem keeps Telem's response shape and adds status, verdict, why, trace, cost and a rank reason on every result. Every other AsyncTelem method passes through.</p>
+        </div>
+        <div class="code-grid">
+          <div class="code-card">
+            <div class="code-head"><span>Python</span><button class="copy" type="button" data-copy="code-py">Copy</button></div>
+<pre id="code-py"><code><span class="line del">from telem import AsyncTelem</span>
+<span class="line add">from backstop import BackstopTelem</span>
+
+<span class="line del">client = AsyncTelem()</span>
+<span class="line add">client = BackstopTelem()</span>
+
+resp = await client.search(
+    "What was Stripe's valuation in its 2023 round?",
+    goal="find the valuation figure",
+)
+print(resp.status, resp.results[0].url)</code></pre>
+          </div>
+          <div class="code-card">
+            <div class="code-head"><span>HTTP</span><button class="copy" type="button" data-copy="code-curl">Copy</button></div>
+<pre id="code-curl"><code>curl -s http://localhost:8000/v1/search \
+  -H "Authorization: Bearer $BACKSTOP_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What was Stripe'\''s valuation in its 2023 round?",
+       "goal": "find the valuation figure"}'</code></pre>
+          </div>
+          <div class="code-card code-card-wide">
+            <div class="code-head"><span>Install</span><button class="copy" type="button" data-copy="code-install">Copy</button></div>
+<pre id="code-install"><code>git clone https://github.com/oliverrowebardeen/backstop && cd backstop
+pip install -e .   # Python 3.11+, TELEM_API_KEY and ANTHROPIC_API_KEY in .env</code></pre>
+          </div>
+        </div>
+        <div class="dev-links">
+          <a href="https://github.com/oliverrowebardeen/backstop#readme" rel="noopener noreferrer">README <span aria-hidden="true">&#8599;</span></a>
+          <a href="https://github.com/oliverrowebardeen/backstop/blob/main/docs/api.md" rel="noopener noreferrer">API reference, docs/api.md <span aria-hidden="true">&#8599;</span></a>
+          <a href="/race">Live race <span aria-hidden="true">&#8594;</span></a>
+        </div>
+      </div>
     </section>
   </main>
-  <footer class="wrap"><span>Backstop · Oliver &amp; Shikhar · SearchHack 2026</span><div><a href="https://github.com/oliverrowebardeen/backstop/tree/main/analysis">Heatmap</a><a href="https://github.com/oliverrowebardeen/backstop/blob/main/so/prompts/checker.md">Miss types</a><a href="https://github.com/oliverrowebardeen/backstop/tree/main/evals">Methodology</a><a href="https://github.com/oliverrowebardeen/backstop/commits/main" id="build-link">Latest build ↗</a></div></footer>
-  <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div><dd class="telem-count">0</dd><dt>Telem calls</dt></div><div><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence…</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details></div><p class="session">Session pending</p></article></template>
-  <noscript><p class="wrap">Enable JavaScript to play the race and load the measured results. <a href="https://github.com/oliverrowebardeen/backstop">Read the project on GitHub.</a></p></noscript>
+
+  <footer class="footer dark">
+    <div class="wrap footer-inner">
+      <p class="footer-mark">Backstop</p>
+      <div>
+        <p>Built on Telem and Tavily at SearchHack 2026.</p>
+        <p class="footer-note">Open source under the MIT license and installable with pip.</p>
+      </div>
+      <a href="https://github.com/oliverrowebardeen/backstop" rel="noopener noreferrer">GitHub <span aria-hidden="true">&#8599;</span></a>
+    </div>
+  </footer>
+  <noscript><p class="wrap">The simulation and results need JavaScript. <a href="https://github.com/oliverrowebardeen/backstop">Read the project on GitHub.</a></p></noscript>
 </body>
 </html>

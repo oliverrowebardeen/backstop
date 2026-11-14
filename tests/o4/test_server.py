@@ -86,7 +86,8 @@ def test_unknown_runs_and_replays_are_404(root):
 
 def test_ui_and_assets_are_available(root):
     with authenticated_client(create_app(settings=settings(root))) as client:
-        assert 'id="race-form"' in client.get("/").text
+        assert 'id="race-form"' in client.get("/race").text
+        assert 'id="simulate"' in client.get("/").text
         assert client.get("/ui/app.js").status_code == 200
         assert client.get("/ui/style.css").status_code == 200
         assert client.get("/ui/race-state.js").status_code == 200

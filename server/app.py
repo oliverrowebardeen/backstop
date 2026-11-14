@@ -341,6 +341,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
     from server.presentation import install_presentation
     install_presentation(app, settings, manager, live_key)
+    from server.site import install_site
+    install_site(app, settings)
     return app
 
 

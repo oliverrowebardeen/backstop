@@ -211,7 +211,7 @@ status and body and the run continues, so the sheet always renders.
 python -m server        # serves SERVER_HOST:SERVER_PORT, 127.0.0.1:8000 by default
 ```
 
-Open the root page, type a question and pick a setup for each column: `single` (one
+Open `/race` (the product site is at `/`), type a question and pick a setup for each column: `single` (one
 engine, unchecked), `telem_default` (Telem's accuracy routing, unchecked) or
 `second_opinion` (Backstop). Both agents run live on the same question with the same
 model, prompt and tools. Each column streams its searches with the Telem engines called,
