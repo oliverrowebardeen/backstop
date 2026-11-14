@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, readdirSync} from 'node:fs';
 import {findingsFrom, coverageBySetup, measured} from '../../ui/results.js';
-import {flowLabels, rescueChain, enginesPerSearch, FALLBACK_ORDER} from '../../ui/flow.js';
+import {flowLabels, rescueChain, FALLBACK_ORDER} from '../../ui/flow.js';
 
 const dir = new URL('../../ui/fixtures/', import.meta.url);
 const read = name => readFileSync(new URL(name, dir), 'utf8');
@@ -48,13 +48,6 @@ test('findings split into two and a fake-data banner hides them', () => {
   assert.deepEqual(findingsFrom(null), []);
 });
 
-test('flow labels come from the rescue table, plain labels without it', () => {
-  const table = {built_on_split: 'learn', n_questions: 100, miss_counts: {tavily: 30}, order_after: {tavily: ['exa']}, rescue: {tavily: {exa: {rescued: 15, misses: 30}}}};
-  assert.equal(flowLabels(table).miss, 'Tavily missed\n30 of 100');
-  assert.equal(flowLabels(table).rescued, 'Exa rescued\n15 of 30');
-  assert.equal(flowLabels(null).miss, 'on a\nmiss');
-});
-
 test('rescue chain follows order_after of the engine that just missed, then fallback_order', () => {
   const table = JSON.parse(readFileSync(new URL('../../out/rescue_table.json', import.meta.url), 'utf8'));
   assert.deepEqual(rescueChain(table, 'tavily'), ['tavily', 'exa', 'parallel']);
@@ -62,14 +55,16 @@ test('rescue chain follows order_after of the engine that just missed, then fall
   assert.deepEqual(rescueChain({order_after: {tavily: ['exa'], exa: ['tavily', 'brave']}, fallback_order: ['ceramic']}, 'tavily'), ['tavily', 'exa', 'brave']);
   assert.deepEqual(rescueChain(null, 'tavily'), ['tavily', ...FALLBACK_ORDER.slice(0, 2)]);
   assert.deepEqual(flowLabels(table).chains.tavily, ['tavily', 'exa', 'parallel']);
-  assert.equal(flowLabels(null).orderSource, 'fallback order in so/config.py');
 });
 
-test('engines per search divide engine calls by search tool calls', () => {
-  const results = {setups: {telem_default: {engine_calls: 1600, search_calls: 280}, single: {engine_calls: 3}}};
-  assert.equal(enginesPerSearch(results, 'telem_default').perSearch.toFixed(2), '5.71');
-  assert.equal(enginesPerSearch(results, 'single'), null);
-  assert.equal(enginesPerSearch(null, 'telem_default'), null);
+test('the How it works diagram is a product flow: no connector labels, numbers or answer-key line', () => {
+  const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
+  const how = html.slice(html.indexOf('id="how"'), html.indexOf('class="strip"'));
+  for (const text of ['goal on every call', 'top 5', 'missed', 'answer key', 'max 2', 'engines per search']) assert.ok(!how.toLowerCase().includes(text), text);
+  for (const text of ['Agent asks', 'Telem searches', 'Checker', 'Rescue on a miss', 'Answer', 'Fast decision model', 'LLM checker', 'Tavily Extract', 'Not found']) assert.ok(how.includes(text), text);
+  assert.ok(!/\d+(\.\d+)?\s*(%|s\b|of\s+\d)/.test(how.replace(/<[^>]+>/g, ' ')), 'no numbers in the diagram text');
+  const js = readFileSync(new URL('../../ui/flow.js', import.meta.url), 'utf8');
+  assert.ok(!js.includes("'text'"), 'flow.js draws no connector labels');
 });
 
 test('no em dashes in the site files', () => {
