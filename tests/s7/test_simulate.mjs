@@ -53,6 +53,14 @@ test('the engine accepts any 6.11 log, including one with no rescue', () => {
   assert.equal(scenario.annotations.length, 0);
 });
 
+test('a setup that finished slightly fewer runs is reported on its own count', () => {
+  const block = (m, c, w) => ({n: m, correct: c, wrong: w, declined: m - c - w, accuracy: c / m, wrong_rate: w / m, cost_per_q_total: 0.01});
+  const data = {n_test: 200, setups: {single: block(200, 188, 8), telem_default: block(200, 189, 11), second_opinion: block(199, 188, 10)}};
+  assert.ok(measured(data));
+  data.setups.second_opinion = block(150, 140, 5);
+  assert.equal(measured(data), null, 'too many unscored runs stays pending');
+});
+
 test('results stay pending without complete measured setups', () => {
   assert.equal(measured(null), null);
   const block = (c, w) => ({correct: c, wrong: w, declined: 10 - c - w, accuracy: c / 10, cost_per_q_total: 0.01});
@@ -64,7 +72,10 @@ test('results stay pending without complete measured setups', () => {
 test('frontier coverage keeps the simulated flag and question counts', () => {
   const frontier = JSON.parse(readFileSync(new URL('../../out/frontier.json', import.meta.url), 'utf8'));
   const points = coverageBySetup(frontier);
-  assert.equal(points.single.engines[0], 'tavily');
+  if (Array.isArray(frontier.measured_runs)) {
+    assert.equal(points.single.kind, 'single', 'measured agent runs win over the hit matrix');
+    assert.ok(Number.isInteger(points.second_opinion.n_questions));
+  } else assert.equal(points.single.engines[0], 'tavily');
   if (points.second_opinion?.simulated) assert.equal(points.second_opinion.simulated, true);
 });
 

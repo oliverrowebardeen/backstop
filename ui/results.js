@@ -1,11 +1,17 @@
 /** Results section: measured numbers only, with their question counts. Never invents a value. */
 /** Derive claims only from complete, comparable held-out setup totals. */
+// A setup may finish slightly fewer runs than the test split (a failed run is not scored).
+// Each setup is then reported on its own count, which must cover at least 95% of the split.
+const scored = (block, n) => block.n ?? n;
+const coverageOk = (m, n) => Number.isInteger(m) && m <= n && m >= Math.ceil(0.95 * n);
 function proofMetrics(results) {
   if (!results || !Number.isInteger(results.n_test) || results.n_test <= 0) return null;
   const n = results.n_test;
   const {single, telem_default: baseline, second_opinion: ours} = results.setups || {};
-  if (![single, baseline, ours].every(s => s && s.correct + s.wrong + s.declined === n && (s.n ?? n) === n)) return null;
-  const wrong = single.wrong ? 100 * (single.wrong - ours.wrong) / single.wrong : null;
+  if (![single, baseline, ours].every(s => s && coverageOk(scored(s, n), n) && s.correct + s.wrong + s.declined === scored(s, n))) return null;
+  const sameCount = scored(single, n) === scored(ours, n);
+  const wrong = !single.wrong ? null : sameCount ? 100 * (single.wrong - ours.wrong) / single.wrong
+    : 100 * (single.wrong_rate - ours.wrong_rate) / single.wrong_rate;
   const accuracy = 100 * (ours.accuracy - baseline.accuracy);
   const cost = baseline.cost_per_q_total > 0 ? 100 * (baseline.cost_per_q_total - ours.cost_per_q_total) / baseline.cost_per_q_total : null;
   return {n, wrong, accuracy, cost, single, baseline, ours};
@@ -51,10 +57,13 @@ async function getJSON(url) {
 export function coverageBySetup(frontier, firstEngine = 'tavily') {
   if (!frontier || !Array.isArray(frontier.points)) return {};
   const find = predicate => frontier.points.find(predicate) || null;
+  // Prefer measured agent runs (same cohort for all three setups) over the one-search hit matrix.
+  const runs = Array.isArray(frontier.measured_runs) ? frontier.measured_runs : [];
+  const run = kind => runs.find(p => p.kind === kind) || null;
   return {
-    single: find(p => p.kind === 'combo' && p.engines?.length === 1 && p.engines[0] === firstEngine),
-    telem_default: find(p => p.kind === 'telem_default'),
-    second_opinion: find(p => p.kind === 'second_opinion'),
+    single: run('single') || find(p => p.kind === 'combo' && p.engines?.length === 1 && p.engines[0] === firstEngine),
+    telem_default: run('telem_default') || find(p => p.kind === 'telem_default'),
+    second_opinion: run('second_opinion') || find(p => p.kind === 'second_opinion'),
   };
 }
 
@@ -69,10 +78,10 @@ export function validateResults(results) {
     if (!block) return false;
     const counts = [block.correct, block.wrong, block.declined];
     return counts.every(count => Number.isInteger(count) && count >= 0) &&
-      counts.reduce((sum, count) => sum + count, 0) === n && (block.n ?? n) === n &&
+      coverageOk(scored(block, n), n) && counts.reduce((sum, count) => sum + count, 0) === scored(block, n) &&
       ['accuracy', 'wrong_rate', 'cost_per_q_total'].every(field => Number.isFinite(block[field]) && block[field] >= 0) &&
-      Math.abs(block.accuracy - block.correct / n) <= .00011 &&
-      Math.abs(block.wrong_rate - block.wrong / n) <= .00011;
+      Math.abs(block.accuracy - block.correct / scored(block, n)) <= .00011 &&
+      Math.abs(block.wrong_rate - block.wrong / scored(block, n)) <= .00011;
   });
 }
 
@@ -98,7 +107,7 @@ function renderTable(table, metrics, coverage) {
     ['Wrong answers', 'Final answers graded wrong', key => {
       if (!metrics) return [PENDING];
       const s = metrics[{single: 'single', telem_default: 'baseline', second_opinion: 'ours'}[key]];
-      return [pct(s.wrong / metrics.n), `${s.wrong} of ${metrics.n} questions`];
+      return [pct(s.wrong / scored(s, metrics.n)), `${s.wrong} of ${scored(s, metrics.n)} questions`];
     }],
     ['Coverage', 'Answer found in results', key => {
       const p = coverage[key];
@@ -110,12 +119,12 @@ function renderTable(table, metrics, coverage) {
     ['Engine calls per question', 'Every engine query Telem bills', key => {
       if (!metrics) return [PENDING];
       const s = metrics[{single: 'single', telem_default: 'baseline', second_opinion: 'ours'}[key]];
-      return Number.isFinite(s.engine_calls_per_q) ? [s.engine_calls_per_q.toFixed(2), `over ${metrics.n} questions`] : [PENDING];
+      return Number.isFinite(s.engine_calls_per_q) ? [s.engine_calls_per_q.toFixed(2), `over ${scored(s, metrics.n)} questions`] : [PENDING];
     }],
     ['Cost per question', 'Search, page reads and model calls, checker included', key => {
       if (!metrics) return [PENDING];
       const s = metrics[{single: 'single', telem_default: 'baseline', second_opinion: 'ours'}[key]];
-      return Number.isFinite(s.cost_per_q_total) ? [usd(s.cost_per_q_total), `over ${metrics.n} questions`] : [PENDING];
+      return Number.isFinite(s.cost_per_q_total) ? [usd(s.cost_per_q_total), `over ${scored(s, metrics.n)} questions`] : [PENDING];
     }],
   ];
   for (const [label, sub, value] of rows) {
@@ -150,11 +159,13 @@ function renderHeadline(root, metrics) {
     return;
   }
   const {n, single, baseline, ours} = metrics;
-  tile(`${single.wrong} → ${ours.wrong}`, 'Wrong answers, single engine vs Backstop', `${n} held-out questions per setup`);
-  const tied = ours.correct >= baseline.correct;
-  const delta = Math.abs(ours.accuracy - baseline.accuracy) * 100;
-  tile(tied ? 'No accuracy loss' : `${delta.toFixed(1)} pts lower`, 'Accuracy against Telem default',
-    `${ours.correct} of ${n} correct vs ${baseline.correct} of ${n}`);
+  const of = b => `${b.wrong} of ${scored(b, n)}`;
+  tile(pct(ours.wrong_rate), 'Wrong answers, Backstop',
+    `Backstop ${of(ours)}, single engine ${of(single)}, Telem default ${of(baseline)}`);
+  // "No accuracy loss" only when the measured rate is not below Telem default's.
+  const noLoss = ours.accuracy >= baseline.accuracy;
+  tile(noLoss ? 'No accuracy loss' : `${pct(ours.accuracy)} vs ${pct(baseline.accuracy)}`, 'Accuracy, Backstop vs Telem default',
+    `${ours.correct} of ${scored(ours, n)} correct vs ${baseline.correct} of ${scored(baseline, n)}`);
   const cost = metrics.cost;
   tile(cost === null ? PENDING : `${Math.abs(cost).toFixed(1)}% ${cost >= 0 ? 'lower' : 'higher'}`, 'Cost per question against Telem default',
     `${usd(ours.cost_per_q_total)} vs ${usd(baseline.cost_per_q_total)}, checker included`, cost === null);
@@ -204,7 +215,7 @@ export function drawFrontier(container, frontier) {
   container.replaceChildren(chart);
   if (note) {
     const parts = [`${combos.length} engine combinations`, n ? `${n} held-out questions` : null, frontier.non_trap_only ? 'traps excluded' : null].filter(Boolean);
-    note.textContent = `${parts.join(', ')}.${ours?.simulated ? ` The Backstop point is simulated (${String(ours.label || 'not measured').replace(/^simulated,?\s*/i, '') || 'not measured'}) until the held-out evaluation runs.` : ''}`;
+    note.textContent = `${parts.join(', ')}.${!ours?.simulated && ours?.label === 'measured agent runs' ? ` Small dots: one search per engine combination. Labelled points: measured agent runs on ${ours.n_questions} questions, search and checker cost per question.` : ''}${ours?.simulated ? ` The Backstop point is simulated (${String(ours.label || 'not measured').replace(/^simulated,?\s*/i, '') || 'not measured'}) until the held-out evaluation runs.` : ''}`;
   }
 }
 
@@ -235,7 +246,8 @@ export async function loadResults(root, {firstEngine = 'tavily'} = {}) {
   const results = data?.results || null;
   const metrics = measured(results, validateResults(results));
   const status = root.querySelector('.results-status');
-  status.textContent = metrics ? `${metrics.n} held-out questions per setup` : 'Results pending: the held-out evaluation has not finished';
+  const counts = metrics ? [metrics.single, metrics.baseline, metrics.ours].map(b => scored(b, metrics.n)) : [];
+  status.textContent = metrics ? (counts.every(c => c === metrics.n) ? `${metrics.n} held-out questions per setup` : `${metrics.n} held-out questions; Backstop scored ${scored(metrics.ours, metrics.n)} (one run failed and is not counted)`) : 'Results pending: the held-out evaluation has not finished';
   status.classList.toggle('is-pending', !metrics);
   renderHeadline(root, metrics);
   // Prefer the raw file (it carries the simulated flag and question counts); /results drops those fields.
