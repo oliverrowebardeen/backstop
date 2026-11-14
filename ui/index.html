@@ -14,7 +14,7 @@
   <script type="module" src="/ui/race.js"></script>
 </head>
 <body>
-  <a class="skip" href="#simulate">Skip to Simulate a miss</a>
+  <a class="skip" href="#race">Skip to the live race</a>
 
   <header class="nav" id="top">
     <div class="wrap nav-inner">
@@ -24,7 +24,6 @@
       </a>
       <nav class="nav-links" aria-label="Sections">
         <a href="#how">How it works</a>
-        <a href="#simulate">Simulate</a>
         <a href="#results">Results</a>
         <a href="#developers">Developers</a>
         <a href="#race">Race</a>
@@ -44,51 +43,12 @@
         <h1 id="hero-title">When search misses, <span class="nowrap">Backstop</span> catches&nbsp;it.</h1>
         <p class="hero-sub">Backstop checks every Telem search against the agent's goal, rescues misses on the engine that catches them, and says not found instead of guessing.</p>
         <div class="hero-ctas">
-          <a class="btn btn-accent btn-lg" href="#simulate" data-play><span aria-hidden="true">&#9654;</span> Simulate a miss</a>
-          <a class="btn btn-ghost btn-lg" href="#race">Try the live race</a>
+          <a class="btn btn-accent btn-lg" href="#race"><span aria-hidden="true">&#9654;</span> Try the live race</a>
+          <a class="btn btn-ghost btn-lg" href="#how">How it works</a>
         </div>
         <ul class="hero-engines" aria-label="Engines Backstop can call through Telem; the first engine is routed by question type">
           <li>Tavily</li><li>Exa</li><li>Brave</li><li>Perplexity</li><li>Parallel</li><li>Ceramic</li>
         </ul>
-      </div>
-    </section>
-
-    <section class="sim dark" id="simulate" aria-labelledby="sim-title">
-      <div class="wrap">
-        <div class="section-head">
-          <div>
-            <p class="label label-dark">Simulate a miss</p>
-            <h2 id="sim-title">Watch one search get&nbsp;caught.</h2>
-          </div>
-          <p class="section-intro">Each scenario replays a recorded event log step by step: the real query, the engines Telem called, the checker's verdicts, the rescues, the costs and the timings.</p>
-        </div>
-        <div class="sim-controls">
-          <div class="sim-switch" role="radiogroup" aria-label="Scenario"></div>
-          <p class="data-label"><span class="data-badge">Loading recordings</span><span class="data-caption"></span></p>
-        </div>
-        <div class="sim-stage">
-          <svg class="leaders" aria-hidden="true"></svg>
-          <aside class="ghost ghost-left" hidden></aside>
-          <aside class="ghost ghost-right" hidden></aside>
-          <article class="sim-card" aria-label="One search, as Backstop handles it"><p class="card-loading">Loading the recorded run.</p></article>
-          <div class="notes" aria-hidden="true"></div>
-        </div>
-        <ul class="notes-list" aria-label="Annotations"></ul>
-        <dl class="sim-counters" aria-label="This search so far">
-          <div><dt>Engine calls</dt><dd data-counter="engines">0</dd></div>
-          <div><dt>Page reads</dt><dd data-counter="reads">0</dd></div>
-          <div><dt>Cost, checker included</dt><dd data-counter="cost">$0.0000</dd></div>
-          <div><dt>Time in the recorded run</dt><dd data-counter="time">0.0s</dd></div>
-        </dl>
-        <p class="sim-status" role="status" aria-live="polite"></p>
-        <div class="timeline">
-          <button id="sim-play" class="play" type="button" aria-pressed="false"><span class="play-icon" aria-hidden="true">&#9654;</span><span class="play-label">Simulate a miss</span></button>
-          <div class="track" role="slider" tabindex="0" aria-label="Simulation timeline. Space plays or pauses, arrow keys step." aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
-            <div class="rail"><div class="rail-fill"></div><div class="thumb"></div></div>
-            <div class="ticks"></div>
-          </div>
-        </div>
-        <p class="kbd-hint">Space plays or pauses. Arrow keys step through the timeline. Drag the bar to scrub.</p>
       </div>
     </section>
 
@@ -354,6 +314,6 @@ pip install -e .   # Python 3.11+, TELEM_API_KEY and ANTHROPIC_API_KEY in .env</
       <a href="https://github.com/oliverrowebardeen/backstop" rel="noopener noreferrer">GitHub <span aria-hidden="true">&#8599;</span></a>
     </div>
   </footer>
-  <noscript><p class="wrap">The simulation and results need JavaScript. <a href="https://github.com/oliverrowebardeen/backstop">Read the project on GitHub.</a></p></noscript>
+  <noscript><p class="wrap">The live race and results need JavaScript. <a href="https://github.com/oliverrowebardeen/backstop">Read the project on GitHub.</a></p></noscript>
 </body>
 </html>

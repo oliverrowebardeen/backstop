@@ -27,7 +27,8 @@ def _client(tmp_path: Path, frontier: bool = True) -> TestClient:
 def test_home_race_and_site_data(tmp_path):
     with _client(tmp_path) as client:
         home = client.get("/").text
-        for anchor in ('id="simulate"', 'id="race"', 'id="how"', 'id="results"', 'id="developers"', 'href="#race"'):
+        assert 'id="simulate"' not in home and 'Simulate a miss' not in home
+        for anchor in ('id="race"', 'id="how"', 'id="results"', 'id="developers"', 'href="#race"'):
             assert anchor in home
         assert 'id="race-form"' in home and 'src="/ui/race.js"' in home
         moved = client.get("/race", follow_redirects=False)
@@ -46,14 +47,11 @@ def test_site_data_without_artifacts(tmp_path):
         assert data["rescue_table"] is None and data["frontier"] is None
 
 
-def test_fixtures_are_served_labelled_and_secret_free(tmp_path):
-    manifest = json.loads((ROOT / "ui/fixtures/scenarios.json").read_text())
+def test_fixtures_are_served_and_secret_free(tmp_path):
     with _client(tmp_path) as client:
-        for item in manifest["scenarios"]:
-            assert item["source"] in {"live", "sample"}
-            for name in (item["log"], item.get("ghost"), item.get("baseline")):
-                if not name:
-                    continue
+        for manifest in sorted((ROOT / "ui/fixtures").glob("race-*.json")):
+            item = json.loads(manifest.read_text())
+            for name in (item["left"], item["right"]):
                 text = client.get(f"/ui/fixtures/{name}").text
                 rows = [json.loads(line) for line in text.splitlines() if line.strip()]
                 assert rows and rows[0]["type"] == "run_start"

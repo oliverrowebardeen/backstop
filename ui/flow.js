@@ -7,7 +7,7 @@
  * A dot travels the Hit path once when the section scrolls into view (not with
  * prefers-reduced-motion or ?still=1); focusing a rescue or exit card plays its path.
  */
-import {engineName} from './simulate.js';
+import {engineName} from './labels.js';
 
 /** so/config.py FALLBACK_ORDER default, used by so/policy.py when out/rescue_table.json is missing. */
 export const FALLBACK_ORDER = ['exa', 'perplexity', 'brave', 'parallel', 'ceramic'];
