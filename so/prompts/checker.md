@@ -13,7 +13,7 @@ Only the text shown counts. Do not use your own knowledge to supply or confirm t
 ## How to decide
 
 1. Pin down what the goal asks for: the entity, the attribute, and every qualifier (year, fiscal period, "first", "as of", unit, ranking).
-2. Check each result's title and snippet. If one states a specific value for that exact thing, the verdict is HIT and evidence_rank is that result's number.
+2. Check each result's title and snippet. If one states a specific value for that exact thing, the verdict is HIT and rank is that result's number.
    - A value for a different year, period, metric or entity is not a HIT.
    - A snippet that mentions the topic but cuts off before the value is not a HIT.
    - A calculated answer (a ratio, a change, a difference) is a HIT only if the snippet states it or states every input needed for a one-step calculation.
@@ -21,16 +21,18 @@ Only the text shown counts. Do not use your own knowledge to supply or confirm t
 3. If there is no HIT, ask whether the results are about the right entity.
    - A different entity with a similar name: WRONG_ENTITY.
    - The right entity, but only older information than the goal needs: STALE.
-   - The right entity and a result that is clearly the page holding the answer: SHALLOW, with best_url copied exactly from that result.
+   - The right entity and a result that is clearly the page holding the answer: SHALLOW, and rank is that result's number.
    - Otherwise: DEAD.
 
 When you are unsure whether it is a HIT, it is not a HIT. A wrong HIT loses the answer for good. A wrong miss only costs one more search.
 
 ## Output
 
-Reply with one JSON object and nothing else:
+Reply with one JSON object and nothing else: no text before or after it, no markdown.
 
-{"verdict": "HIT" | "STALE" | "WRONG_ENTITY" | "SHALLOW" | "DEAD", "confidence": <0 to 1, your probability that the verdict is right>, "why": "<one short sentence, under 25 words>", "evidence_rank": <for HIT, the number of the result that states the answer; otherwise null>, "best_url": <for SHALLOW, the URL of the right page copied exactly from the results; otherwise null>, "rewrite": <for any verdict except HIT, a better query for a retry; for HIT, null>}
+{"verdict": "HIT" | "STALE" | "WRONG_ENTITY" | "SHALLOW" | "DEAD", "confidence": <0 to 1, your probability that the verdict is right>, "why": "<at most 15 words>", "rank": <for HIT, the number of the result that states the answer; for SHALLOW, the number of the right page; otherwise null>, "rewrite": <for any verdict except HIT, one search query of at most 10 words; for HIT, null>}
+
+Never copy URLs or snippets into the reply. Refer to results only by number.
 
 How to write `rewrite`:
 - WRONG_ENTITY: add terms that pin the intended entity (full name, country, field, industry, ticker).
@@ -44,56 +46,56 @@ Example 1 (HIT)
 GOAL: the year Marie Curie won her second Nobel Prize
 [1] Marie Curie - Biography | snippet: Marie Curie was a Polish and naturalised-French physicist and chemist who conducted pioneering research on radioactivity.
 [2] The Nobel Prize in Chemistry 1911 | snippet: The Nobel Prize in Chemistry 1911 was awarded to Marie Curie "in recognition of her services to the advancement of chemistry". It was her second Nobel Prize.
-{"verdict": "HIT", "confidence": 0.95, "why": "Result 2 says her second Nobel was the 1911 Chemistry prize.", "evidence_rank": 2, "best_url": null, "rewrite": null}
+{"verdict": "HIT", "confidence": 0.95, "why": "Result 2: her second Nobel was the 1911 Chemistry prize.", "rank": 2, "rewrite": null}
 
 Example 2 (HIT)
 GOAL: Shopify's total revenue for fiscal year 2021
 [1] Shopify Announces Fourth-Quarter and Full-Year 2021 Financial Results | snippet: Total revenue for 2021 was $4.6 billion, a 57% increase over 2020.
-{"verdict": "HIT", "confidence": 0.93, "why": "Result 1 states full-year 2021 revenue of $4.6 billion.", "evidence_rank": 1, "best_url": null, "rewrite": null}
+{"verdict": "HIT", "confidence": 0.93, "why": "Result 1 states 2021 revenue of $4.6 billion.", "rank": 1, "rewrite": null}
 
 Example 3 (STALE)
 TODAY: 2026-11-14
 GOAL: the Bank of England's current Bank Rate
 [1] Bank of England holds rates at 5.25% | published: 2023-09-21 | snippet: The Monetary Policy Committee voted to maintain Bank Rate at 5.25%.
 [2] Interest rates and Bank Rate | published: 2024-02-01 | snippet: Bank Rate is the single most important interest rate in the UK.
-{"verdict": "STALE", "confidence": 0.85, "why": "Results give the 2023 rate, but the goal asks for the current rate in late 2026.", "evidence_rank": null, "best_url": null, "rewrite": "Bank of England Bank Rate decision 2026 latest"}
+{"verdict": "STALE", "confidence": 0.85, "why": "Only the 2023 rate is shown; the goal needs the 2026 rate.", "rank": null, "rewrite": "Bank of England Bank Rate decision 2026 latest"}
 
 Example 4 (STALE)
 TODAY: 2026-11-14
 GOAL: Tesla's vehicle deliveries in the most recent quarter
 [1] Tesla Q2 2023 deliveries hit record 466,140 | published: 2023-07-02 | snippet: Tesla delivered 466,140 vehicles in the second quarter of 2023.
-{"verdict": "STALE", "confidence": 0.85, "why": "Only Q2 2023 deliveries are shown; the goal needs the latest quarter.", "evidence_rank": null, "best_url": null, "rewrite": "Tesla quarterly vehicle deliveries 2026 latest quarter"}
+{"verdict": "STALE", "confidence": 0.85, "why": "Only Q2 2023 deliveries are shown; the goal needs the latest quarter.", "rank": null, "rewrite": "Tesla quarterly vehicle deliveries 2026 latest quarter"}
 
 Example 5 (WRONG_ENTITY)
 GOAL: the founding year of Mercury, the banking platform for startups
 [1] Mercury (planet) - Wikipedia | snippet: Mercury is the first planet from the Sun and the smallest in the Solar System.
 [2] Mercury Insurance Group | snippet: Mercury Insurance has offered auto and home insurance since 1962.
-{"verdict": "WRONG_ENTITY", "confidence": 0.9, "why": "Results cover the planet and an insurer, not the startup bank.", "evidence_rank": null, "best_url": null, "rewrite": "Mercury fintech startup banking company founded year"}
+{"verdict": "WRONG_ENTITY", "confidence": 0.9, "why": "Results cover the planet and an insurer, not the startup bank.", "rank": null, "rewrite": "Mercury fintech startup banking company founded year"}
 
 Example 6 (WRONG_ENTITY)
 GOAL: the birthplace of John Williams, the Welsh rugby union winger
 [1] John Williams (composer) | snippet: John Towner Williams is an American composer and conductor born in Floral Park, New York.
-{"verdict": "WRONG_ENTITY", "confidence": 0.88, "why": "The result is about the American film composer, not the Welsh rugby player.", "evidence_rank": null, "best_url": null, "rewrite": "John Williams Welsh rugby union wing born"}
+{"verdict": "WRONG_ENTITY", "confidence": 0.88, "why": "About the American composer, not the Welsh rugby player.", "rank": null, "rewrite": "John Williams Welsh rugby union wing born"}
 
 Example 7 (SHALLOW)
 GOAL: the number of employees Starbucks reported in its fiscal 2022 annual report
 [1] Starbucks Corp Form 10-K for fiscal year ended October 2, 2022 | url: https://investor.starbucks.com/10-k-2022 | snippet: Annual report pursuant to Section 13 or 15(d) of the Securities Exchange Act of 1934.
 [2] How many people work at Starbucks? | snippet: Starbucks employed about 349,000 people in fiscal 2020.
-{"verdict": "SHALLOW", "confidence": 0.8, "why": "Result 1 is the FY2022 10-K, but no snippet gives the FY2022 headcount; result 2 is FY2020.", "evidence_rank": null, "best_url": "https://investor.starbucks.com/10-k-2022", "rewrite": "Starbucks fiscal 2022 10-K total employees"}
+{"verdict": "SHALLOW", "confidence": 0.8, "why": "Result 1 is the FY2022 10-K but shows no headcount; result 2 is FY2020.", "rank": 1, "rewrite": "Starbucks fiscal 2022 10-K total employees"}
 
 Example 8 (SHALLOW)
 GOAL: the name of the first mayor of Reykjavik
 [1] List of mayors of Reykjavik - Wikipedia | url: https://en.wikipedia.org/wiki/List_of_mayors_of_Reykjavik | snippet: This is a list of mayors of Reykjavik, the capital of Iceland.
-{"verdict": "SHALLOW", "confidence": 0.82, "why": "The list of mayors is the right page, but the snippet names none of them.", "evidence_rank": null, "best_url": "https://en.wikipedia.org/wiki/List_of_mayors_of_Reykjavik", "rewrite": "first mayor of Reykjavik name"}
+{"verdict": "SHALLOW", "confidence": 0.82, "why": "The list of mayors is the right page, but names none.", "rank": 1, "rewrite": "first mayor of Reykjavik name"}
 
 Example 9 (DEAD)
 GOAL: who won the 1967 Gold Medal of the Linnean Society
 [1] Botany prizes and awards for students | snippet: A guide to scholarships and prizes in plant science.
 [2] Gold medal - Wikipedia | snippet: A gold medal is a medal awarded for highest achievement in a non-military field.
-{"verdict": "DEAD", "confidence": 0.85, "why": "Results are generic pages about prizes and medals, nothing on the 1967 Linnean medal.", "evidence_rank": null, "best_url": null, "rewrite": "Linnean Medal 1967 recipient"}
+{"verdict": "DEAD", "confidence": 0.85, "why": "Generic prize pages, nothing on the 1967 Linnean medal.", "rank": null, "rewrite": "Linnean Medal 1967 recipient"}
 
 Example 10 (DEAD)
 GOAL: Hormel Foods' effective tax rate in fiscal 2019
 [1] Effective tax rate calculator | snippet: Enter your income to estimate your effective tax rate.
 [2] What is an effective tax rate? | snippet: The effective tax rate is the average rate at which income is taxed.
-{"verdict": "DEAD", "confidence": 0.88, "why": "Results explain tax rates in general and never mention Hormel.", "evidence_rank": null, "best_url": null, "rewrite": "Hormel Foods fiscal 2019 effective tax rate annual report"}
+{"verdict": "DEAD", "confidence": 0.88, "why": "Generic tax rate pages that never mention Hormel.", "rank": null, "rewrite": "Hormel Foods fiscal 2019 effective tax rate annual report"}

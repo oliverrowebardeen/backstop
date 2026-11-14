@@ -122,8 +122,18 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 ANTHROPIC_MESSAGES_URL = os.getenv("ANTHROPIC_MESSAGES_URL", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages")
 OPENAI_CHAT_URL = os.getenv("OPENAI_CHAT_URL", OPENAI_BASE_URL.rstrip("/") + "/chat/completions")
 ANTHROPIC_API_VERSION = os.getenv("ANTHROPIC_API_VERSION", "2023-06-01")
-LLM_MAX_TOKENS = {"checker": 399, "agent": 2048, "judge": 1024}
+# The checker's verdict is about 100 tokens of JSON; the cap stays under 400.
+CHECKER_MAX_TOKENS = int(os.getenv("CHECKER_MAX_TOKENS", "399"))
+LLM_MAX_TOKENS = {"checker": CHECKER_MAX_TOKENS, "agent": 2048, "judge": 1024}
 LLM_MAX_TOKENS.update(json.loads(os.getenv("LLM_MAX_TOKENS_JSON", "{}")))
+# Anthropic thinking mode per role: "disabled", "adaptive", or "" for the model default.
+# Haiku 5.5 thinks adaptively by default, and that hidden thinking counts against
+# max_tokens: it used the checker's whole budget and left an empty reply.
+CHECKER_THINKING = os.getenv("CHECKER_THINKING", "disabled")
+LLM_THINKING = {"checker": CHECKER_THINKING}
+LLM_THINKING.update(json.loads(os.getenv("LLM_THINKING_JSON", "{}")))
+if set(LLM_THINKING.values()) - {"disabled", "adaptive", ""}:
+    raise ValueError("thinking modes must be disabled, adaptive or empty")
 LLM_TOKEN_RESERVE_OVERHEAD = int(os.getenv("LLM_TOKEN_RESERVE_OVERHEAD", "1024"))
 API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "3"))
 API_RETRY_BACKOFF_S = float(os.getenv("API_RETRY_BACKOFF_S", "0.5"))

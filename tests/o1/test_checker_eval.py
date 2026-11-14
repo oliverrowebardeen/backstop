@@ -33,14 +33,14 @@ class KeywordModel:
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    async def __call__(self, system: str, user: str):
+    async def __call__(self, system: str, user: str, schema=None):
         from so.contracts import LLMResponse
 
         self.prompts.append(user)
         assert "secret gold" not in user
         hit = "ANSWER_HERE" in user
-        body = {"verdict": "HIT" if hit else "DEAD", "confidence": 0.9, "why": "w",
-                "evidence_rank": 1 if hit else None, "best_url": None, "rewrite": None if hit else "r"}
+        body = {"verdict": "HIT" if hit else "DEAD", "confidence": 0.9, "why": "w", "rank": 1 if hit else None,
+                "rewrite": None if hit else "r"}
         return LLMResponse(text=json.dumps(body), cost_usd=0.0005, latency_ms=300, model="fake-checker")
 
 
@@ -184,7 +184,7 @@ def test_metrics_on_no_cases_do_not_divide_by_zero():
 
 
 async def test_checker_outage_stops_the_eval(files, monkeypatch):
-    async def down(system, user):
+    async def down(system, user, schema=None):
         raise RuntimeError("401 invalid key")
 
     monkeypatch.setattr(checker, "_call_model", down)
@@ -192,3 +192,25 @@ async def test_checker_outage_stops_the_eval(files, monkeypatch):
     with pytest.raises(checker.CheckerError):
         await checker_eval.run("learn", engines=["tavily"], today=TODAY, matrix=matrix, results_path=stored,
                                questions=QUESTIONS)
+
+
+async def test_limit_checks_only_the_first_cases(files, model):
+    matrix, stored = files
+    m = await checker_eval.run("learn", engines=["tavily"], today=TODAY, matrix=matrix, results_path=stored,
+                               questions=QUESTIONS, limit=2)
+    assert m["n_searches"] == 2 and len(model.prompts) == 2
+
+
+async def test_benchmark_copies_are_dropped_like_the_matrix_judge_did(files, model):
+    matrix, stored = files
+    rows = [json.loads(line) for line in stored.read_text().splitlines()[:-1]]
+    for row in rows:
+        if (row["question_id"], row["engine"]) == ("q3", "tavily"):
+            row["results"][0].update(url="https://huggingface.co/datasets/basicv8vc/SimpleQA",
+                                     snippet="ANSWER_HERE")
+    write_jsonl(stored, rows)
+    m = await checker_eval.run("learn", engines=["tavily"], today=TODAY, matrix=matrix, results_path=stored,
+                               questions=QUESTIONS)
+    assert m["contaminated_results_dropped"] == 1
+    assert m["confusion"]["miss"]["HIT"] == 0
+    assert not any("huggingface" in p for p in model.prompts)

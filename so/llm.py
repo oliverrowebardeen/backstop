@@ -174,6 +174,8 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
             body["tools"] = [_tool(tool) for tool in tools]
         if json_schema:
             body["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
+        if config.LLM_THINKING.get(role):
+            body["thinking"] = {"type": config.LLM_THINKING[role]}
         headers = {"anthropic-version": config.ANTHROPIC_API_VERSION}
     else:
         endpoint = config.OPENAI_CHAT_URL

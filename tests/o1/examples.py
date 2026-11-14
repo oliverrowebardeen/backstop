@@ -19,10 +19,10 @@ def _r(rank: int, title: str, url: str, snippet: str, published: str | None = No
             "engine": engine}
 
 
-def _reply(verdict: str, confidence: float, why: str, evidence_rank: int | None = None,
-           best_url: str | None = None, rewrite: str | None = None) -> str:
-    return json.dumps({"verdict": verdict, "confidence": confidence, "why": why,
-                       "evidence_rank": evidence_rank, "best_url": best_url, "rewrite": rewrite})
+def _reply(verdict: str, confidence: float, why: str, rank: int | None = None,
+           rewrite: str | None = None) -> str:
+    return json.dumps({"verdict": verdict, "confidence": confidence, "why": why, "rank": rank,
+                       "rewrite": rewrite})
 
 
 EXAMPLES: list[dict[str, Any]] = [
@@ -38,7 +38,7 @@ EXAMPLES: list[dict[str, Any]] = [
                "A gallery of the most famous Hubble pictures."),
         ],
         "expected": "HIT",
-        "reply": _reply("HIT", 0.95, "Result 1 gives the launch date, April 24, 1990.", evidence_rank=1),
+        "reply": _reply("HIT", 0.95, "Result 1 gives the launch date, April 24, 1990.", rank=1),
     },
     {
         "id": "hit-adidas",
@@ -51,7 +51,7 @@ EXAMPLES: list[dict[str, Any]] = [
                "In euro terms, revenues grew 1% to EUR 22,511 million in 2022."),
         ],
         "expected": "HIT",
-        "reply": _reply("HIT", 0.9, "Result 2 states 2022 revenue of EUR 22,511 million.", evidence_rank=2),
+        "reply": _reply("HIT", 0.9, "Result 2 states 2022 revenue of EUR 22,511 million.", rank=2),
     },
     {
         "id": "hit-opera-house",
@@ -65,7 +65,7 @@ EXAMPLES: list[dict[str, Any]] = [
             _r(3, "Sydney harbour walks", "https://example-walks.com/harbour", "Ten walks around the harbour."),
         ],
         "expected": "HIT",
-        "reply": _reply("HIT", 0.94, "Result 2 names Jorn Utzon as the designer.", evidence_rank=2),
+        "reply": _reply("HIT", 0.94, "Result 2 names Jorn Utzon as the designer.", rank=2),
     },
     # STALE
     {
@@ -163,9 +163,8 @@ EXAMPLES: list[dict[str, Any]] = [
                "Use the store locator to find opening hours."),
         ],
         "expected": "SHALLOW",
-        "reply": _reply("SHALLOW", 0.82, "Result 1 is the fiscal 2021 10-K, but the snippet gives no store count.",
-                        best_url="https://ir.homedepot.com/financial-reports/annual-reports/2021",
-                        rewrite="Home Depot stores at end of fiscal 2021 total"),
+        "reply": _reply("SHALLOW", 0.82, "Result 1 is the fiscal 2021 10-K, but shows no store count.",
+                        rank=1, rewrite="Home Depot stores at end of fiscal 2021 total"),
     },
     {
         "id": "shallow-fields",
@@ -179,8 +178,7 @@ EXAMPLES: list[dict[str, Any]] = [
         ],
         "expected": "SHALLOW",
         "reply": _reply("SHALLOW", 0.8, "Result 1 lists every winner, but the snippet names none.",
-                        best_url="https://example-math.org/fields-medal-winners/",
-                        rewrite="first woman to win the Fields Medal"),
+                        rank=1, rewrite="first woman to win the Fields Medal"),
     },
     {
         "id": "shallow-ljubljana",
@@ -192,9 +190,8 @@ EXAMPLES: list[dict[str, Any]] = [
                "Census 2021 results: population by settlements, Slovenia."),
         ],
         "expected": "SHALLOW",
-        "reply": _reply("SHALLOW", 0.78, "The official 2021 census table is the right page, but no figure is shown.",
-                        best_url="https://www.stat.si/census2021/settlements",
-                        rewrite="Ljubljana population census 2021 figure"),
+        "reply": _reply("SHALLOW", 0.78, "The official 2021 census table is the right page, but shows no figure.",
+                        rank=1, rewrite="Ljubljana population census 2021 figure"),
     },
     # DEAD
     {
