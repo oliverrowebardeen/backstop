@@ -9,10 +9,14 @@ export const VERDICTS = {
   DEAD: 'Dead', NOT_FOUND: 'Not found', UNCHECKED: 'Unchecked',
 };
 
-/** @param {keyof typeof SETUPS} setup @param {string} firstEngine */
-export function newRun(setup, firstEngine) {
-  return {setup, firstEngine, events: [], seen: new Set(), runId: null, session: null, engineCalls: 0,
-    telemCalls: 0, cost: 0, elapsed: 0, startedAt: null, finished: false,
+/**
+ * Live runs (`live: true`) take their time from the page's own clock, start to final event, and count
+ * only spend this run made; a replay keeps the recorded timing and totals.
+ * @param {keyof typeof SETUPS} setup @param {string} firstEngine @param {{live?: boolean}} [options]
+ */
+export function newRun(setup, firstEngine, {live = false} = {}) {
+  return {setup, firstEngine, live, events: [], seen: new Set(), runId: null, session: null, engineCalls: 0,
+    telemCalls: 0, cost: 0, cachedCost: 0, elapsed: 0, startedAt: null, finished: false,
     steps: [], currentSearch: null, currentCheck: null, sourceChecks: new Map(),
     answer: null, failure: null, status: 'Ready'};
 }
@@ -75,12 +79,15 @@ export function applyEvent(state, event) {
   const session = data.session_id || data.telem_session_id || data.session;
   if (typeof session === 'string') state.session = session;
   state.startedAt ??= Date.parse(event.ts);
-  state.elapsed = Math.max(state.elapsed, Date.parse(event.ts) - state.startedAt);
+  if (!state.live) state.elapsed = Math.max(state.elapsed, Date.parse(event.ts) - state.startedAt);
+  // A cached call cost nothing in this run, so a live counter leaves it out.
+  const spend = state.live && data.cached === true ? 0 : data.cost_usd || 0;
+  if (state.live && data.cached === true) state.cachedCost += data.cost_usd || 0;
   if (!state.failure) state.status = 'Running';
   if (event.type === 'search') {
     state.engineCalls += data.engines.length;
     state.telemCalls += 1;
-    state.cost += data.cost_usd || 0;
+    state.cost += spend;
     const engine = textField(data.first_engine);
     const questionType = textField(data.question_type);
     const step = {kind: 'search', query: data.query, goal: data.goal, resultCount: data.n_results,
@@ -99,7 +106,7 @@ export function applyEvent(state, event) {
     state.steps.push({kind: 'rescue', query: rewrite ? 'Rewrote query' : action,
       rewrite, action, why: data.reason, engines: [], verdict: state.currentCheck?.verdict || null});
   } else if (event.type === 'fetch') {
-    state.cost += data.cost_usd || 0;
+    state.cost += spend;
     if (data.via === 'telem') state.telemCalls += 1;
     const step = {kind: 'fetch', query: data.via === 'tavily' ? 'read by Tavily Extract' : 'read by Telem fetch',
       url: data.url, ok: data.ok, why: data.ok ? 'Page read completed.' : 'Page read did not return usable text.',
@@ -107,7 +114,7 @@ export function applyEvent(state, event) {
     state.steps.push(step);
     state.currentCheck = step;
   } else if (event.type === 'llm' && data.role !== 'judge') {
-    state.cost += data.cost_usd || 0;
+    state.cost += spend;
   } else if (event.type === 'search_done') {
     const step = state.currentSearch;
     if (step && !step.verdict) step.verdict = data.status;
@@ -117,8 +124,8 @@ export function applyEvent(state, event) {
     state.answer = data;
   } else if (event.type === 'run_end') {
     state.engineCalls = data.engine_calls;
-    state.cost = data.cost_usd_total;
-    state.elapsed = data.latency_ms;
+    state.cost = state.live ? Math.max(0, data.cost_usd_total - state.cachedCost) : data.cost_usd_total;
+    if (!state.live) state.elapsed = data.latency_ms;
     state.telemCalls = data.telem_calls ?? state.telemCalls;
     state.finished = true;
     if (state.failure || data.error || !state.answer) {

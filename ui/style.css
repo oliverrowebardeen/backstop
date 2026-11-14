@@ -460,6 +460,7 @@ td.is-pending .cell-main { color: #a3a598; font-weight: 550; font-size: 14px; }
 .setup-pickers { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--r-muted); }
 .setup-pickers label { display: inline-flex; align-items: center; gap: 8px; }
 .race-note, .race-message { margin-top: 12px; font-size: 14px; color: var(--r-muted); }
+.race-honest { margin-top: 16px; font-size: 14px; color: var(--r-muted); max-width: 72ch; }
 .race-credentials { margin-top: 14px; display: grid; gap: 6px; max-width: 520px; font-size: 14px; }
 .race-credentials input { padding: 11px 14px; border-radius: 10px; border: 1px solid var(--r-line); background: var(--r-input); color: var(--r-ink); }
 .race-credentials p { color: var(--r-muted); font-size: 13px; }

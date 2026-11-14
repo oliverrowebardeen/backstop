@@ -140,6 +140,7 @@
         <div id="credentials" class="race-credentials" hidden><label for="api-key">Backstop API key</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><p id="key-help">Required for live races on this server. Kept only in this page until you close or reload it.</p></div>
         <p id="race-message" class="race-message" role="status"></p>
         <div class="columns" id="columns"></div>
+        <p class="race-honest" id="race-honest" hidden></p>
       </div>
       <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div><dd class="telem-count">0</dd><dt>Telem calls</dt></div><div><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details><p class="grade-note" hidden>Not graded: live question</p><button class="chip-button watch-recorded" type="button" hidden>Watch a recorded run instead</button></div><p class="session">Session pending</p></article></template>
     </section>

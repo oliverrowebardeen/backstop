@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import math
@@ -281,8 +282,27 @@ def cache_key(namespace: str, request: dict[str, Any]) -> str:
     return f"{namespace}-{hashlib.sha256(encoded.encode()).hexdigest()}"
 
 
+# Live races must make fresh calls even when SO_CACHE=readwrite. The flag is per task: asyncio copies
+# the context into child tasks, so it covers one race's runs and nothing else in the process.
+_cache_bypass: ContextVar[bool] = ContextVar("so_cache_bypass", default=False)
+
+
+@contextmanager
+def bypass_cache() -> Iterator[None]:
+    """Skip disk cache reads and writes for calls made in this context (and tasks it starts)."""
+    token = _cache_bypass.set(True)
+    try:
+        yield
+    finally:
+        _cache_bypass.reset(token)
+
+
+def cache_active() -> bool:
+    return SO_CACHE != "off" and not _cache_bypass.get()
+
+
 def read_cache(key: str) -> dict[str, Any] | None:
-    if SO_CACHE == "off":
+    if not cache_active():
         return None
     path = CACHE_DIR / f"{key}.json"
     try:
@@ -297,7 +317,7 @@ def read_cache(key: str) -> dict[str, Any] | None:
 
 
 def write_cache(key: str, value: dict[str, Any]) -> None:
-    if SO_CACHE == "off":
+    if not cache_active():
         return
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", dir=CACHE_DIR, delete=False) as f:

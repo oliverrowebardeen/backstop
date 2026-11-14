@@ -241,6 +241,23 @@ function renderFindings(root, markdown) {
   }) : [el('p', 'pending-box', PENDING)]));
 }
 
+/**
+ * One honest line under the live race, built from out/results.json: a single live question can go
+ * either way, so the claim is the held-out measurement. Null when results are not complete.
+ */
+export function raceNote(metrics) {
+  if (!metrics) return null;
+  const {n, baseline, ours} = metrics;
+  const same = Math.abs(ours.accuracy - baseline.accuracy) < 0.005;
+  const accuracy = same ? 'same accuracy as Telem default' : `${pct(ours.accuracy)} accuracy vs ${pct(baseline.accuracy)} for Telem default`;
+  const ratio = baseline.cost_per_q_total > 0 ? ours.cost_per_q_total / baseline.cost_per_q_total : null;
+  const cost = ratio === null ? 'cost per question' : ratio < 0.5 ? 'less than half the cost per question'
+    : ratio < 1 ? `${Math.round(100 * (1 - ratio))}% lower cost per question` : `${Math.round(100 * (ratio - 1))}% higher cost per question`;
+  return `Live single questions vary. Measured on ${n} held-out factual questions: ${accuracy} at ${cost} ` +
+    `(Backstop ${ours.correct}/${scored(ours, n)} vs Telem default ${baseline.correct}/${scored(baseline, n)} correct; ` +
+    `${usd(ours.cost_per_q_total)} vs ${usd(baseline.cost_per_q_total)} total per question).`;
+}
+
 export async function loadResults(root, {firstEngine = 'tavily'} = {}) {
   const [data, site] = await Promise.all([getJSON('/results'), getJSON('/site-data')]);
   const results = data?.results || null;
@@ -250,6 +267,8 @@ export async function loadResults(root, {firstEngine = 'tavily'} = {}) {
   status.textContent = metrics ? (counts.every(c => c === metrics.n) ? `${metrics.n} held-out questions per setup` : `${metrics.n} held-out questions; Backstop scored ${scored(metrics.ours, metrics.n)} (one run failed and is not counted)`) : 'Results pending: the held-out evaluation has not finished';
   status.classList.toggle('is-pending', !metrics);
   renderHeadline(root, metrics);
+  const note = document.getElementById('race-honest');
+  if (note) { const text = raceNote(metrics); note.textContent = text || ''; note.hidden = !text; }
   // Prefer the raw file (it carries the simulated flag and question counts); /results drops those fields.
   const frontier = site?.frontier || data?.frontier || null;
   renderTable(root.querySelector('.results-table'), metrics, coverageBySetup(frontier, firstEngine));

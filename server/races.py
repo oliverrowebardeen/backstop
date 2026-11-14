@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from server.errors import log_failure, write_failure
 from server.live_race import RaceStopped, cost_cap_failure, time_limit_failure
 from server.usage import key_id
+from so import config
 from so.contracts import AgentAnswer, Event, Question, Setup
 from so.eventlog import read_log
 
@@ -116,9 +117,11 @@ class RaceManager:
         timeout = min(self.settings.run_timeout, race_timeout) if race_timeout else self.settings.run_timeout
         try:
             try:
-                async with asyncio.timeout(timeout):
-                    coroutine = runner(question, setup, log_dir=str(directory))
-                    answer = await (self._capped(coroutine, budget) if budget else coroutine)
+                # A live race is live: no cached search, page read or model response is replayed.
+                with config.bypass_cache():
+                    async with asyncio.timeout(timeout):
+                        coroutine = runner(question, setup, log_dir=str(directory))
+                        answer = await (self._capped(coroutine, budget) if budget else coroutine)
             except TimeoutError as exc:
                 if race_timeout and timeout == race_timeout:
                     raise RaceStopped(time_limit_failure(timeout)) from exc

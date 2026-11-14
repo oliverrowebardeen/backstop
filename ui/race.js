@@ -170,8 +170,11 @@ function closeConnections() {
 function reset(kind) {
   closeConnections(); replayMode = kind !== 'live';
   applySetups();
+  const live = kind === 'live', startedAt = performance.now();
   for (const [side, setup] of Object.entries(setups)) {
-    states[side] = newRun(setup, firstEngine); states[side].status = 'Starting'; origins[side] = null; render(side);
+    // Live: the clock starts when the race starts and stops at the final event.
+    states[side] = newRun(setup, firstEngine, {live}); states[side].status = 'Starting';
+    origins[side] = live ? startedAt : null; render(side);
   }
   badge(kind === 'live' ? 'live' : kind === 'fixture' ? 'fixture' : 'replay');
   setActive(true);
@@ -185,7 +188,9 @@ function badge(kind) {
 function receive(side, event) {
   if (!states[side]) throw new Error('Unrecognized race side.');
   if (applyEvent(states[side], event)) {
-    origins[side] = performance.now() - states[side].elapsed; render(side);
+    if (states[side].live) states[side].elapsed = performance.now() - origins[side];
+    else origins[side] = performance.now() - states[side].elapsed;
+    render(side);
   }
   if (states.left.finished && states.right.finished) finish();
 }

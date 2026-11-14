@@ -301,3 +301,19 @@ test('legacy page checks can identify a successful read, but failed reads and or
   feed(state, 'check', {verdict: 'HIT', best_url: 'https://example.org/report'});
   assert.equal(citationVerified(state, 'https://example.org/report'), false);
 });
+
+test('a live run keeps the page clock and counts only spend made in this run', () => {
+  const state = newRun('second_opinion', 'tavily', {live: true});
+  state.elapsed = 1234;  // the race view sets this from its own clock
+  const events = fixture('second_opinion');
+  const cached = events.map(event => event.type === 'search' ? {...event, data: {...event.data, cached: true}} : event);
+  cached.forEach(event => applyEvent(state, event));
+  const totals = events.at(-1).data;
+  const cachedSpend = events.filter(event => event.type === 'search').reduce((sum, event) => sum + (event.data.cost_usd || 0), 0);
+  assert.equal(state.elapsed, 1234, 'logged latency never replaces the live clock');
+  assert.ok(Math.abs(state.cost - (totals.cost_usd_total - cachedSpend)) < 1e-10);
+  const replay = newRun('second_opinion', 'tavily');
+  cached.forEach(event => applyEvent(replay, event));
+  assert.equal(replay.elapsed, totals.latency_ms, 'a replay keeps its recorded timing');
+  assert.equal(replay.cost, totals.cost_usd_total);
+});
