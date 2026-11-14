@@ -47,6 +47,9 @@ CONCURRENCY = 6
 NUM_RESULTS = 5
 EXTRACT_MAX_TOKENS = 2000
 EVIDENCE_CHARS = 300
+# A contradiction below this confidence is treated as inconclusive: a wrong
+# CONTRADICTED tells the reader a true fact is false.
+CONTRADICTED_MIN_CONFIDENCE = 0.6
 CONTEXT = "backstop memo check"
 BATCH_GOAL = "Find sources that confirm or refute each factual claim in a company memo"
 # Rough per-step reservations against the memo cap (the real cost is what the calls record).
@@ -331,6 +334,10 @@ def parse_check(reply: str, sources: list[Source]) -> ClaimCheck:
     snippet = snippet[:EVIDENCE_CHARS]
     check = ClaimCheck(verdict=verdict, confidence=confidence, why=why, evidence_snippet=snippet,
                        source_url=source.url if source else None, evidence_rank=rank if source else None, note=note)
+    if verdict == "CONTRADICTED" and confidence < CONTRADICTED_MIN_CONFIDENCE:
+        return check.model_copy(update={
+            "verdict": "INSUFFICIENT", "evidence_snippet": "", "source_url": None, "evidence_rank": None,
+            "note": f"CONTRADICTED at confidence {confidence:.2f}, below {CONTRADICTED_MIN_CONFIDENCE}; not accepted"})
     if verdict in DECISIVE and (check.source_url is None or not check.evidence_snippet):
         missing = "source URL" if check.source_url is None else "quoted snippet"
         return check.model_copy(update={

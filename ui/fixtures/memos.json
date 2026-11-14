@@ -16,8 +16,8 @@
     {
       "id": "airbnb",
       "label": "Airbnb market summary",
-      "text": "Airbnb was founded in 2008 by Brian Chesky, Joe Gebbia and Nathan Blecharczyk and is headquartered in San Francisco. Airbnb went public on the Nasdaq in December 2020 under the ticker ABNB. The company reported revenue of $9.9 billion for 2023. It had more than 25 million active listings at the end of 2023. Its internal hackathon trophy is a ceramic owl named Wally.",
-      "planted": {"wrong_number": "Airbnb reported more than 7.7 million active listings at the end of 2023, not 25 million", "unverifiable": "the ceramic owl trophy"}
+      "text": "Airbnb was founded in 2008 by Brian Chesky, Joe Gebbia and Nathan Blecharczyk and is headquartered in San Francisco. Airbnb went public on the Nasdaq in December 2020 under the ticker ABNB. The company reported revenue of $9.9 billion for 2023. It had more than 25 million active listings at the end of 2023. Its data science team grew to exactly 214 people in 2019.",
+      "planted": {"wrong_number": "Airbnb reported more than 7.7 million active listings at the end of 2023, not 25 million", "unverifiable": "the 214-person data science team in 2019"}
     }
   ]
 }

@@ -204,6 +204,12 @@ def test_contradicted_without_quote_is_not_accepted() -> None:
     assert check.verdict == "INSUFFICIENT" and check.source_url is None
 
 
+def test_low_confidence_contradiction_is_not_accepted() -> None:
+    source = claims.Source(title="T", url="https://a", text="Code names: Celsius, Kelvin.")
+    check = claims.parse_check(json.dumps(verdict("CONTRADICTED", 1, "Celsius", confidence=0.3)), [source])
+    assert check.verdict == "INSUFFICIENT" and check.source_url is None and "below" in check.note
+
+
 def test_non_verbatim_quote_falls_back_to_source_text() -> None:
     source = claims.Source(title="T", url="https://a", text="Stripe was founded in 2010 in Palo Alto.")
     check = claims.parse_check(json.dumps(verdict("VERIFIED", 1, "Stripe began life in 2010")), [source])
