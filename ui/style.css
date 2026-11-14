@@ -427,6 +427,23 @@ td.is-pending .cell-main { color: #a3a598; font-weight: 550; font-size: 14px; }
 .race-section[data-theme="dark"] { --r-bg: var(--night); --r-card: var(--night-2); --r-ink: var(--on-dark); --r-muted: var(--on-dark-muted); --r-line: var(--night-line); --r-chip: #262823; --r-accent: var(--accent-light); --r-input: var(--night-2); }
 .race-section[data-theme="dark"] .label, .race-section[data-theme="dark"] .section-intro { color: var(--on-dark-muted); }
 .race-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; margin-top: 48px; }
+.race-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.mode-toggle { display: inline-flex; padding: 4px; gap: 2px; border-radius: 999px; border: 1px solid var(--r-line); background: var(--r-card); }
+.mode-toggle button { border: 0; background: transparent; color: var(--r-muted); padding: 8px 18px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+.mode-toggle button[aria-pressed="true"] { background: var(--r-ink); color: var(--r-bg); }
+.mode-toggle button:disabled:not([aria-pressed="true"]) { opacity: 0.45; }
+.race-badge.is-live { color: var(--r-accent); background: var(--accent-wash); }
+.race-badge.is-live::before { animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: 0.3; } }
+#replay-controls { margin-top: 18px; }
+.race-input { display: flex; flex: 1 1 420px; gap: 10px; align-items: center; min-width: 0; }
+.race-error { margin-top: 8px; font-size: 14px; font-weight: 600; color: var(--r-accent); }
+.example-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.example-chip { border: 1px solid var(--r-line); background: var(--r-card); color: var(--r-ink); border-radius: 999px; padding: 7px 13px; font-size: 13.5px; text-align: left; }
+.example-chip:hover:not(:disabled) { border-color: var(--r-accent); color: var(--r-accent); }
+.versus { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--r-muted); }
+.grade-note { margin-top: 8px; font-size: 12px; color: var(--r-muted); }
+.watch-recorded { margin-top: 10px; }
 .race-recording { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; font-size: 14px; color: var(--r-muted); }
 .race-recording label { font-weight: 600; color: var(--r-ink); }
 .race-section select { font: inherit; font-size: 14px; color: var(--r-ink); background: var(--r-input); border: 1px solid var(--r-line); border-radius: 999px; padding: 8px 14px; max-width: 100%; }
@@ -439,7 +456,7 @@ td.is-pending .cell-main { color: #a3a598; font-weight: 550; font-size: 14px; }
 .chip-button:hover:not(:disabled) { border-color: var(--r-muted); }
 .chip-button-strong { background: var(--r-ink); color: var(--r-bg); border-color: var(--r-ink); }
 .race-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; padding: 10px; border: 1px solid var(--r-line); border-radius: var(--radius-lg); background: var(--r-card); }
-.race-form input { flex: 1 1 320px; min-width: 0; border: 0; background: transparent; color: var(--r-ink); font-size: clamp(17px, 1.4vw, 21px); font-weight: 550; padding: 10px 12px; }
+.race-form input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--r-ink); font-size: clamp(17px, 1.4vw, 21px); font-weight: 550; padding: 10px 12px; }
 .race-form input:focus-visible { outline-offset: 0; }
 .setup-pickers { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--r-muted); }
 .setup-pickers label { display: inline-flex; align-items: center; gap: 8px; }

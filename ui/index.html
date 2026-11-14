@@ -99,36 +99,49 @@
             <p class="label">Live race</p>
             <h2 id="race-title">One question. Two&nbsp;agents.</h2>
           </div>
-          <p class="section-intro">Same model, same prompt, same tools. Only the search tool changes. Every counter below comes from the event log, and costs include the checker.</p>
+          <p class="section-intro">Type any question and race two setups live through Telem. Same model, same prompt, same tools: only the search tool changes. Every counter comes from the event log, and costs include the checker.</p>
         </div>
         <div class="race-bar">
-          <div class="race-recording">
-            <label for="replay-select">Recording</label>
-            <select id="replay-select" disabled><option>Loading recordings</option></select>
-            <span id="race-mode" class="race-badge">Golden run loading</span>
+          <div class="race-modes">
+            <div class="mode-toggle" role="group" aria-label="Race mode">
+              <button type="button" id="mode-live" aria-pressed="false">Live</button>
+              <button type="button" id="mode-replay" aria-pressed="true">Replay</button>
+            </div>
+            <span id="race-mode" class="race-badge">Loading</span>
           </div>
           <div class="race-tools">
             <button class="chip-button" id="race-theme" type="button" aria-pressed="true" aria-label="Toggle race dark mode">Dark mode</button>
-            <button class="chip-button" id="replay-button" type="button" disabled>Play recording &#8635;</button>
             <button class="chip-button" id="stop-button" type="button" hidden>Stop run &#9632;</button>
+            <button class="chip-button" id="save-recording" type="button" hidden>Save as recording</button>
             <button class="chip-button chip-button-strong" id="export-audit" type="button" disabled>Export audit trail &#8595;</button>
           </div>
         </div>
-        <form id="race-form" class="race-form">
-          <label class="sr-only" for="question">Ask both agents a question</label>
-          <input id="question" name="question" readonly value="What was Stripe's valuation in its 2023 round?" maxlength="2000" required autocomplete="off">
-          <div class="setup-pickers">
-            <label>Left <select id="left-setup" disabled><option value="single">Single engine</option><option value="telem_default">Telem default</option><option value="second_opinion">Backstop</option></select></label>
-            <label>Right <select id="right-setup" disabled><option value="single">Single engine</option><option value="telem_default">Telem default</option><option value="second_opinion" selected>Backstop</option></select></label>
+        <div class="race-recording" id="replay-controls">
+          <label for="replay-select">Recording</label>
+          <select id="replay-select" disabled><option>Loading recordings</option></select>
+          <button class="chip-button" id="replay-button" type="button" disabled>Play recording &#8635;</button>
+        </div>
+        <form id="race-form" class="race-form" novalidate>
+          <div class="race-input">
+            <label class="sr-only" for="question">Your question</label>
+            <input id="question" name="question" readonly placeholder="Ask anything your agent would search for" maxlength="300" required autocomplete="off" aria-describedby="question-error">
+            <button class="btn btn-dark" id="run-button" type="submit" hidden disabled>Run race <span aria-hidden="true">&#8599;</span></button>
           </div>
-          <button class="btn btn-dark" id="run-button" type="submit" hidden disabled>Run race <span aria-hidden="true">&#8599;</span></button>
+          <div class="setup-pickers">
+            <label>Left <select id="left-setup" disabled><option value="telem_default">Telem default (auto routing)</option><option value="single">Single engine (Tavily)</option><option value="second_opinion">Backstop</option></select></label>
+            <span class="versus" aria-hidden="true">vs</span>
+            <label>Right <select id="right-setup" disabled><option value="telem_default">Telem default (auto routing)</option><option value="single">Single engine (Tavily)</option><option value="second_opinion" selected>Backstop</option></select></label>
+          </div>
         </form>
-        <p id="replay-only" class="race-note">Replay-only mode: live races are disabled on this server, so the pickers show the setups each recording used.</p>
-        <div id="credentials" class="race-credentials" hidden><label for="api-key">Backstop API key</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><p id="key-help">Required for live races. Kept only in this page until you close or reload it.</p></div>
-        <p id="race-message" class="race-message" role="status">The recorded golden question plays when this section comes into view.</p>
+        <p id="question-error" class="race-error" role="alert" hidden></p>
+        <div class="example-chips" id="example-chips" aria-label="Example questions" hidden></div>
+        <p id="replay-only" class="race-note">Live races are off on this server, so this section plays recordings of live runs.</p>
+        <div id="demo-code-box" class="race-credentials" hidden><label for="demo-code">Demo code</label><input id="demo-code" type="password" autocomplete="off" spellcheck="false" aria-describedby="demo-help"><p id="demo-help">Ask the team for the code. It is remembered in this browser.</p></div>
+        <div id="credentials" class="race-credentials" hidden><label for="api-key">Backstop API key</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><p id="key-help">Required for live races on this server. Kept only in this page until you close or reload it.</p></div>
+        <p id="race-message" class="race-message" role="status"></p>
         <div class="columns" id="columns"></div>
       </div>
-      <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div><dd class="telem-count">0</dd><dt>Telem calls</dt></div><div><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details></div><p class="session">Session pending</p></article></template>
+      <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div><dd class="telem-count">0</dd><dt>Telem calls</dt></div><div><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details><p class="grade-note" hidden>Not graded: live question</p><button class="chip-button watch-recorded" type="button" hidden>Watch a recorded run instead</button></div><p class="session">Session pending</p></article></template>
     </section>
 
     <section class="how light" id="how" aria-labelledby="how-title">

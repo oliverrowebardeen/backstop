@@ -6,13 +6,14 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 import re
 from typing import Any, AsyncIterator, Awaitable, Callable
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +21,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from server import api_v1
 from server.races import LiveRun, RaceManager, Runner
+from server.live_race import (PUBLIC_MAX_QUESTION_CHARS, DemoGuard, LiveRaceEnv, golden_examples,
+                              save_recording)
+from server.usage import RateLimiter
 from so import config
 from so.contracts import AgentAnswer, Event, Frontier, Question, Results, Setup
 from so.eventlog import read_log
@@ -32,6 +36,11 @@ class RaceRequest(BaseModel):
     question: str = Field(min_length=1)
     left: Setup = "single"
     right: Setup = "second_opinion"
+
+
+class RecordingRequest(BaseModel):
+    left_run_id: str = Field(min_length=1, max_length=200)
+    right_run_id: str = Field(min_length=1, max_length=200)
 
 
 @dataclass(frozen=True)
@@ -50,13 +59,28 @@ class ServerSettings:
     keepalive_seconds: float
     live_races: bool = False
     cors_origins: tuple[str, ...] = ()
+    # "api_key": live races need the hosted API key (SERVER_LIVE_RACES). "demo": public live races
+    # behind the guards in server/live_race.py (BACKSTOP_LIVE_RACE=true).
+    race_access: str = "api_key"
+    race_max_usd: float | None = None
+    race_timeout: float | None = None
+    max_races: int = 2
+    race_rate_per_hour: int = 10
+    demo_code: str | None = None
+    recordings_dir: Path | None = None
 
     @classmethod
     def from_config(cls) -> ServerSettings:
         """Read deployment settings from the shared environment configuration."""
         fixture_dir = config.SERVER_FIXTURE_DIR
+        live = LiveRaceEnv.read()
+        public = live.explicit is True
         return cls(
-            live_races=config.SERVER_LIVE_RACES,
+            live_races=live.explicit if live.explicit is not None else config.SERVER_LIVE_RACES,
+            race_access="demo" if public else "api_key",
+            race_max_usd=live.max_usd, race_timeout=live.timeout_s, max_races=live.max_races,
+            race_rate_per_hour=live.rate_per_hour, demo_code=live.demo_code,
+            recordings_dir=Path(config.SERVER_UI_DIR) / "fixtures",
             cors_origins=tuple(config.SERVER_CORS_ORIGINS),
             ui_dir=Path(config.SERVER_UI_DIR), demo_dir=Path(config.SERVER_DEMO_DIR),
             fixture_dir=Path(fixture_dir) if fixture_dir else None,
@@ -107,10 +131,28 @@ def read_events(path: Path) -> list[Event]:
     return [Event.model_validate(event) for event in read_log(path)]
 
 
-def replay_catalog(demo_dir: Path, fixture_dir: Path | None) -> dict[str, Replay]:
-    """Pairs use a JSON manifest with relative left/right JSONL filenames."""
+def validated_events(path: Path) -> list[Event]:
+    """One finished run, in order, as a replay needs it. Raises ValueError otherwise."""
+    events = read_events(path)
+    if not events or events[0].type != "run_start" or events[-1].type != "run_end":
+        raise ValueError("Replay logs must include run_start and run_end")
+    if any(event.run_id != events[0].run_id or event.setup != events[0].setup for event in events):
+        raise ValueError("Replay logs must describe one run")
+    if any(b.seq <= a.seq or elapsed(b, a) < 0 for a, b in zip(events, events[1:])):
+        raise ValueError("Replay event order is invalid")
+    for event in events:
+        datetime.fromisoformat(event.ts.replace("Z", "+00:00"))
+    return events
+
+
+def replay_catalog(demo_dir: Path, fixture_dir: Path | None,
+                   recordings_dir: Path | None = None) -> dict[str, Replay]:
+    """Pairs use a JSON manifest with relative left/right JSONL filenames.
+
+    demo_dir and recordings_dir (ui/fixtures, shipped real runs) hold recordings of live runs;
+    fixture_dir holds synthetic test fixtures."""
     pairs = {}
-    for directory, synthetic in ((demo_dir, False), (fixture_dir, True)):
+    for directory, synthetic in ((demo_dir, False), (recordings_dir, False), (fixture_dir, True)):
         if directory is None:
             continue
         for manifest in sorted(directory.glob("*.json")):
@@ -121,16 +163,7 @@ def replay_catalog(demo_dir: Path, fixture_dir: Path | None) -> dict[str, Replay
                 paths = [(directory / data[side]).resolve() for side in ("left", "right")]
                 if any(not path.is_relative_to(directory.resolve()) for path in paths):
                     raise ValueError("Replay log paths must stay within the recording directory")
-                left, right = (read_events(path) for path in paths)
-                for events in (left, right):
-                    if not events or events[0].type != "run_start" or events[-1].type != "run_end":
-                        raise ValueError("Replay logs must include run_start and run_end")
-                    if any(event.run_id != events[0].run_id or event.setup != events[0].setup for event in events):
-                        raise ValueError("Replay logs must describe one run")
-                    if any(b.seq <= a.seq or elapsed(b, a) < 0 for a, b in zip(events, events[1:])):
-                        raise ValueError("Replay event order is invalid")
-                    for event in events:
-                        datetime.fromisoformat(event.ts.replace("Z", "+00:00"))
+                left, right = (validated_events(path) for path in paths)
                 name = ("fixture-" if synthetic else "") + manifest.stem
                 if not SAFE_NAME.fullmatch(name):
                     raise ValueError("Replay manifest names must be URL-safe")
@@ -162,6 +195,20 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
     settings = settings or ServerSettings.from_config()
     runs: dict[str, LiveRun] = {}
     manager = RaceManager(settings, runner)
+    public = settings.race_access == "demo"
+    guard = DemoGuard(demo_code=settings.demo_code, max_races=settings.max_races,
+                      rate_per_hour=settings.race_rate_per_hour)
+    max_question = min(settings.max_question_chars, PUBLIC_MAX_QUESTION_CHARS) if public else settings.max_question_chars
+    if not settings.live_races:
+        mode = "replay only (set BACKSTOP_LIVE_RACE=true for live races)"
+    elif public:
+        mode = (f"live races ON, public demo mode: max {settings.max_races} at once, {settings.race_rate_per_hour}/hour per IP, "
+                f"{f'${settings.race_max_usd:.2f}' if settings.race_max_usd else 'no cost cap'} and "
+                f"{f'{settings.race_timeout:g}s' if settings.race_timeout else 'the run timeout'} per race, "
+                f"demo code {'required' if settings.demo_code else 'off'}")
+    else:
+        mode = "live races ON, hosted API key required (SERVER_LIVE_RACES)"
+    logging.getLogger("uvicorn.error").info("Backstop race mode: %s", mode)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -173,7 +220,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         app.add_middleware(
             CORSMiddleware, allow_origins=list(settings.cors_origins),
             allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+            allow_headers=["Authorization", "Content-Type", "Last-Event-ID", "X-Backstop-Demo-Code"],
             expose_headers=["Retry-After", "WWW-Authenticate"],
             allow_credentials=False,
         )
@@ -186,12 +233,17 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
     @app.get("/config")
     async def ui_config() -> dict[str, Any]:
-        return {"first_engine": config.FIRST_ENGINE, "max_question_chars": settings.max_question_chars,
-                "live_available": settings.live_races}
+        return {"first_engine": config.FIRST_ENGINE, "max_question_chars": max_question,
+                "live_available": settings.live_races,
+                "race_access": settings.race_access if settings.live_races else "replay",
+                "demo_code_required": bool(public and settings.demo_code),
+                "race_max_usd": settings.race_max_usd if public else None,
+                "race_timeout_s": settings.race_timeout if public else None,
+                "examples": golden_examples(settings.demo_dir)}
 
     def catalog() -> dict[str, Replay]:
         try:
-            return replay_catalog(settings.demo_dir, settings.fixture_dir)
+            return replay_catalog(settings.demo_dir, settings.fixture_dir, settings.recordings_dir)
         except ValueError as exc:
             raise HTTPException(503, str(exc)) from None
 
@@ -225,17 +277,24 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
             raise HTTPException(403, {"code": "live_races_disabled",
                                       "message": "Live races are disabled. Watch a recorded replay instead."})
 
-    def live_key(_enabled: None = Depends(require_live_races),
-                 key: str = Depends(api_v1.rate_limited_key)) -> str:
-        return key
+    def live_key(request: Request, _enabled: None = Depends(require_live_races),
+                 authorization: str | None = Header(default=None),
+                 demo_code: str | None = Header(default=None, alias="X-Backstop-Demo-Code"),
+                 limiter: RateLimiter = Depends(api_v1.get_rate_limiter)) -> str:
+        if public:
+            # Public demo: no key in the browser; demo code, capacity and per-IP limits instead.
+            return guard.admit(request, demo_code, manager.active_runs())
+        return api_v1.rate_limited_key(api_v1.require_key(authorization), limiter)
 
     @app.post("/race")
     async def race(body: RaceRequest, api_key: str = Depends(live_key)) -> dict[str, str]:
         question_text = body.question.strip()
         if not question_text:
             raise HTTPException(422, "Enter a question first.")
-        if len(question_text) > settings.max_question_chars:
-            raise HTTPException(422, f"Questions are limited to {settings.max_question_chars} characters.")
+        if len(question_text) > max_question:
+            raise HTTPException(422, f"Questions are limited to {max_question} characters.")
+        if public and body.left == body.right:
+            raise HTTPException(422, "Choose two different setups to race.")
         question = Question(id=f"race-{uuid4().hex}", question=question_text, gold=[],
                             category="fact", source="race-ui", split="test")
         jobs = list(manager.start(question, body.left, body.right, api_key=api_key).values())
@@ -349,6 +408,24 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                 await asyncio.sleep(settings.poll_seconds)
 
         return stream_response(events())
+
+    def recording_access(_enabled: None = Depends(require_live_races),
+                         authorization: str | None = Header(default=None),
+                         demo_code: str | None = Header(default=None, alias="X-Backstop-Demo-Code")) -> None:
+        if public:
+            guard.check_code(demo_code)
+        else:
+            api_v1.require_key(authorization)
+
+    @app.post("/recordings")
+    async def save_live_recording(body: RecordingRequest, _: None = Depends(recording_access)) -> dict[str, str]:
+        """Save two finished live runs as a replay pair in the demo folder."""
+        try:
+            return save_recording(settings.log_dir, settings.demo_dir, body.left_run_id, body.right_run_id,
+                                  validated_events)
+        except ValueError:
+            raise HTTPException(409, {"code": "run_unfinished",
+                                      "message": "Both runs must finish before they can be saved."}) from None
 
     @app.get("/results")
     async def results() -> dict[str, Any]:
