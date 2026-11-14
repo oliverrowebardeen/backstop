@@ -7,7 +7,8 @@ https://docs.telem.ai/pricing/ (2026-11-14); Exa uses the brief's estimate.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -173,9 +174,14 @@ def read_cache(key: str) -> dict[str, Any] | None:
         return None
     path = CACHE_DIR / f"{key}.json"
     try:
-        return json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+        entry = json.loads(path.read_text())
+    except FileNotFoundError:
         return None
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid cache JSON: {path.name}") from exc
+    if entry.get("normalization_error"):
+        raise ValueError(f"Cached provider response failed validation: {entry['normalization_error']}; use SO_CACHE=off to retry")
+    return entry
 
 
 def write_cache(key: str, value: dict[str, Any]) -> None:
@@ -192,8 +198,29 @@ def write_cache(key: str, value: dict[str, Any]) -> None:
             tmp.unlink(missing_ok=True)
 
 
+@contextmanager
+def paid_response(key: str, request: dict[str, Any], raw: dict[str, Any],
+                  budget: Budget, reserved: float) -> Iterator[dict[str, Any]]:
+    """Persist paid responses and charge even if normalization or cache writing fails.
+
+    If usage cannot be decoded, retain the conservative reservation as spend.
+    """
+    record: dict[str, Any] = {"request": request, "raw": raw}
+    try:
+        yield record
+    except Exception as exc:
+        record["normalization_error"] = type(exc).__name__
+        raise ValueError(f"Provider response failed validation: {type(exc).__name__}") from exc
+    finally:
+        cost = record.pop("_cost_usd", reserved)
+        try:
+            write_cache(key, record)
+        finally:
+            budget.settle(reserved, cost)
+
+
 async def retry(call: Callable[[], Awaitable[T]]) -> T:
-    """Initial attempt plus at most three retries for 429 or 5xx."""
+    """Retry 429 and 5xx responses using the configured cap and backoff."""
     for attempt in range(API_MAX_RETRIES + 1):
         try:
             return await call()

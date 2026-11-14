@@ -62,7 +62,7 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
         request["auto_routing"] = "accuracy"
     if published_after is not None:
         request["published_after"] = published_after
-    key = config.cache_key("telem-search-v1", request)
+    key = config.cache_key("telem-search-v1", {"endpoint": config.TELEM_BASE_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
@@ -84,11 +84,10 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
                 config.SEARCH_BUDGET.settle(estimate, 0)
                 raise
             elapsed = (time.perf_counter() - start) * 1000
-            runs = _normalize(raw, elapsed, engines)
-            cost = sum(r.cost_usd for r in runs.values())
-            config.write_cache(key, {"request": request, "raw": raw,
-                                    "normalized": {e: r.model_dump(mode="json") for e, r in runs.items()}})
-            config.SEARCH_BUDGET.settle(estimate, cost)
+            with config.paid_response(key, request, raw, config.SEARCH_BUDGET, estimate) as record:
+                runs = _normalize(raw, elapsed, engines)
+                record["_cost_usd"] = sum(r.cost_usd for r in runs.values())
+                record["normalized"] = {e: r.model_dump(mode="json") for e, r in runs.items()}
             return runs
 
 
@@ -113,7 +112,7 @@ async def fetch_page(url: str, *, session: str | None = None) -> PageText:
     """Read one page through Telem's fetch API in the caller's session."""
     request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
                    inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
-    key = config.cache_key("telem-fetch-v1", request)
+    key = config.cache_key("telem-fetch-v1", {"endpoint": config.TELEM_BASE_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
@@ -131,13 +130,13 @@ async def fetch_page(url: str, *, session: str | None = None) -> PageText:
             except BaseException:
                 config.SEARCH_BUDGET.settle(estimate, 0)
                 raise
-            row = next(iter(raw.get("results") or []), {})
-            ok = row.get("status") in _SUCCESS
-            page = PageText(url=url, ok=ok, text=(row.get("content") or "")[:config.PAGE_TEXT_CHARS] if ok else "",
-                            latency_ms=(time.perf_counter() - start) * 1000,
-                            cost_usd=estimate if ok else 0, session_id=raw.get("session_id") or session)
-            config.write_cache(key, {"request": request, "raw": raw, "normalized": page.model_dump(mode="json")})
-            config.SEARCH_BUDGET.settle(estimate, page.cost_usd)
+            with config.paid_response(key, request, raw, config.SEARCH_BUDGET, estimate) as record:
+                row = next(iter(raw.get("results") or []), {})
+                ok = row.get("status") in _SUCCESS
+                page = PageText(url=url, ok=ok, text=(row.get("content") or "")[:config.PAGE_TEXT_CHARS] if ok else "",
+                                latency_ms=(time.perf_counter() - start) * 1000,
+                                cost_usd=estimate if ok else 0, session_id=raw.get("session_id") or session)
+                record.update(normalized=page.model_dump(mode="json"), _cost_usd=page.cost_usd)
             return page
 
 

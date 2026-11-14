@@ -76,3 +76,30 @@ def test_rescue_table_defaults_follow_configuration(monkeypatch):
     assert table.fallback_order == ["custom"]
     table.fallback_order.append("another")
     assert config.fallback_order == ["custom"]
+
+
+def test_malformed_paid_response_is_cached_and_charged(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(config, "SO_CACHE", "readwrite")
+    budget = config.Budget(1)
+    budget.reserve(.01)
+    with pytest.raises(ValueError, match="Provider response failed validation"):
+        with config.paid_response("bad", {"query": "q"}, {"invalid": True}, budget, .01):
+            raise KeyError("usage")
+    assert budget.spent == .01 and budget.reserved == 0
+    assert json.loads((tmp_path / "bad.json").read_text())["raw"] == {"invalid": True}
+    with pytest.raises(ValueError, match="Cached provider response failed validation"):
+        config.read_cache("bad")
+
+
+def test_cache_write_failure_does_not_erase_spend(monkeypatch):
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(config, "write_cache", fail)
+    budget = config.Budget(1)
+    budget.reserve(.01)
+    with pytest.raises(OSError, match="disk full"):
+        with config.paid_response("paid", {}, {}, budget, .01) as record:
+            record.update(normalized={}, _cost_usd=.005)
+    assert budget.spent == .005 and budget.reserved == 0

@@ -214,7 +214,7 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
             except BaseException:
                 config.LLM_BUDGET.settle(estimate, 0)
                 raise
-            response = _normalize(raw, provider, role, model, (time.perf_counter() - start) * 1000)
-            config.write_cache(key, {"request": request, "raw": raw, "normalized": response.model_dump(mode="json")})
-            config.LLM_BUDGET.settle(estimate, response.cost_usd)
+            with config.paid_response(key, request, raw, config.LLM_BUDGET, estimate) as record:
+                response = _normalize(raw, provider, role, model, (time.perf_counter() - start) * 1000)
+                record.update(normalized=response.model_dump(mode="json"), _cost_usd=response.cost_usd)
             return response

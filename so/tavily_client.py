@@ -13,7 +13,7 @@ async def tavily_extract(url: str) -> PageText:
     """Extract one page; failed URLs return ok=False for Telem fallback."""
     request = dict(urls=[url], extract_depth=config.TAVILY_EXTRACT_DEPTH,
                    format=config.PAGE_CONTENT_FORMAT, timeout=config.TAVILY_TIMEOUT_S)
-    key = config.cache_key("tavily-extract-v1", request)
+    key = config.cache_key("tavily-extract-v1", {"endpoint": config.TAVILY_API_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
@@ -29,11 +29,11 @@ async def tavily_extract(url: str) -> PageText:
             except BaseException:
                 config.SEARCH_BUDGET.settle(estimate, 0)
                 raise
-            row = next(iter(raw.get("results") or []), None)
-            page = PageText(url=url, ok=row is not None,
-                            text=(row.get("raw_content") or "")[:config.PAGE_TEXT_CHARS] if row else "",
-                            latency_ms=(time.perf_counter() - start) * 1000,
-                            cost_usd=estimate if row is not None else 0)
-            config.write_cache(key, {"request": request, "raw": raw, "normalized": page.model_dump(mode="json")})
-            config.SEARCH_BUDGET.settle(estimate, page.cost_usd)
+            with config.paid_response(key, request, raw, config.SEARCH_BUDGET, estimate) as record:
+                row = next(iter(raw["results"]), None)
+                page = PageText(url=url, ok=row is not None,
+                                text=(row.get("raw_content") or "")[:config.PAGE_TEXT_CHARS] if row else "",
+                                latency_ms=(time.perf_counter() - start) * 1000,
+                                cost_usd=estimate if row is not None else 0)
+                record.update(normalized=page.model_dump(mode="json"), _cost_usd=page.cost_usd)
             return page
