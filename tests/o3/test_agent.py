@@ -19,10 +19,10 @@ def agent_settings(monkeypatch, tmp_path):
     settings = {
         "AGENT_MAX_SEARCHES": 6, "AGENT_MAX_PAGE_READS": 12, "AGENT_MAX_TURNS": 24,
         "AGENT_PROMPT_PATH": Path(__file__).parents[2] / "so/prompts/agent.md",
-        "LOG_DIR": tmp_path, "SO_ENABLE_SECOND_OPINION": True,
+        "SO_LOG_DIR": tmp_path, "SO_ENABLE_SECOND_OPINION": True,
     }
     for name, value in settings.items():
-        monkeypatch.setattr(config, name, value, raising=False)
+        monkeypatch.setattr(config, name, value)
 
 
 def result(engine="tavily", url=URL):

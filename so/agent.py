@@ -139,7 +139,7 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
     search = get_search_tool(setup)
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", question.id)
     run_id = f"{setup}-{safe_id}-{uuid4().hex}"
-    log = _RunLog(EventLog(run_id, question.id, setup, log_dir=config.LOG_DIR if log_dir is None else log_dir))
+    log = _RunLog(EventLog(run_id, question.id, setup, log_dir=config.SO_LOG_DIR if log_dir is None else log_dir))
     counts = {"searches": 0, "reads": 0}
     started = perf_counter()
     error: str | None = None
