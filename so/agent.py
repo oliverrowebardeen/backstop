@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from so import config, llm, telem_client
-from so.contracts import AgentAnswer, Question, RunContext, SearchOutcome, ToolCall
+from so.contracts import AgentAnswer, LLMResponse, Question, RunContext, SearchOutcome, ToolCall
 from so.eventlog import EventLog
 from so.setups import SearchTool, get_search_tool, single
 
@@ -126,6 +126,25 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
     return AgentAnswer(final=final, status="ANSWERED", citations=citations, searches=searches)
 
 
+def _assistant_turn(response: LLMResponse) -> dict[str, Any] | None:
+    """The assistant message to replay next turn, or None when the reply was empty.
+
+    Provider-native blocks are replayed unchanged when present. Dropping the
+    model's thinking blocks between tool calls made it issue placeholder searches
+    such as query "x" instead of answering.
+    """
+    if response.content:
+        return {"role": "assistant", "content": response.content}
+    if response.tool_calls:
+        return {"role": "assistant", "content": response.text or None,
+                "tool_calls": [{"id": call.id, "type": "function", "function": {
+                    "name": call.name, "arguments": json.dumps(call.arguments),
+                }} for call in response.tool_calls]}
+    if response.text.strip():
+        return {"role": "assistant", "content": response.text}
+    return None
+
+
 async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
                        counts: dict[str, int], sources: set[str],
                        previous_searches: dict[str, tuple[str, SearchOutcome]]) -> dict[str, Any]:
@@ -135,6 +154,10 @@ async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
                for key in ("query", "goal")):
             return {"error": "search requires nonempty query and goal strings."}
         query, goal = arguments["query"], arguments["goal"]
+        if len(goal.split()) < config.AGENT_MIN_GOAL_WORDS:
+            return {"error": (f"search requires a goal of at least {config.AGENT_MIN_GOAL_WORDS} words that states "
+                              "the fact the results must establish. If the evidence already answers the "
+                              "question, reply with the final JSON answer instead.")}
         if query in previous_searches:
             original_goal, previous = previous_searches[query]
             result = previous.model_dump(mode="json")
@@ -188,11 +211,15 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
         sources: set[str] = set()
         previous_searches: dict[str, tuple[str, SearchOutcome]] = {}
         answer: AgentAnswer | None = None
+        idle_turns = 0
         for turn in range(config.AGENT_MAX_TURNS + 1):
-            finishing = turn == config.AGENT_MAX_TURNS
+            stalled = 0 < config.AGENT_MAX_IDLE_TURNS <= idle_turns
+            finishing = stalled or turn == config.AGENT_MAX_TURNS
             if finishing:
+                reason = ("Your recent tool calls did no new work." if stalled and turn < config.AGENT_MAX_TURNS
+                          else "Tool limit reached.")
                 messages.append({"role": "user", "content":
-                                 "Tool limit reached. Give your final answer from the evidence or NOT FOUND."})
+                                 f"{reason} Give your final answer from the evidence or NOT FOUND."})
             response = await llm.complete("agent", system_prompt, messages,
                                           tools=None if finishing else TOOLS)
             log.emit("llm", role="agent", model=response.model or config.AGENT_MODEL,
@@ -204,7 +231,9 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                     answer = _answer(response.text, sources, counts["searches"])
                 except ValueError as format_error:
                     # One repair turn: the evidence is already gathered, only the format slipped.
-                    messages.append({"role": "assistant", "content": response.text or ""})
+                    previous = _assistant_turn(response)
+                    if previous is not None:
+                        messages.append(previous)
                     messages.append({"role": "user", "content": (
                         f"Your reply did not follow the required answer format ({format_error}). "
                         "Reply with only the JSON answer object described in your instructions, "
@@ -218,14 +247,14 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                 break
             if finishing:
                 raise RuntimeError("Agent continued requesting tools after the final turn limit")
-            messages.append({"role": "assistant", "content": response.text or None,
-                             "tool_calls": [{"id": call.id, "type": "function", "function": {
-                                 "name": call.name, "arguments": json.dumps(call.arguments),
-                             }} for call in response.tool_calls]})
+            messages.append(_assistant_turn(response))
+            work_before = dict(counts)
             for call in response.tool_calls:
                 result = await _tool_result(call, ctx, search, counts, sources, previous_searches)
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result)})
+            # Rejected calls, limit errors and reused queries do no new work.
+            idle_turns = idle_turns + 1 if counts == work_before else 0
         if answer is None:
             raise RuntimeError("Agent exhausted its turn limit without a final answer")
         log.emit("answer", **answer.model_dump(), telem_session_id=ctx.session)

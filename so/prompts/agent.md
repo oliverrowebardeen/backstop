@@ -8,4 +8,4 @@ Cite the source URLs supporting your answer. Use only URLs returned by a search 
 
 When finished, return only a JSON object with these fields:
 {"final": "A concise answer with source URLs, or NOT FOUND", "status": "ANSWERED or NOT_FOUND", "citations": ["supporting source URL"]}
-For NOT_FOUND, use final "NOT FOUND", status "NOT_FOUND", and an empty citations list. Do not include tool calls in your final answer.
+For NOT_FOUND, use final "NOT FOUND", status "NOT_FOUND", and an empty citations list. Finish by replying with this JSON object as plain text, with no tool call. Never call a tool to end your turn or with placeholder arguments; every search must target a fact the question still needs.

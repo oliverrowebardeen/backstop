@@ -110,6 +110,10 @@ LOG_DIR = SO_LOG_DIR
 AGENT_MAX_SEARCHES = int(os.getenv("AGENT_MAX_SEARCHES", "6"))
 AGENT_MAX_PAGE_READS = int(os.getenv("AGENT_MAX_PAGE_READS", "12"))
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "24"))
+# A search goal shorter than this cannot state the fact the results must establish.
+AGENT_MIN_GOAL_WORDS = int(os.getenv("AGENT_MIN_GOAL_WORDS", "3"))
+# Consecutive turns whose tool calls do no new work before tools are withdrawn (0 disables).
+AGENT_MAX_IDLE_TURNS = int(os.getenv("AGENT_MAX_IDLE_TURNS", "2"))
 AGENT_PROMPT_PATH = Path(os.getenv("AGENT_PROMPT_PATH", str(ROOT / "so" / "prompts" / "agent.md")))
 SO_ENABLE_SECOND_OPINION = _bool("SO_ENABLE_SECOND_OPINION", True)
 MAX_RESCUES = int(os.getenv("MAX_RESCUES", "2"))

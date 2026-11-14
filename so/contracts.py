@@ -215,3 +215,6 @@ class LLMResponse(BaseModel):
     role: Literal["agent", "checker", "judge"] = "agent"
     cached: bool = False
     stop_reason: str | None = None
+    # Provider-native assistant blocks (Anthropic only), replayed unchanged on the
+    # next turn so the model keeps its own thinking between tool calls.
+    content: list[dict[str, Any]] = Field(default_factory=list)

@@ -119,8 +119,10 @@ def _rates(model: str, tokens_in: int = 0) -> tuple[float, float]:
 
 def _normalize(raw: dict[str, Any], provider: str, role: Role, model: str, latency_ms: float) -> LLMResponse:
     usage = raw["usage"]
+    blocks: list[dict[str, Any]] = []
     if provider == "anthropic":
         content = raw.get("content", [])
+        blocks = list(content)
         text = "".join(block["text"] for block in content if block.get("type") == "text")
         calls = [_call(block) for block in content if block.get("type") == "tool_use"]
         plain_in = usage["input_tokens"]
@@ -149,7 +151,7 @@ def _normalize(raw: dict[str, Any], provider: str, role: Role, model: str, laten
         stop = choice.get("finish_reason")
     return LLMResponse(text=text, tool_calls=calls, tokens_in=tokens_in, tokens_out=tokens_out,
                        cost_usd=(cost_in + tokens_out * output_rate) / 1_000_000,
-                       latency_ms=latency_ms, model=model, role=role, stop_reason=stop)
+                       latency_ms=latency_ms, model=model, role=role, stop_reason=stop, content=blocks)
 
 
 async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,

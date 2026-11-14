@@ -64,6 +64,7 @@
 - Not done: README "## Results" awaits O5 and the held-out eval; the 12s timeout_s and 4s checker_timeout_s defaults can cut the second rescue or mark slow checks UNCHECKED live, so set SEARCH_TIMEOUT_S and CHECKER_TIMEOUT_S for the eval if needed; the rate limiter is in-memory per process; the client path skips the disk cache by design.
 
 S4 EVAL PAUSED 11:56: stopped before completion while Oliver fixes a bug; partial runs discarded. Behavior freeze lifted: search, checker and agent changes may merge now (they should land before the eval restarts). The eval restarts from scratch after the fix.
+Agent fix "fix: keep the agent's reasoning between turns and stop placeholder tool calls" merged by decision of Oliver; S4 full eval must restart on this commit.
 
 ## Site: seven-beat pitch and Vercel entry point
 - Built: one scrolling page at `/`, replacing the race/results UI; classic self-hosted typography, moving query diagram, streamed race, genuine golden replay, audit download, and measured proof. `/presentation` reads `out/matrix.jsonl` and `out/results.json`; incomplete or synthetic evaluations stay blank. Vercel imports the repository root as FastAPI via `app.py`; see DEPLOY.md.
