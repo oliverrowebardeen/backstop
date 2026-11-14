@@ -175,8 +175,20 @@ def test_metrics_match_score_definitions():
     assert m["hit_precision"] == 0.75
     assert m["rescuable_vs_dead_acc"] == pytest.approx(5 / 6, abs=1e-4)
     assert checker_eval.report(m).endswith("target NOT MET")
+    assert checker_eval.report(m, target_miss_recall=0.8, target_false_alarm=0.3).endswith("target MET")
 
 
 def test_metrics_on_no_cases_do_not_divide_by_zero():
     m = metrics([])
     assert (m["miss_recall"], m["false_alarm_rate"], m["n_searches"]) == (0.0, 0.0, 0)
+
+
+async def test_checker_outage_stops_the_eval(files, monkeypatch):
+    async def down(system, user):
+        raise RuntimeError("401 invalid key")
+
+    monkeypatch.setattr(checker, "_call_model", down)
+    matrix, stored = files
+    with pytest.raises(checker.CheckerError):
+        await checker_eval.run("learn", engines=["tavily"], today=TODAY, matrix=matrix, results_path=stored,
+                               questions=QUESTIONS)

@@ -10,6 +10,9 @@ question text) and today's date. It never sees gold answers.
 Prints miss recall, false alarm rate, rescuable-vs-DEAD accuracy and a
 confusion table of verdicts. Metric definitions match evals/score.py.
 
+A checker call that fails outright raises CheckerError and stops the run, so
+an outage is never scored as a string of misses.
+
 Only the learn split is allowed. Every reported number comes from the test
 split, so tuning the checker on it would leak.
 """
@@ -34,7 +37,7 @@ from so.contracts import CheckerVerdict, MatrixRow, Question, Result
 OUT = ROOT / "out"
 MATRIX = OUT / "matrix.jsonl"
 RESULTS = OUT / "matrix_results.jsonl"
-TOP_K = 5
+TOP_K = checker.TOP_K
 TARGET_MISS_RECALL = 0.85
 TARGET_FALSE_ALARM = 0.25
 ALLOWED_SPLIT = "learn"
@@ -195,7 +198,7 @@ def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
                             "false_alarm_rate": _rate(v["hits_flagged"], v["true_hits"]),
                             "true_hits": v["true_hits"], "true_misses": v["true_misses"]}
                         for k, v in sorted(by_category.items())},
-        "checker_errors": sum(s.verdict.why.startswith("Checker error") for s in scored),
+        "malformed": sum(s.verdict.why == checker.MALFORMED_WHY for s in scored),
         "cost_usd": round(sum(v.cost_usd for v in usage), 6),
         "cost_per_check": round(sum(v.cost_usd for v in usage) / len(usage), 6) if usage else 0.0,
         "latency_p50_ms": round(statistics.median(latencies)) if latencies else None,
@@ -203,14 +206,15 @@ def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
     }
 
 
-def report(m: dict[str, Any]) -> str:
-    ok = m["miss_recall"] >= TARGET_MISS_RECALL and m["false_alarm_rate"] <= TARGET_FALSE_ALARM
+def report(m: dict[str, Any], target_miss_recall: float = TARGET_MISS_RECALL,
+           target_false_alarm: float = TARGET_FALSE_ALARM) -> str:
+    ok = m["miss_recall"] >= target_miss_recall and m["false_alarm_rate"] <= target_false_alarm
     lines = [
         f"Checker on the {m['split']} split: {m['n_searches']} searches "
         f"({m['true_misses']} true misses, {m['true_hits']} true hits)",
         "",
-        f"  miss recall            {m['miss_recall']:.3f}   (target >= {TARGET_MISS_RECALL})",
-        f"  false alarm rate       {m['false_alarm_rate']:.3f}   (target <= {TARGET_FALSE_ALARM})",
+        f"  miss recall            {m['miss_recall']:.3f}   (target >= {target_miss_recall})",
+        f"  false alarm rate       {m['false_alarm_rate']:.3f}   (target <= {target_false_alarm})",
         f"  HIT precision          {m['hit_precision']:.3f}",
         f"  rescuable vs DEAD acc  {m['rescuable_vs_dead_acc']:.3f}   (on {m['dead_scored']} true misses)",
         "",
@@ -225,7 +229,7 @@ def report(m: dict[str, Any]) -> str:
     latency = f"{m['latency_p50_ms']} ms" if m["latency_p50_ms"] is not None else "n/a (all cached)"
     lines += ["",
               f"  checker cost ${m['cost_usd']:.4f} (${m['cost_per_check']:.5f} per check), "
-              f"median latency {latency}, {m['cached_checks']} cached, {m['checker_errors']} errors",
+              f"median latency {latency}, {m['cached_checks']} cached, {m['malformed']} malformed",
               f"  target {'MET' if ok else 'NOT MET'}"]
     return "\n".join(lines)
 
@@ -249,7 +253,8 @@ def disagreements(scored: Sequence[Scored], limit: int) -> str:
 
 async def run(split: str, *, engines: Sequence[str], today: date | str, matrix: Path = MATRIX,
               results_path: Path = RESULTS, fill: bool = False, show: int = 0,
-              questions: Sequence[Question] | None = None) -> dict[str, Any]:
+              questions: Sequence[Question] | None = None, target_miss_recall: float = TARGET_MISS_RECALL,
+              target_false_alarm: float = TARGET_FALSE_ALARM) -> dict[str, Any]:
     if split != ALLOWED_SPLIT:
         raise SplitRefused(f"checker_eval runs on the learn split only, not {split!r}. "
                            "Reported numbers come from the test split, so it is never tuned on.")
@@ -271,7 +276,7 @@ async def run(split: str, *, engines: Sequence[str], today: date | str, matrix: 
     m = metrics(scored)
     m["engines"] = list(engines)
     m["skipped_no_results"] = len(missing)
-    print(report(m))
+    print(report(m, target_miss_recall, target_false_alarm))
     if show:
         print(disagreements(scored, show))
     return m
@@ -288,6 +293,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--fill-missing", action="store_true",
                    help="fetch results absent from the results file with the matrix's Telem call")
     p.add_argument("--show", type=int, default=0, metavar="N", help="print N disagreements of each kind")
+    p.add_argument("--target-miss-recall", type=float, default=TARGET_MISS_RECALL, metavar="R",
+                   help=f"pass mark for miss recall (default {TARGET_MISS_RECALL})")
+    p.add_argument("--target-false-alarm", type=float, default=TARGET_FALSE_ALARM, metavar="R",
+                   help=f"pass mark for the false alarm rate (default {TARGET_FALSE_ALARM})")
     p.add_argument("--json", type=Path, help="also write the metrics to this file")
     a = p.parse_args(argv)
     if a.split != ALLOWED_SPLIT:
@@ -298,8 +307,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         p.error(f"unknown engines {unknown}; choose from {ENGINES}")
     try:
         m = asyncio.run(run(a.split, engines=a.engines, today=a.today, matrix=a.matrix,
-                            results_path=a.results, fill=a.fill_missing, show=a.show))
-    except (FileNotFoundError, SplitRefused) as exc:
+                            results_path=a.results, fill=a.fill_missing, show=a.show,
+                            target_miss_recall=a.target_miss_recall, target_false_alarm=a.target_false_alarm))
+    except (FileNotFoundError, SplitRefused, checker.CheckerError) as exc:
         p.exit(1, f"{exc}\n")
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
