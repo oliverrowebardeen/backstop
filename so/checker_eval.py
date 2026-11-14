@@ -31,12 +31,11 @@ from pathlib import Path
 from typing import Any
 
 from so import checker
-from so.config import ENGINES, FIRST_ENGINE, ROOT
+from so.config import ENGINES, FIRST_ENGINE, OUT_DIR
 from so.contracts import CheckerVerdict, MatrixRow, Question, Result
 
-OUT = ROOT / "out"
-MATRIX = OUT / "matrix.jsonl"
-RESULTS = OUT / "matrix_results.jsonl"
+MATRIX = OUT_DIR / "matrix.jsonl"
+RESULTS = OUT_DIR / "matrix_results.jsonl"
 TOP_K = checker.TOP_K
 TARGET_MISS_RECALL = 0.85
 TARGET_FALSE_ALARM = 0.25

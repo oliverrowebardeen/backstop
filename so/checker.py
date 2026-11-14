@@ -37,17 +37,16 @@ from urllib.parse import urlsplit
 
 from pydantic import Field
 
-from so.config import CHECKER_MODEL, BudgetExceeded
+from so.config import CHECKER_MODEL, PAGE_TEXT_CHARS, RESULT_SNIPPET_CHARS, TELEM_NUM_RESULTS, BudgetExceeded
 from so.contracts import CheckerVerdict, LLMResponse, PageText, Result, RunContext
 
 logger = logging.getLogger(__name__)
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
-# Shared contract sizes: the checker sees the top 5 results, result snippets are
-# at most 500 characters and fetched page text at most 6,000.
-TOP_K = 5
-SNIPPET_CHARS = 500
-PAGE_CHARS = 6000
+# The checker sees what one search returns, with the same text limits as results and pages.
+TOP_K = TELEM_NUM_RESULTS
+SNIPPET_CHARS = RESULT_SNIPPET_CHARS
+PAGE_CHARS = PAGE_TEXT_CHARS
 # Bounds on free text copied from the model into verdicts and event logs.
 WHY_CHARS = 300
 REWRITE_CHARS = 300
