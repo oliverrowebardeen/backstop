@@ -99,6 +99,14 @@ TAVILY_EXTRACT_PRICE_USD = float(os.getenv("TAVILY_EXTRACT_PRICE_USD", str(TAVIL
 TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com")
 TAVILY_TIMEOUT_S = float(os.getenv("TAVILY_TIMEOUT_S", "30"))
 TAVILY_EXTRACT_DEPTH = os.getenv("TAVILY_EXTRACT_DEPTH", "basic")
+# SHALLOW page reads ask Extract for goal-ranked chunks (at most 500 characters each,
+# 1 to 5 per source, only when a query is sent) under a tighter timeout than search.
+TAVILY_EXTRACT_CHUNKS = int(os.getenv("TAVILY_EXTRACT_CHUNKS", "3"))
+TAVILY_EXTRACT_TIMEOUT_S = float(os.getenv("TAVILY_EXTRACT_TIMEOUT_S", "10"))
+if not 1 <= TAVILY_EXTRACT_CHUNKS <= 5:
+    raise ValueError("TAVILY_EXTRACT_CHUNKS must be between 1 and 5")
+if not math.isfinite(TAVILY_EXTRACT_TIMEOUT_S) or TAVILY_EXTRACT_TIMEOUT_S <= 0:
+    raise ValueError("TAVILY_EXTRACT_TIMEOUT_S must be finite and positive")
 SO_CACHE = os.getenv("SO_CACHE", "readwrite")
 if SO_CACHE not in {"readwrite", "off"}:
     raise ValueError("SO_CACHE must be readwrite or off")

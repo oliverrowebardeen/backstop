@@ -9,12 +9,34 @@ from so import config
 from so.contracts import PageText
 
 
-async def tavily_extract(url: str, *, goal: str | None = None) -> PageText:
-    """Extract a page, forwarding goal as Tavily's query for content ranking."""
-    request = dict(urls=[url], extract_depth=config.TAVILY_EXTRACT_DEPTH,
-                   format=config.PAGE_CONTENT_FORMAT, timeout=config.TAVILY_TIMEOUT_S)
+CHUNK_SEPARATOR = "[...]"
+"""Tavily joins the chunks of one source in raw_content with this marker."""
+
+
+def split_chunks(text: str) -> list[str]:
+    """Split Extract raw_content into its chunks; text without the marker is one chunk."""
+    return [chunk.strip() for chunk in text.split(CHUNK_SEPARATOR) if chunk.strip()]
+
+
+async def tavily_extract(url: str, *, goal: str | None = None,
+                         chunks_per_source: int | None = None) -> PageText:
+    """Extract a page, forwarding goal as Tavily's query for content ranking.
+
+    With a goal, Extract returns only the `chunks_per_source` chunks (default
+    config.TAVILY_EXTRACT_CHUNKS, 1 to 5, at most 500 characters each) most
+    relevant to it, joined by CHUNK_SEPARATOR in `PageText.text`; use
+    `split_chunks` to recover them. Tavily accepts chunks only with a query, so
+    without a goal the full page text is returned. Basic depth, timeout
+    config.TAVILY_EXTRACT_TIMEOUT_S.
+    """
+    request: dict[str, object] = dict(urls=[url], extract_depth=config.TAVILY_EXTRACT_DEPTH,
+                                      format=config.PAGE_CONTENT_FORMAT, timeout=config.TAVILY_EXTRACT_TIMEOUT_S)
     if goal is not None:
+        chunks = config.TAVILY_EXTRACT_CHUNKS if chunks_per_source is None else chunks_per_source
+        if not 1 <= chunks <= 5:
+            raise ValueError(f"chunks_per_source must be between 1 and 5, got {chunks}")
         request["query"] = goal
+        request["chunks_per_source"] = chunks
     key = config.cache_key("tavily-extract-v1", {"endpoint": config.TAVILY_API_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
