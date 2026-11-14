@@ -37,14 +37,18 @@ from pathlib import Path
 from typing import get_args
 
 from data.load import load_questions, load_traps
+from evals import contamination
 from evals.deps import FAKE, OUT
 from so import eventlog
 from so.config import LLM_MAX_CONCURRENCY
 from so.contracts import Setup
+from so.telem_client import RESULT_FILTER
 
 SETUPS: list[str] = list(get_args(Setup))
 LOG_DIR = OUT / "logs"
 MANIFEST = OUT / "eval_manifest.json"
+# Per run: how many search results the benchmark-contamination filter removed.
+CONTAMINATION_LOG = OUT / "eval_contamination.jsonl"
 
 
 def load_agent():
@@ -125,6 +129,16 @@ def select(limit: int | None = None, max_test: int | None = None, traps_only: bo
     return test, traps
 
 
+def _record_contamination(path: Path, row: dict) -> None:
+    """Append one run's filter counts; a failed write warns and never fails the run."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError as e:
+        print(f"  ! could not record contamination counts in {path}: {e}", file=sys.stderr)
+
+
 def write_manifest(test, traps, setups, limit, max_test, traps_only, path: Path = MANIFEST) -> dict:
     """Record what this eval covers. --traps-only keeps the earlier test set."""
     old = json.loads(path.read_text()) if path.exists() else {}
@@ -195,8 +209,23 @@ async def run(test, traps, setups: list[str], log_dir: Path = LOG_DIR,
             if state["stop"]:
                 return
             started = time.time()
+            seen = {"results": 0, "removed": 0}
+
+            def drop_benchmark_copies(results, question=q.question):
+                kept, removed = contamination.filter_results(question, results)
+                seen["results"] += len(results)
+                seen["removed"] += removed
+                return kept
+
+            # Same filter for every setup, the checker and the agent (see so.telem_client.RESULT_FILTER).
+            token = RESULT_FILTER.set(drop_benchmark_copies)
             try:
-                await _call_agent(agent, q, setup, log_dir)
+                try:
+                    await _call_agent(agent, q, setup, log_dir)
+                finally:
+                    RESULT_FILTER.reset(token)
+                _record_contamination(Path(log_dir).parent / CONTAMINATION_LOG.name,
+                                      {"question_id": q.id, "setup": setup, **seen})
                 path = _finished_since(log_dir, q.id, setup, started - 1)
                 if path is None:
                     state["failures"].append((q.id, setup, "agent returned but no log with run_end was found"))

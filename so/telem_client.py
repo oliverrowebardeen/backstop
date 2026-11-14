@@ -9,6 +9,8 @@ import argparse
 import asyncio
 import json
 import time
+from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any
 
 from telem import AsyncTelem
@@ -18,6 +20,23 @@ from so.contracts import EngineRun, PageText, Result
 
 _SUCCESS = {"ok", "success", "succeeded"}
 
+
+
+ResultFilter = Callable[[list[Result]], list[Result]]
+#: Optional per-task filter over every engine's results, applied to fresh and cached
+#: responses alike. Unset in normal use. An evaluation harness can set it (for example
+#: to drop pages that copy a public benchmark) so every setup, the checker and the
+#: agent see the same filtered lists. Results are renumbered 1..n after filtering.
+RESULT_FILTER: ContextVar[ResultFilter | None] = ContextVar("telem_result_filter", default=None)
+
+
+def _filtered(runs: dict[str, EngineRun]) -> dict[str, EngineRun]:
+    keep = RESULT_FILTER.get()
+    if keep is None:
+        return runs
+    return {name: run.model_copy(update={"results": [
+        result.model_copy(update={"rank": rank}) for rank, result in enumerate(keep(list(run.results)), 1)]})
+        for name, run in runs.items()}
 
 def _snippet(row: dict[str, Any]) -> str:
     value = row.get("summary") or row.get("excerpt") or ""
@@ -66,9 +85,9 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
         if cached:
-            return {name: EngineRun.model_validate(value).model_copy(
+            return _filtered({name: EngineRun.model_validate(value).model_copy(
                 update={"cached": True, "session_id": session})
-                for name, value in cached["normalized"].items()}
+                for name, value in cached["normalized"].items()})
         # Auto-routing can select any available web engine. Reserve all known prices.
         possible = engines if engines is not None else config.TELEM_ROUTING_ENGINES
         estimate = sum(config.PRICE_USD.get(e, config.DEFAULT_PRICE_USD) for e in possible)
@@ -88,7 +107,7 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
                 runs = _normalize(raw, elapsed, engines)
                 record["_cost_usd"] = sum(r.cost_usd for r in runs.values())
                 record["normalized"] = {e: r.model_dump(mode="json") for e, r in runs.items()}
-            return runs
+            return _filtered(runs)
 
 
 async def search_engines(query: str, engines: list[str], *, num_results: int = config.TELEM_NUM_RESULTS,
