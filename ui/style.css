@@ -179,16 +179,17 @@ td.is-ours { background: var(--accent-wash); }
 td.is-ours .cell-main { color: var(--accent); }
 td.is-pending .cell-main { color: #a3a598; font-weight: 550; font-size: 14px; }
 .chart-title { margin-top: 6px; font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
-.frontier-chart { margin-top: 10px; }
+.accuracy-chart { margin-top: 10px; }
 .frontier-svg { width: 100%; height: auto; display: block; }
 .frontier-svg .grid { stroke: var(--card-line); }
 .frontier-svg .axis { stroke: #a9ac9e; }
 .frontier-svg .tick-label { font: 12px var(--sans); fill: var(--muted); }
 .frontier-svg .axis-label { font: 600 13px var(--sans); fill: var(--ink); letter-spacing: 0.02em; }
-.frontier-svg .dot-combo { fill: #b5b7aa; }
-.frontier-svg .front-line { fill: none; stroke: #c9cbbf; stroke-width: 1.2; stroke-dasharray: 3 4; }
-.frontier-svg .dot-base { fill: #6f7366; stroke: var(--white); stroke-width: 2; }
-.frontier-svg .dot-ours { fill: var(--accent); stroke: var(--white); stroke-width: 2.5; }
+.frontier-svg .dot-single { fill: #b5b7aa; stroke: var(--white); stroke-width: 2; }
+.frontier-svg .dot-telem_default { fill: #6f7366; stroke: var(--white); stroke-width: 2; }
+.frontier-svg .dot-second_opinion { fill: var(--accent); stroke: var(--white); stroke-width: 2.5; }
+.frontier-svg .point-sub { font: 12.5px var(--sans); fill: var(--muted); paint-order: stroke; stroke: var(--white); stroke-width: 6px; }
+.headline-tile.is-equal .tile-value { font-size: clamp(28px, 2.6vw, 44px); letter-spacing: -0.03em; }
 .frontier-svg .point-label { font: 650 14px var(--sans); fill: var(--ink); paint-order: stroke; stroke: var(--white); stroke-width: 6px; }
 .frontier-svg .label-ours { fill: var(--accent); }
 .chart-note { margin-top: 6px; font-size: 13px; color: var(--muted); }

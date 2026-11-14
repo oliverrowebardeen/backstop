@@ -14,9 +14,6 @@ const el = (tag, cls, text) => {
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const params = new URLSearchParams(location.search);
 if (params.has('still')) document.documentElement.classList.add('still');
-async function getJSON(path) {
-  try { const r = await fetch(path, {cache: 'no-store'}); return r.ok ? await r.json() : null; } catch { return null; }
-}
 
 // Hero.
 const canvas = $('.hero .dots');
@@ -99,11 +96,9 @@ function initCopy() {
 }
 
 async function initData() {
-  const config = await getJSON('/config');
-  const firstEngine = config?.first_engine || 'tavily';
   let rescueTable = null;
-  try { ({rescueTable} = await loadResults($('#results'), {firstEngine})); } catch { /* results show their pending state */ }
-  drawFlow($('#how'), flowLabels(rescueTable, 'tavily'));
+  try { ({rescueTable} = await loadResults($('#results'))); } catch { /* results show their pending state */ }
+  drawFlow($('#how'), flowLabels(rescueTable));
 }
 
 initAutopsy();

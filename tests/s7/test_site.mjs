@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, readdirSync} from 'node:fs';
-import {findingsFrom, coverageBySetup, measured} from '../../ui/results.js';
+import {findingsFrom, measured} from '../../ui/results.js';
 import {flowLabels, rescueChain, FALLBACK_ORDER} from '../../ui/flow.js';
 
 const dir = new URL('../../ui/fixtures/', import.meta.url);
@@ -30,16 +30,6 @@ test('results stay pending without complete measured setups', () => {
   const full = {n_test: 10, setups: {single: block(7, 2), telem_default: block(9, 1), second_opinion: block(9, 0)}};
   assert.ok(measured(full));
   assert.equal(measured(full, false), null, 'server vetting can veto');
-});
-
-test('frontier coverage keeps the simulated flag and question counts', () => {
-  const frontier = JSON.parse(readFileSync(new URL('../../out/frontier.json', import.meta.url), 'utf8'));
-  const points = coverageBySetup(frontier);
-  if (Array.isArray(frontier.measured_runs)) {
-    assert.equal(points.single.kind, 'single', 'measured agent runs win over the hit matrix');
-    assert.ok(Number.isInteger(points.second_opinion.n_questions));
-  } else assert.equal(points.single.engines[0], 'tavily');
-  if (points.second_opinion?.simulated) assert.equal(points.second_opinion.simulated, true);
 });
 
 test('findings split into two and a fake-data banner hides them', () => {
