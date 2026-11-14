@@ -3,10 +3,9 @@
 The first live call creates a session. Copy its EngineRun.session_id into
 RunContext.session and pass that session to subsequent searches and fetches.
 
-Ledger fields: every search and fetch may carry Telem's `context` string and a
-`metadata` dict naming the Backstop step (see so.ledger). They label the call in
-Telem's session console only: they never enter the cache key, and if Telem
-rejects them the call is retried once without them (so.ledger.call_with_ledger).
+Search forwards context and metadata; fetch places context in metadata, matching
+the search SDK's wire format. Labels never enter the cache key. If Telem rejects
+them, so.ledger.call_with_ledger retries once without them.
 """
 from __future__ import annotations
 
@@ -134,7 +133,7 @@ async def search_engines(query: str, engines: list[str], *, num_results: int = c
                          metadata: dict[str, Any] | None = None) -> dict[str, EngineRun]:
     """Search only the named engines; keep failed engines in the returned mapping.
 
-    context and metadata are ledger labels for Telem's console (see so.ledger).
+    context and metadata label live calls without changing cache identity.
     """
     if not engines:
         raise ValueError("At least one engine is required")
@@ -152,14 +151,20 @@ async def search_default(query: str, *, goal: str | None = None, session: str | 
 
 
 async def fetch_page(url: str, *, session: str | None = None, goal: str | None = None,
+                     context: str | None = None,
                      metadata: dict[str, Any] | None = None) -> PageText:
-    """Read a page in the caller's session. Telem fetch has no goal parameter.
+    """Read a page in the caller's session, forwarding ledger labels to Telem.
 
-    goal is accepted for caller compatibility and ignored, including in cache keys.
-    metadata is a ledger label for Telem's console and is not part of the cache key.
+    The SDK's fetch has no context keyword, so a nonempty context is merged into
+    metadata["context"], matching the search SDK's wire format and precedence.
+    Ledger labels never affect the cache key.
+    goal remains accepted and ignored because fetch has no goal parameter.
     """
     request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
                    inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
+    labels = dict(metadata or {})
+    if context:
+        labels["context"] = context
     key = config.cache_key("telem-fetch-v1", {"endpoint": config.TELEM_BASE_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
@@ -177,7 +182,7 @@ async def fetch_page(url: str, *, session: str | None = None, goal: str | None =
                                       timeout=config.TELEM_TIMEOUT_S) as client:
                     response = await call_with_ledger(
                         lambda extra: config.retry(lambda: client.fetch(**request, session=session, **extra)),
-                        {"metadata": metadata})
+                        {"metadata": labels})
                 raw = response.model_dump(mode="json")
             except BaseException:
                 config.SEARCH_BUDGET.settle(estimate, 0)
