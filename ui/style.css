@@ -100,7 +100,6 @@ section { position: relative; padding-block: clamp(80px, 9vw, 150px); }
 .hero-ctas { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 42px; }
 .hero-engines { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 56px; font: 13px/1 var(--mono); color: var(--on-dark-muted); }
 .hero-engines li { padding: 8px 12px; border: 1px solid var(--night-line); border-radius: 999px; background: rgba(22, 23, 20, 0.6); }
-.hero-engines li:first-child { color: var(--accent-light); border-color: rgba(232, 170, 139, 0.45); }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-light); box-shadow: 0 0 0 4px var(--accent-glow); }
 
 /* Simulate a miss */
