@@ -31,7 +31,14 @@ async function getJSON(path) {
 const canvas = $('.hero .dots');
 if (canvas) startDots(canvas, {reducedMotion: reduced});
 
-// Simulate a miss.
+// Simulate a miss. The hero button starts the replay, even if clicked before the logs load.
+let startPlayer = null, playRequested = false;
+document.querySelector('.hero [data-play]')?.addEventListener('click', event => {
+  event.preventDefault();
+  history.replaceState(null, '', '#simulate');
+  if (startPlayer) startPlayer();
+  else { playRequested = true; $('#simulate').scrollIntoView({behavior: reduced ? 'auto' : 'smooth'}); }
+});
 async function loadScenarios() {
   const manifest = JSON.parse(await getText(`${FIXTURES}scenarios.json`));
   const entries = await Promise.all((manifest.scenarios || []).map(async item => {
@@ -91,13 +98,11 @@ async function initSimulation() {
   select(initial);
   const at = Number.parseFloat(params.get('at'));
   if (Number.isFinite(at)) player.seek(at * player.scenario.duration);
-  // The hero button starts the replay, not only the scroll.
-  document.querySelector('.hero [data-play]')?.addEventListener('click', event => {
-    event.preventDefault();
-    history.replaceState(null, '', '#simulate');
+  startPlayer = () => {
     if (player.t >= player.scenario.duration) player.seek(0);
     if (!player.playing) player.toggle();
-  });
+  };
+  if (playRequested) startPlayer();
 }
 
 // Miss autopsy: GET /v1/autopsy/{session_id} with the caller's key.
