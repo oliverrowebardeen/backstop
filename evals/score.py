@@ -2,21 +2,25 @@
 
   python -m evals.score
 
-Reads every finished log in out/logs/ (a log with run_end), grades the final
-answer with evals.judge.grade_answer (cached on disk), and totals costs from the
-log. With SO_FAKE=1 everything is read from and written to out/fake/.
+Reads every finished log in out/logs/ (a log with run_end) through so.eventlog,
+grades the final answer with evals.judge.grade_answer (cached on disk), and
+totals costs from the log. With SO_FAKE=1 everything is read from and written
+to out/fake/.
 
 Definitions (sections 6.12 and 7):
 - Setup blocks cover test, non-trap questions. Traps are reported separately.
 - accuracy = correct / n, wrong_rate = wrong / n (n = questions scored).
-- Costs come from run_end, minus any llm event with role "judge". Judge spend is
-  reported on its own and never counted in a setup.
+- Costs come from so.eventlog.summarize (the run_end totals), minus any llm
+  event with role "judge". Judge spend is reported on its own and never counted
+  in a setup.
 - cost_per_correct = total cost / correct answers.
 - cost_per_search_call = (search cost + checker llm cost) / search tool calls.
   Search cost is every `search` event plus every `fetch` inside a search tool
   call (between a search and its search_done, i.e. Second Opinion's page-read
   rescue). The agent's own read_page fetches are not search calls. Search tool
   calls = number of search_done events.
+- Extra keys beside the 6.12 fields: n, cost_per_q_checker (checker llm cost per
+  question, used by S3's frontier), searches_per_q, and the raw totals.
 - Checker: in second_opinion logs of test non-trap questions, the first check
   after a search on FIRST_ENGINE alone, joined with the matrix row
   (question_id, FIRST_ENGINE). A matrix hit is the truth label.
@@ -28,7 +32,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,127 +39,112 @@ from pathlib import Path
 import numpy as np
 
 from data.load import load_questions, load_traps
-from evals.deps import OUT, get
-from evals.run_eval import LOG_DIR, MANIFEST, SETUPS, finished_runs, load_eventlog
+from evals.deps import OUT
+from evals.run_eval import LOG_DIR, MANIFEST, SETUPS, finished_runs
+from so import eventlog
+from so.config import ENGINES, FIRST_ENGINE, LLM_MAX_CONCURRENCY
+from so.contracts import Results
 
-FIRST_ENGINE = "tavily"
 GRADES = ("correct", "wrong", "declined")
-BASELINES = ("single", "telem_default")
+OURS = "second_opinion"
+BASELINES = [s for s in SETUPS if s != OURS]
 RESULTS_JSON = OUT / "results.json"
 RESULTS_MD = OUT / "results.md"
 MATRIX = OUT / "matrix.jsonl"
 AGREEMENT = OUT / "judge_agreement.json"
-
-try:
-    from so.config import FIRST_ENGINE  # noqa: F811
-except ImportError:
-    pass
+assert OURS in SETUPS
 
 
 # ---------------------------------------------------------------- per log
 
-def _f(x) -> float:
-    try:
-        return float(x or 0)
-    except (TypeError, ValueError):
-        return 0.0
+def _cost(event: dict) -> float:
+    return float(event["data"].get("cost_usd") or 0)
 
 
-def _ev(e) -> tuple[str, dict]:
-    data = get(e, "data") or {}
-    if not isinstance(data, dict):
-        data = data.model_dump() if hasattr(data, "model_dump") else dict(data)
-    return get(e, "type"), data
+def _llm_cost(events: list[dict], role: str) -> float:
+    return sum(_cost(e) for e in events if e["type"] == "llm" and e["data"].get("role") == role)
 
 
-def search_call_cost(events) -> tuple[float, int]:
+def search_call_cost(events: list[dict]) -> tuple[float, int]:
     """(search + in-call fetch + checker llm cost, number of search tool calls)."""
     cost, calls, in_call = 0.0, 0, False
     for e in events:
-        t, d = _ev(e)
+        t = e["type"]
         if t == "search":
             in_call = True
-            cost += _f(d.get("cost_usd"))
+            cost += _cost(e)
         elif t == "fetch" and in_call:
-            cost += _f(d.get("cost_usd"))
-        elif t == "llm" and d.get("role") == "checker":
-            cost += _f(d.get("cost_usd"))
+            cost += _cost(e)
         elif t == "search_done":
             in_call = False
             calls += 1
-    return cost, calls
+    return cost + _llm_cost(events, "checker"), calls
 
 
-def first_engine_checks(events, first_engine: str = FIRST_ENGINE) -> list[str]:
+def first_engine_checks(events: list[dict], first_engine: str = FIRST_ENGINE) -> list[str]:
     """Verdicts of the first check after each search whose engines == [first_engine]."""
     out, pending = [], False
     for e in events:
-        t, d = _ev(e)
-        if t == "search":
-            pending = list(d.get("engines") or []) == [first_engine]
-        elif t == "check" and pending:
-            out.append(str(d.get("verdict")))
+        if e["type"] == "search":
+            pending = list(e["data"].get("engines") or []) == [first_engine]
+        elif e["type"] == "check" and pending:
+            out.append(str(e["data"].get("verdict")))
             pending = False
     return out
 
 
-def log_metrics(events, summary: dict | None) -> dict:
-    """Costs, calls and latency of one finished run, judge cost excluded."""
-    s = dict(summary or {})
-    judge = sum(_f(d.get("cost_usd")) for t, d in map(_ev, events) if t == "llm" and d.get("role") == "judge")
-    if not s:  # no run_end totals: rebuild them from events
-        for t, d in map(_ev, events):
-            if t == "search":
-                s["engine_calls"] = s.get("engine_calls", 0) + len(d.get("engines") or [])
-                s["cost_usd_search"] = _f(s.get("cost_usd_search")) + _f(d.get("cost_usd"))
-            elif t == "fetch":
-                s["cost_usd_search"] = _f(s.get("cost_usd_search")) + _f(d.get("cost_usd"))
-            elif t == "llm":
-                s["cost_usd_llm"] = _f(s.get("cost_usd_llm")) + _f(d.get("cost_usd"))
-        s["cost_usd_total"] = _f(s.get("cost_usd_search")) + _f(s.get("cost_usd_llm"))
+def log_metrics(events: list[dict], summary: dict) -> dict:
+    """Costs, calls and latency of one finished run (summary = so.eventlog.summarize), judge excluded."""
+    judge = _llm_cost(events, "judge")
     sc_cost, sc_calls = search_call_cost(events)
-    answer = next((d for t, d in map(_ev, events) if t == "answer"), None)
     return {
-        "engine_calls": _f(s.get("engine_calls")),
-        "cost_search": _f(s.get("cost_usd_search")),
-        "cost_total": _f(s.get("cost_usd_total")) - judge,
+        "engine_calls": float(summary["engine_calls"]),
+        "cost_search": float(summary["cost_usd_search"]),
+        "cost_checker": _llm_cost(events, "checker"),
+        "cost_total": float(summary["cost_usd_total"]) - judge,
         "judge_cost": judge,
-        "latency_ms": _f(s.get("latency_ms")),
+        "latency_ms": float(summary["latency_ms"]),
         "search_call_cost": sc_cost,
-        "search_calls": sc_calls or int(_f(s.get("searches"))),
-        "answer": answer,
+        "search_calls": sc_calls,
+        "answer": next((e["data"] for e in events if e["type"] == "answer"), None),
     }
 
 
 # ---------------------------------------------------------------- aggregates
 
-def _rate(k, n):
+def _rate(k, n) -> float:
     return round(k / n, 4) if n else 0.0
 
 
+def _per(total, n, digits=6):
+    return round(total / n, digits) if n else None
+
+
 def setup_block(test_recs: list[dict], trap_recs: list[dict]) -> dict:
-    """One section 6.12 setup block. Each record: log_metrics(...) plus 'grade'."""
+    """One section 6.12 setup block (plus extra keys). Each record: log_metrics(...) plus 'grade'."""
     n = len(test_recs)
     g = Counter(r["grade"] for r in test_recs)
-    cost_total = sum(r["cost_total"] for r in test_recs)
-    sc_cost = sum(r["search_call_cost"] for r in test_recs)
-    sc_calls = sum(r["search_calls"] for r in test_recs)
-    lat = [r["latency_ms"] for r in test_recs]
     tg = Counter(r["grade"] for r in trap_recs)
+    tot = {k: sum(r[k] for r in test_recs) for k in
+           ("engine_calls", "cost_search", "cost_checker", "cost_total", "search_call_cost", "search_calls")}
+    lat = [r["latency_ms"] for r in test_recs]
     return {
         "n": n,
         "correct": g["correct"], "wrong": g["wrong"], "declined": g["declined"],
         "accuracy": _rate(g["correct"], n), "wrong_rate": _rate(g["wrong"], n),
-        "engine_calls": int(sum(r["engine_calls"] for r in test_recs)),
-        "engine_calls_per_q": round(sum(r["engine_calls"] for r in test_recs) / n, 3) if n else 0.0,
-        "cost_search": round(sum(r["cost_search"] for r in test_recs), 6),
-        "cost_total": round(cost_total, 6),
-        "cost_per_q_search": round(sum(r["cost_search"] for r in test_recs) / n, 6) if n else 0.0,
-        "cost_per_q_total": round(cost_total / n, 6) if n else 0.0,
-        "cost_per_correct": round(cost_total / g["correct"], 6) if g["correct"] else None,
-        "search_calls": sc_calls,
-        "search_call_cost": round(sc_cost, 6),
-        "cost_per_search_call": round(sc_cost / sc_calls, 6) if sc_calls else None,
+        "engine_calls": int(tot["engine_calls"]),
+        "engine_calls_per_q": _per(tot["engine_calls"], n, 3) or 0.0,
+        "searches_per_q": _per(tot["search_calls"], n, 3) or 0.0,
+        "cost_search": round(tot["cost_search"], 6),
+        "cost_checker": round(tot["cost_checker"], 6),
+        "cost_total": round(tot["cost_total"], 6),
+        "cost_per_q_search": _per(tot["cost_search"], n) or 0.0,
+        "cost_per_q_checker": _per(tot["cost_checker"], n) or 0.0,
+        "cost_per_q_total": _per(tot["cost_total"], n) or 0.0,
+        "cost_per_correct": _per(tot["cost_total"], g["correct"]),
+        "search_calls": tot["search_calls"],
+        "search_call_cost": round(tot["search_call_cost"], 6),
+        "cost_per_search_call": _per(tot["search_call_cost"], tot["search_calls"]),
         "latency_p50_ms": round(float(np.percentile(lat, 50))) if lat else 0,
         "latency_p95_ms": round(float(np.percentile(lat, 95))) if lat else 0,
         "trap_n": len(trap_recs),
@@ -167,7 +155,7 @@ def setup_block(test_recs: list[dict], trap_recs: list[dict]) -> dict:
 
 
 def checker_metrics(joined: list[tuple[str, str]], matrix: dict[tuple[str, str], bool],
-                    engines: list[str], first_engine: str = FIRST_ENGINE) -> dict:
+                    engines: list[str] = ENGINES, first_engine: str = FIRST_ENGINE) -> dict:
     """joined: (question_id, verdict) for first-engine checks."""
     c = Counter()
     for qid, verdict in joined:
@@ -200,7 +188,7 @@ def checker_metrics(joined: list[tuple[str, str]], matrix: dict[tuple[str, str],
 
 def paired_flips(ours: dict[str, str], base: dict[str, str]) -> dict:
     """Grade transitions base -> ours on questions both finished. Keys like 'wrong->correct'."""
-    both = sorted(set(ours) & set(base))
+    both = set(ours) & set(base)
     t = Counter(f"{base[q]}->{ours[q]}" for q in both)
     return {"n_both": len(both), **{f"{a}->{b}": t[f"{a}->{b}"] for a in GRADES for b in GRADES if a != b},
             "unchanged": sum(t[f"{g}->{g}"] for g in GRADES)}
@@ -208,26 +196,16 @@ def paired_flips(ours: dict[str, str], base: dict[str, str]) -> dict:
 
 # ---------------------------------------------------------------- io
 
-def _read_jsonl(path: Path) -> list[dict]:
+def _read_matrix(path: Path) -> dict[tuple[str, str], bool]:
     if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text().splitlines():
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
-
-
-def _engines() -> list[str]:
-    from evals.deps import ENGINES
-    return list(ENGINES)
+        return {}
+    rows = (json.loads(line) for line in path.read_text().splitlines() if line.strip())
+    return {(r["question_id"], r["engine"]): bool(r["hit"]) for r in rows}
 
 
 async def _grade_all(items, questions) -> dict[tuple[str, str], str]:
     from evals.judge import grade_answer
-    sem = asyncio.Semaphore(int(os.getenv("LLM_MAX_CONCURRENCY", 8)))
+    sem = asyncio.Semaphore(LLM_MAX_CONCURRENCY)
 
     async def one(key, answer):
         async with sem:
@@ -237,65 +215,56 @@ async def _grade_all(items, questions) -> dict[tuple[str, str], str]:
 
 
 async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
-    eventlog = load_eventlog()
+    from evals.judge import SPEND
     questions = {q.id: q for q in load_questions(split="test") + [t for t in load_traps() if t.split == "test"]}
     manifest_path = Path(out_dir) / MANIFEST.name
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    if manifest.get("test_ids") or manifest.get("trap_ids"):
-        scope = set(manifest.get("test_ids", [])) | set(manifest.get("trap_ids", []))
-    else:
-        scope = set(questions)
-    runs = {k: p for k, p in finished_runs(log_dir).items() if k[0] in scope and k[0] in questions}
+    scope = set(manifest.get("test_ids", [])) | set(manifest.get("trap_ids", [])) or set(questions)
+    scope &= set(questions)
+    runs = {k: p for k, p in finished_runs(log_dir).items() if k[0] in scope}
 
     recs: dict[tuple[str, str], dict] = {}
     checks: list[tuple[str, str]] = []
-    missing_answer = []
     for (qid, setup), path in sorted(runs.items()):
         events = eventlog.read_log(path)
-        m = log_metrics(events, eventlog.summarize(path))
-        if m["answer"] is None:
-            missing_answer.append(f"{setup}/{qid}")
-        recs[(qid, setup)] = m
-        if setup == "second_opinion" and not questions[qid].is_trap:
+        recs[(qid, setup)] = log_metrics(events, eventlog.summarize(path))
+        if setup == OURS and not questions[qid].is_trap:
             checks += [(qid, v) for v in first_engine_checks(events)]
+    missing_answer = sorted(f"{s}/{q}" for (q, s), r in recs.items() if r["answer"] is None)
 
     grades = await _grade_all([(k, r["answer"]) for k, r in recs.items()], questions)
     for k, g in grades.items():
         recs[k]["grade"] = g
 
-    from evals.judge import SPEND
-    n_test_scope = len([q for q in scope if q in questions and not questions[q].is_trap])
-    n_trap_scope = len([q for q in scope if q in questions and questions[q].is_trap])
     setups, by_setup = {}, {}
     for s in SETUPS:
-        test_recs = [r for (q, ss), r in recs.items() if ss == s and not questions[q].is_trap]
-        trap_recs = [r for (q, ss), r in recs.items() if ss == s and questions[q].is_trap]
-        setups[s] = setup_block(test_recs, trap_recs)
-        by_setup[s] = {q: r["grade"] for (q, ss), r in recs.items() if ss == s and not questions[q].is_trap}
+        mine = {q: r for (q, ss), r in recs.items() if ss == s}
+        setups[s] = setup_block([r for q, r in mine.items() if not questions[q].is_trap],
+                                [r for q, r in mine.items() if questions[q].is_trap])
+        by_setup[s] = {q: r["grade"] for q, r in mine.items() if not questions[q].is_trap}
 
     matrix_path = Path(out_dir) / MATRIX.name
-    matrix = {(r["question_id"], r["engine"]): bool(r.get("hit")) for r in _read_jsonl(matrix_path)}
-    checker = checker_metrics(checks, matrix, _engines())
+    matrix = _read_matrix(matrix_path)
+    checker = checker_metrics(checks, matrix)
     if not matrix:
         checker["note"] = f"no matrix at {matrix_path}; run python -m evals.matrix first"
 
     agree_path = Path(out_dir) / AGREEMENT.name
     if agree_path.exists():
         a = json.loads(agree_path.read_text())
-        judge_agreement = {"n_checked": int(a.get("n_checked", 0)), "agree": int(a.get("agree", 0))}
+        judge_agreement = {"n_checked": int(a["n_checked"]), "agree": int(a["agree"])}
     else:
         judge_agreement = {"n_checked": 0, "agree": 0,
                            "note": "no out/judge_agreement.json yet; run python -m evals.handcheck"}
 
     results = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "n_test": n_test_scope,
-        "n_traps": n_trap_scope,
+        "n_test": sum(not questions[q].is_trap for q in scope),
+        "n_traps": sum(questions[q].is_trap for q in scope),
         "setups": setups,
         "checker": checker,
         "judge_agreement": judge_agreement,
-        "paired": {f"second_opinion_vs_{b}": paired_flips(by_setup["second_opinion"], by_setup[b])
-                   for b in BASELINES},
+        "paired": {f"{OURS}_vs_{b}": paired_flips(by_setup[OURS], by_setup[b]) for b in BASELINES},
         "judge_cost_usd": {
             "grading_this_run": round(SPEND["judge_usd"], 6),
             "grading_calls": SPEND["judge_calls"], "grading_cached": SPEND["judge_cached"],
@@ -305,22 +274,17 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
     }
     if manifest.get("note"):
         results["note"] = manifest["note"]
-    try:  # the section 6.12 shape, as frozen in so.contracts (extra keys are allowed)
-        from so.contracts import Results
-    except ImportError:
-        pass
-    else:
-        Results.model_validate(results)
     if missing_answer:
         results["warnings"] = [f"{len(missing_answer)} finished logs had no answer event and were graded "
                                f"declined: {', '.join(missing_answer[:10])}"]
+    Results.model_validate(results)  # the section 6.12 shape as frozen in so.contracts
     return results
 
 
 # ---------------------------------------------------------------- markdown
 
 def pct(k, n) -> str:
-    return f"{100 * k / n:.1f}% ({k}/{n})" if n else f"n/a (0/0)"
+    return f"{100 * k / n:.1f}% ({k}/{n})" if n else "n/a (0/0)"
 
 
 def usd(x) -> str:
@@ -345,14 +309,18 @@ def render_md(r: dict) -> str:
     def row(label, fn):
         return f"| {label} | " + " | ".join(fn(b[s]) for s in S) + " |"
 
-    L += ["## Test questions (traps excluded)", "",
-          "| | " + " | ".join(S) + " |", "|---|" + "---|" * len(S),
+    def table_head():
+        return ["| | " + " | ".join(S) + " |", "|---|" + "---|" * len(S)]
+
+    L += ["## Test questions (traps excluded)", "", *table_head(),
           row("Questions scored", lambda x: str(x["n"])),
           row("Correct (accuracy)", lambda x: pct(x["correct"], x["n"])),
           row("Wrong (wrong rate)", lambda x: pct(x["wrong"], x["n"])),
           row("Declined (NOT FOUND)", lambda x: pct(x["declined"], x["n"])),
+          row("Search tool calls per question", lambda x: f"{x['searches_per_q']:.2f} ({x['search_calls']}/{x['n']})"),
           row("Engine calls per question", lambda x: f"{x['engine_calls_per_q']:.2f} ({x['engine_calls']}/{x['n']})"),
-          row("Search cost per question", lambda x: usd(x["cost_per_q_search"])),
+          row("Search cost per question", lambda x: f"{usd(x['cost_per_q_search'])} (${x['cost_search']:.3f}/{x['n']})"),
+          row("Checker cost per question", lambda x: f"{usd(x['cost_per_q_checker'])} (${x['cost_checker']:.3f}/{x['n']})"),
           row("Total cost per question", lambda x: f"{usd(x['cost_per_q_total'])} (${x['cost_total']:.3f}/{x['n']})"),
           row("Cost per correct answer", lambda x: f"{usd(x['cost_per_correct'])} (${x['cost_total']:.3f}/{x['correct']})"),
           row("Cost per search call", lambda x: f"{usd(x['cost_per_search_call'])} "
@@ -362,45 +330,42 @@ def render_md(r: dict) -> str:
           "",
           "Cost per search call = (engine calls + page reads inside the search tool + checker model) "
           "divided by search tool calls. Total cost includes every agent and checker model call.", "",
-          "## Traps (false premise, reported separately)", "",
-          "| | " + " | ".join(S) + " |", "|---|" + "---|" * len(S),
+          "## Traps (false premise, reported separately)", "", *table_head(),
           row("Traps scored", lambda x: str(x["trap_n"])),
           row("Confidently wrong", lambda x: pct(x["trap_confident_wrong"], x["trap_n"])),
           row("Flagged the false premise", lambda x: pct(x["trap_correct"], x["trap_n"])),
           row("Declined (NOT FOUND)", lambda x: pct(x["trap_declined"], x["trap_n"])),
           ""]
 
-    c = r["checker"]
-    cc = c["counts"]
-    L += ["## Checker (second_opinion, first Tavily search of each call vs the hit matrix)", "",
+    c, cc = r["checker"], r["checker"]["counts"]
+    L += [f"## Checker ({OURS}, first {FIRST_ENGINE} search of each call vs the hit matrix)", "",
           "| Metric | Value |", "|---|---|",
           f"| Searches joined | {c['n_searches']} (unjoined: {cc['unjoined']}) |",
           f"| Miss recall (true misses labelled not-HIT) | {pct(cc['misses_flagged'], cc['true_misses'])} |",
           f"| False alarm rate (true hits labelled not-HIT) | {pct(cc['hits_flagged'], cc['true_hits'])} |",
           f"| Rescuable vs DEAD accuracy (on true misses) | {pct(cc['dead_correct'], cc['dead_scored'])} |",
           "",
-          "Truth label: the matrix row for (question, tavily), which used the question text as the query. "
-          "The agent's query may differ, so this is an approximation. Traps are excluded.", ""]
+          f"Truth label: the matrix row for (question, {FIRST_ENGINE}), which used the question text as the "
+          "query. The agent's query may differ, so this is an approximation. Traps are excluded.", ""]
     if c.get("note"):
         L += [f"Note: {c['note']}.", ""]
 
     L += ["## Paired comparison (test questions both setups finished)", "",
-          "| second_opinion vs | Both finished | Wrong to correct | Correct to wrong | Wrong to declined "
+          f"| {OURS} vs | Both finished | Wrong to correct | Correct to wrong | Wrong to declined "
           "| Declined to correct | Correct to declined | Declined to wrong | Unchanged |",
           "|---|---|---|---|---|---|---|---|---|"]
     for base in BASELINES:
-        p = r["paired"][f"second_opinion_vs_{base}"]
+        p = r["paired"][f"{OURS}_vs_{base}"]
         L.append(f"| {base} | {p['n_both']} | {p['wrong->correct']} | {p['correct->wrong']} | "
                  f"{p['wrong->declined']} | {p['declined->correct']} | {p['correct->declined']} | "
                  f"{p['declined->wrong']} | {p['unchanged']} |")
-    L += ["", "Read each row as: the baseline's grade, then second_opinion's grade on the same question.", ""]
+    L += ["", f"Read each row as: the baseline's grade, then {OURS}'s grade on the same question.", ""]
 
-    ja = r["judge_agreement"]
+    ja, jc = r["judge_agreement"], r["judge_cost_usd"]
     L += ["## Judge", "",
           f"- Hand check agreement: {pct(ja['agree'], ja['n_checked'])}" + (f" ({ja['note']})" if ja.get("note") else ""),
-          f"- Judge spend for grading this run: ${r['judge_cost_usd']['grading_this_run']:.4f} "
-          f"({r['judge_cost_usd']['grading_calls']} calls, {r['judge_cost_usd']['grading_cached']} cached). "
-          "Not included in any setup's cost.", ""]
+          f"- Judge spend for grading this run: ${jc['grading_this_run']:.4f} "
+          f"({jc['grading_calls']} calls, {jc['grading_cached']} cached). Not included in any setup's cost.", ""]
     return "\n".join(L)
 
 

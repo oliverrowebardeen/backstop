@@ -11,7 +11,8 @@ import pytest
 from data.load import load_questions
 from evals.run_eval import finished_runs, run
 from evals.score import checker_metrics, first_engine_checks, log_metrics, paired_flips, setup_block
-from tests.s4 import fake_eventlog
+from so import eventlog
+from so.config import FIRST_ENGINE
 
 
 def ev(type_, qid="sqa-0001", setup="single", **data):
@@ -36,12 +37,15 @@ def test_finished_runs_needs_run_end(tmp_path):
     write_log(tmp_path / "single-sqa-0001-aaaaaaaa.jsonl", [ev("run_start", question="q"), ev("run_end", **END)])
     # half-finished: no run_end, and a torn last line
     write_log(tmp_path / "single-sqa-0002-bbbbbbbb.jsonl", [ev("run_start", qid="sqa-0002", question="q"),
-                                                            ev("search", qid="sqa-0002", engines=["tavily"])],
+                                                            ev("search", qid="sqa-0002", engines=[FIRST_ENGINE])],
               torn_tail=True)
     # hyphenated ids and an underscore setup parse from the events, not the file name
     write_log(tmp_path / "second_opinion-trap-001-cccccccc.jsonl",
               [ev("run_start", qid="trap-001", setup="second_opinion", question="q"),
                ev("run_end", qid="trap-001", setup="second_opinion", **END)])
+    # corrupt line in the middle: unreadable, so not finished (and no crash)
+    (tmp_path / "single-sqa-0003-dddddddd.jsonl").write_text(
+        json.dumps(ev("run_start", qid="sqa-0003")) + "\n{not json\n" + json.dumps(ev("run_end", qid="sqa-0003", **END)) + "\n")
     done = finished_runs(tmp_path)
     assert set(done) == {("sqa-0001", "single"), ("trap-001", "second_opinion")}
 
@@ -81,7 +85,7 @@ SO_EVENTS = [
     ev("run_start", question="q"),
     ev("llm", role="agent", cost_usd=0.010),
     # search call 1: tavily, check, SHALLOW rescue with a Tavily Extract read, re-check
-    ev("search", engines=["tavily"], cost_usd=0.005),
+    ev("search", engines=[FIRST_ENGINE], cost_usd=0.005),
     ev("llm", role="checker", cost_usd=0.001),
     ev("check", verdict="SHALLOW"),
     ev("rescue", action="FETCH_PAGE"),
@@ -93,7 +97,7 @@ SO_EVENTS = [
     ev("fetch", via="telem", cost_usd=0.003),
     ev("llm", role="agent", cost_usd=0.010),
     # search call 2: tavily miss, retry on exa, hit
-    ev("search", engines=["tavily"], cost_usd=0.005),
+    ev("search", engines=[FIRST_ENGINE], cost_usd=0.005),
     ev("llm", role="checker", cost_usd=0.001),
     ev("check", verdict="DEAD"),
     ev("rescue", action="RETRY_ENGINE", engine="exa"),
@@ -115,15 +119,18 @@ def test_cost_per_search_call_counts_search_fetch_checker_only():
     assert m["search_calls"] == 2
     assert m["cost_total"] == pytest.approx(0.044)  # judge 0.050 removed
     assert m["judge_cost"] == pytest.approx(0.050)
+    assert m["cost_checker"] == pytest.approx(0.004)
 
-    single = [ev("search", engines=["tavily"], cost_usd=0.005), ev("search_done", status="UNCHECKED"),
-              ev("search", engines=["tavily"], cost_usd=0.005), ev("search_done", status="UNCHECKED")]
+    single = [ev("search", engines=[FIRST_ENGINE], cost_usd=0.005), ev("search_done", status="UNCHECKED"),
+              ev("search", engines=[FIRST_ENGINE], cost_usd=0.005), ev("search_done", status="UNCHECKED")]
     s = log_metrics(single, dict(END, engine_calls=2, searches=2, cost_usd_search=0.01))
     block = setup_block([dict(m, grade="correct"), dict(s, grade="wrong")], [])
     assert block["search_calls"] == 4
     assert block["cost_per_search_call"] == pytest.approx((0.021 + 0.010) / 4)
     assert block["cost_per_correct"] == pytest.approx((0.044 + 0.015) / 1)
     assert block["wrong_rate"] == 0.5 and block["accuracy"] == 0.5
+    assert block["cost_per_q_checker"] == pytest.approx(0.004 / 2)
+    assert block["searches_per_q"] == 2.0
 
 
 def test_fake_agent_log_totals_are_consistent(tmp_path):
@@ -132,19 +139,13 @@ def test_fake_agent_log_totals_are_consistent(tmp_path):
     for setup in ("single", "telem_default", "second_opinion"):
         asyncio.run(run_question(q, setup, log_dir=tmp_path))
     for path in tmp_path.glob("*.jsonl"):
-        events = fake_eventlog.read_log(path)
-        end = fake_eventlog.summarize(path)
+        events = eventlog.read_log(path)  # validates every event against so.contracts.Event
+        end = eventlog.summarize(path)
         llm = sum(e["data"]["cost_usd"] for e in events if e["type"] == "llm")
         search = sum(e["data"]["cost_usd"] for e in events if e["type"] in ("search", "fetch"))
         assert end["cost_usd_total"] == pytest.approx(llm + search, abs=1e-5)
         assert end["engine_calls"] == sum(len(e["data"]["engines"]) for e in events if e["type"] == "search")
         assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
-        try:
-            from so.contracts import Event
-        except ImportError:
-            continue
-        for e in events:
-            Event.model_validate(e)
 
 
 # ---------------------------------------------------------------- paired flips
@@ -166,11 +167,11 @@ def test_paired_flips():
 
 def test_first_engine_checks_and_metrics():
     assert first_engine_checks(SO_EVENTS) == ["SHALLOW", "DEAD"]  # the exa re-check is not a first check
-    matrix = {("q1", "tavily"): False, ("q1", "exa"): True,     # rescuable miss
-              ("q2", "tavily"): False, ("q2", "exa"): False,    # dead miss
-              ("q3", "tavily"): True, ("q4", "tavily"): True}
+    matrix = {("q1", FIRST_ENGINE): False, ("q1", "exa"): True,     # rescuable miss
+              ("q2", FIRST_ENGINE): False, ("q2", "exa"): False,    # dead miss
+              ("q3", FIRST_ENGINE): True, ("q4", FIRST_ENGINE): True}
     joined = [("q1", "WRONG_ENTITY"), ("q2", "DEAD"), ("q3", "HIT"), ("q4", "SHALLOW"), ("q9", "HIT")]
-    c = checker_metrics(joined, matrix, ["tavily", "exa"])
+    c = checker_metrics(joined, matrix, [FIRST_ENGINE, "exa"])
     assert c["n_searches"] == 4 and c["counts"]["unjoined"] == 1
     assert c["miss_recall"] == 1.0
     assert c["false_alarm_rate"] == 0.5
