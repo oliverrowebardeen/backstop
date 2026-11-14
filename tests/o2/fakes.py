@@ -50,8 +50,8 @@ class Fakes:
         )
         return {engine: run}
 
-    async def extract(self, url: str) -> PageText:
-        return await self._fetch(url, "tavily")
+    async def extract(self, url: str, *, goal: str | None = None) -> PageText:
+        return await self._fetch(url, "tavily", goal=goal)
 
     async def fetch_page(self, url: str, **kwargs: Any) -> PageText:
         return await self._fetch(url, "telem", **kwargs)

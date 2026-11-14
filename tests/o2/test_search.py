@@ -99,7 +99,9 @@ async def test_shallow_reads_tavily_and_returns_page_evidence(ctx, monkeypatch):
     fake.install(monkeypatch)
     outcome = await search("query", "goal", ctx)
     assert outcome.status == "HIT" and outcome.calls == 1 and outcome.fetches == 1
-    assert fake.fetches == [{"url": url, "via": "tavily"}]
+    assert fake.fetches == [{"url": url, "via": "tavily", "goal": "goal"}]
+    fetch_event = next(item for item in outcome.trace if item["type"] == "fetch")
+    assert fetch_event["data"]["goal"] == "goal"
     assert outcome.results[0].snippet == "The valuation was $50 billion."
     assert fake.checks[1]["page_text"] == outcome.results[0].snippet
     assert outcome.cost_usd == pytest.approx(0.009)
@@ -121,6 +123,7 @@ async def test_shallow_falls_back_to_telem_with_session_and_goal(failure, ctx, m
     assert outcome.status == "HIT" and outcome.fetches == 2
     assert fake.fetches[1] == {"url": url, "via": "telem", "goal": "goal", "session": "session-unit"}
     assert [item["data"]["via"] for item in outcome.trace if item["type"] == "fetch"] == ["tavily", "telem"]
+    assert all(item["data"]["goal"] == "goal" for item in outcome.trace if item["type"] == "fetch")
     assert sum(item["type"] == "rescue" for item in outcome.trace) == 1
 
 

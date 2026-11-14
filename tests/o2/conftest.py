@@ -18,4 +18,4 @@ def policy_settings(monkeypatch, tmp_path):
         "fallback_order": ["exa", "perplexity", "brave", "parallel", "ceramic"],
     }
     for name, value in settings.items():
-        monkeypatch.setattr(config, name, value, raising=False)
+        monkeypatch.setattr(config, name, value)

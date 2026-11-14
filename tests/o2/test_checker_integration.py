@@ -1,6 +1,7 @@
 """Verify checker usage and page evidence with the real checker adapter."""
 
 from datetime import date
+from inspect import signature
 
 import pytest
 
@@ -31,8 +32,9 @@ async def test_real_checker_usage_is_emitted_once_and_page_url_is_retained(monke
             engine="tavily", status="ok", results=[source()], cost_usd=0.005, latency_ms=100,
         )}
 
-    async def extract(page_url):
+    async def extract(page_url, *, goal=None):
         assert page_url == url
+        assert goal == "find the valuation figure"
         return PageText(url=url, ok=True, text="The valuation was $50 billion.", cost_usd=0.002, latency_ms=50)
 
     monkeypatch.setattr(llm, "complete", complete)
@@ -59,3 +61,8 @@ async def test_real_checker_usage_is_emitted_once_and_page_url_is_retained(monke
     totals = summarize(log.path)
     assert totals["engine_calls"] == 1 and totals["fetches"] == 1
     assert totals["cost_usd_total"] == pytest.approx(outcome.cost_usd)
+
+
+def test_page_reader_contracts_accept_goal_metadata():
+    signature(tavily_client.tavily_extract).bind("https://example.com", goal="find evidence")
+    signature(telem_client.fetch_page).bind("https://example.com", goal="find evidence", session="unit-session")

@@ -77,7 +77,7 @@ async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace) -> PageTex
         error: str | None = None
         try:
             if via == "tavily":
-                page = await tavily_extract(url)
+                page = await tavily_extract(url, goal=goal)
             else:
                 page = await fetch_page(url, goal=goal, session=ctx.session)
         except BudgetExceeded:
