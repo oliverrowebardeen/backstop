@@ -63,13 +63,13 @@ test('no em dashes in the site files', () => {
   }
 });
 
-test('Check a memo and Miss autopsy are gone from the page, with their scripts and styles', () => {
+test('Check a memo, Miss autopsy and fact-sheet Monitors are gone from the page, with their scripts and styles', () => {
   const names = readdirSync(new URL('../../ui/', import.meta.url));
   for (const name of ['memo.js', 'memo-view.js', 'memo.css']) assert.ok(!names.includes(name), name);
   assert.ok(!readdirSync(dir).includes('memos.json'));
   for (const name of names.filter(name => /\.(html|js|css)$/.test(name))) {
     const text = readFileSync(new URL(`../../ui/${name}`, import.meta.url), 'utf8');
-    assert.ok(!/memo|autopsy/i.test(text), name);
+    assert.ok(!/memo|autopsy|monitor|fact sheet/i.test(text), name);
   }
 });
 

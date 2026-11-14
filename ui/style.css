@@ -193,7 +193,7 @@ section { position: relative; padding-block: clamp(80px, 9vw, 150px); }
 .conn-hit { stroke: var(--accent); stroke-width: 1.5; }
 .conn-arrow { fill: var(--connector); }
 .conn-arrow-hit { fill: var(--accent); }
-.strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-top: 72px; }
+.strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 72px; }
 .strip-card { background: var(--white); border: 1px solid var(--card-line); border-radius: var(--radius); padding: 22px 22px 24px; }
 .strip-card .label { color: var(--ink); }
 .strip-card p:last-child { margin-top: 12px; color: var(--muted); font-size: 15px; }
@@ -366,7 +366,8 @@ td.is-pending .cell-main { color: var(--faint); font-weight: 550; font-size: 14p
   .flow { grid-template-columns: 1fr; padding-top: 0; padding-bottom: 0; gap: 22px; margin-top: 32px; }
   .flow-lines { display: none; }
   .flow-col { padding-left: 22px; border-left: 1px dashed var(--rule); }
-  .strip, .headline-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .headline-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .strip { grid-template-columns: 1fr; }
   .results-grid, .code-grid, .findings, .columns { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
