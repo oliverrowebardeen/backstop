@@ -247,7 +247,6 @@ async def test_checker_events_are_included_once(question, wrappers, tmp_path, mo
 @pytest.mark.parametrize("text,sources", [
     ("Ada is CEO.", {URL}),
     (json.dumps({"final": "Ada", "citations": [URL], "status": "ANSWERED"}), set()),
-    (json.dumps({"final": f"Ada. {URL} https://invented.example", "citations": [URL], "status": "ANSWERED"}), {URL}),
     (json.dumps({"final": "Ada", "citations": [URL], "status": "NOT_FOUND"}), {URL}),
     (json.dumps({"final": None, "citations": [URL]}), {URL}),
     (json.dumps({"final": "Ada", "citations": [], "status": "ANSWERED"}), {URL}),

@@ -13,8 +13,8 @@
 - Run: python -m evals.run_eval --limit 20 && python -m evals.score (full: drop --limit; at 2:30 if short on time: --max-test 120). Tests (fakes only, no keys): python -m pytest tests/s4 tests/s2.
 - Not done: real run pending so.agent.run_question (evals.run_eval.AGENT, default so.agent). After the real run, re-run python -m analysis.frontier so the measured Second Opinion point replaces the simulated one.
 
-- O3 built: baseline searches and agent page reads carry Telem ledger labels with the configured provider and one session per question. Query reuse requires the same goal; disabled, unknown or mismatched setups are rejected before paid work. O5's reasoning replay and idle-turn handling are preserved.
-- O3 run: `BACKSTOP_LIVE_TESTS=0 .venv/bin/pytest -q` passes 585 tests; `node --test tests/o4/test_ui.mjs tests/site/test_proof.mjs` passes 18 tests. Ledger coverage checks all three setups, search-first and page-first sessions, and session isolation between questions.
+- O3 built: final answers filter unretrieved citations and record citations_dropped on the answer event. Answers without valid citations receive one costed repair with the valid URLs, then return NOT_FOUND if still unsupported. Malformed-output validation remains strict; no citations are supplied automatically.
+- O3 run: `SO_ENV_FILE=/dev/null BACKSTOP_LIVE_TESTS=0 .venv/bin/python -m pytest -q` passes 827 tests; `node --test tests/o4/*.mjs tests/s7/*.mjs tests/s8/*.mjs` passes 64 tests. Regressions cover mixed citations, repair success and failure, repair costs, fetched sources, and malformed output.
 - O3 not done: none.
 
 - O0 built: packaged runtime resources, bounded Tavily SDK retries, expiring Telem failures, torn-log rejection, and ledger labels on all Telem wrappers. Search forwards context and metadata; fetch sends context inside metadata, matching the SDK wire format. Labels stay out of cache keys; HTTP 400/422 retries once without them.

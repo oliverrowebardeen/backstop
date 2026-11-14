@@ -89,7 +89,12 @@ def _trailing_json(text: str) -> Any:
         raise first_error
 
 
-def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
+class _NoValidCitations(ValueError):
+    """A well-formed answer has no citations backed by retrieved evidence."""
+
+
+def _answer(text: str, sources: set[str], searches: int, *,
+            dropped_citations: list[str] | None = None) -> AgentAnswer:
     """Validate final model output without converting format errors into declines."""
     final = text.strip()
     if final == "NOT FOUND":
@@ -115,15 +120,19 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
         if final != "NOT FOUND" or cited:
             raise ValueError("Invalid agent answer: NOT_FOUND requires final NOT FOUND and no citations")
         return AgentAnswer(final=final, status=status, searches=searches)
+    if final.upper().rstrip(".! ") in {"NOT FOUND", "NOT_FOUND"}:
+        raise ValueError("Invalid agent answer: ANSWERED requires citations from retrieved evidence")
     urls = re.findall(r"https?://[^\s<>\[\]\"']+", final)
     sources_by_length = sorted(sources, key=len, reverse=True)
     urls = [next((source for source in sources_by_length
                   if url.startswith(source) and not url[len(source):].strip(".,;:!?)}")),
                  url.rstrip(".,;:!?)}")) for url in urls]
     citations = list(dict.fromkeys([*cited, *urls]))
-    if (final.upper().rstrip(".! ") in {"NOT FOUND", "NOT_FOUND"} or not citations
-            or any(url not in sources for url in citations)):
-        raise ValueError("Invalid agent answer: ANSWERED requires citations from retrieved evidence")
+    if dropped_citations is not None:
+        dropped_citations.extend(url for url in citations if url not in sources)
+    citations = [url for url in citations if url in sources]
+    if not citations:
+        raise _NoValidCitations("Invalid agent answer: ANSWERED requires citations from retrieved evidence")
     return AgentAnswer(final=final, status="ANSWERED", citations=citations, searches=searches)
 
 
@@ -220,6 +229,7 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
         sources: set[str] = set()
         previous_searches: dict[tuple[str, str], SearchOutcome] = {}
         answer: AgentAnswer | None = None
+        dropped_citations: list[str] = []
         idle_turns = 0
         for turn in range(config.AGENT_MAX_TURNS + 1):
             stalled = 0 < config.AGENT_MAX_IDLE_TURNS <= idle_turns
@@ -237,22 +247,31 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                      cached=response.cached)
             if not response.tool_calls:
                 try:
-                    answer = _answer(response.text, sources, counts["searches"])
-                except ValueError as format_error:
-                    # One repair turn: the evidence is already gathered, only the format slipped.
+                    answer = _answer(response.text, sources, counts["searches"],
+                                     dropped_citations=dropped_citations)
+                except ValueError as validation_error:
+                    # Format and citation errors share one repair turn using the existing evidence.
+                    citation_error = isinstance(validation_error, _NoValidCitations)
+                    reason = ("Your reply has no citations from retrieved evidence. " if citation_error else
+                              f"Your reply did not follow the required answer format ({validation_error}). ")
                     previous = _assistant_turn(response)
                     if previous is not None:
                         messages.append(previous)
-                    messages.append({"role": "user", "content": (
-                        f"Your reply did not follow the required answer format ({format_error}). "
+                    messages.append({"role": "user", "content": (reason +
                         "Reply with only the JSON answer object described in your instructions, "
-                        "citing URLs you retrieved, or exactly NOT FOUND.")})
+                        "citing only URLs from the valid retrieved URLs below that support your answer. "
+                        "If none supports your answer, reply exactly NOT FOUND. "
+                        f"Valid retrieved URLs: {json.dumps(sorted(sources))}")})
                     response = await llm.complete("agent", system_prompt, messages, tools=None)
                     log.emit("llm", role="agent", model=response.model or config.AGENT_MODEL,
                              tokens_in=response.tokens_in, tokens_out=response.tokens_out,
                              cost_usd=response.cost_usd, latency_ms=response.latency_ms,
-                             cached=response.cached)
-                    answer = _answer(response.text, sources, counts["searches"])
+                             cached=response.cached, repair="citations" if citation_error else "format")
+                    try:
+                        answer = _answer(response.text, sources, counts["searches"],
+                                         dropped_citations=dropped_citations)
+                    except _NoValidCitations:
+                        answer = AgentAnswer(final="NOT FOUND", status="NOT_FOUND", searches=counts["searches"])
                 break
             if finishing:
                 raise RuntimeError("Agent continued requesting tools after the final turn limit")
@@ -266,7 +285,8 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
             idle_turns = idle_turns + 1 if counts == work_before else 0
         if answer is None:
             raise RuntimeError("Agent exhausted its turn limit without a final answer")
-        log.emit("answer", **answer.model_dump(), telem_session_id=ctx.session)
+        log.emit("answer", **answer.model_dump(), telem_session_id=ctx.session,
+                 citations_dropped=len(dropped_citations))
         return answer
     except BaseException as exc:
         error = type(exc).__name__
