@@ -138,48 +138,88 @@
             <p class="label">How it works</p>
             <h2 id="how-title">Search. Check. Then&nbsp;decide.</h2>
           </div>
-          <p class="section-intro">Telem's default routing picks several engines before any results exist. Backstop puts the decision after the results.</p>
+          <p class="section-intro">Telem's default routing calls several engines before any results exist. Backstop asks one, checks what came back against the goal, and spends another search only on a miss.</p>
         </div>
-        <div class="flow">
-          <svg class="flow-lines" aria-hidden="true"></svg>
-          <div class="flow-col">
-            <p class="col-label">Agent asks</p>
-            <div class="fcard" id="f-ask">
-              <code class="fcode">search(query, goal)</code>
-              <p>The agent says what it needs, not only what to type.</p>
-            </div>
-          </div>
-          <div class="flow-col">
-            <p class="col-label">Telem searches</p>
-            <div class="fcard" id="f-telem">
-              <ul class="chip-row" aria-label="Engines">
-                <li class="engine-tag is-first">Tavily</li><li class="engine-tag">Exa</li><li class="engine-tag">Brave</li><li class="engine-tag">Perplexity</li><li class="engine-tag">Parallel</li><li class="engine-tag">Ceramic</li>
+
+        <div class="lane lane-default" aria-labelledby="lane-default-title">
+          <p class="lane-title" id="lane-default-title">Telem default</p>
+          <p class="lane-caption" id="default-caption">5.71 engines per search on average: 1,600 engine calls over 280 searches in the Telem default agent runs (out/results.json).</p>
+          <ol class="lane-row">
+            <li class="lcard tip" tabindex="0" title="The same agent tool call, with no Backstop in the path." data-tip="The same agent tool call, with no Backstop in the path."><code class="fcode">search(query, goal)</code></li>
+            <li class="lane-arrow" aria-hidden="true"></li>
+            <li class="lcard tip" tabindex="0" title="Telem's auto routing picks the engines before any results exist." data-tip="Telem's auto routing picks the engines before any results exist."><strong>Telem auto routing</strong><span>chooses engines up front</span></li>
+            <li class="lane-fan" aria-hidden="true"><svg viewBox="0 0 64 100" preserveAspectRatio="none"><path d="M0 50 C32 50 32 6 64 6"/><path d="M0 50 C32 50 32 21 64 21"/><path d="M0 50 C32 50 32 36 64 36"/><path d="M0 50 L64 50"/><path d="M0 50 C32 50 32 64 64 64"/><path d="M0 50 C32 50 32 79 64 79"/><path d="M0 50 C32 50 32 94 64 94"/></svg></li>
+            <li class="lcard lcard-engines tip" tabindex="0" title="The set auto routing chose most often: 261 of 330 searches in out/default_matrix.jsonl." data-tip="The set auto routing chose most often: 261 of 330 searches in out/default_matrix.jsonl.">
+              <ul class="chip-row" aria-label="Engines called at once">
+                <li class="engine-tag">Exa</li><li class="engine-tag">Tavily</li><li class="engine-tag">Brave</li><li class="engine-tag">You.com</li><li class="engine-tag">Seltz</li><li class="engine-tag">Ceramic</li><li class="engine-tag">Parallel</li>
               </ul>
-              <p>One API, pinned engines, goals and sessions.</p>
+              <span>all called at once</span>
+            </li>
+            <li class="lane-arrow" aria-hidden="true"></li>
+            <li class="lcard tip" tabindex="0" title="Nothing checks whether the answer came back; the agent gets every result." data-tip="Nothing checks whether the answer came back; the agent gets every result."><strong>Every result, unchecked</strong><span>no result check</span></li>
+          </ol>
+        </div>
+
+        <div class="lane lane-ours" aria-labelledby="lane-ours-title">
+          <p class="lane-title lane-title-ours" id="lane-ours-title">Backstop: ask one, check, rescue only on a miss.</p>
+          <p class="lane-caption" id="ours-caption">1.08 engines per search: 261 engine calls over 242 searches in the Backstop agent runs of the same eval (out/results.json).</p>
+          <div class="flow">
+            <svg class="flow-lines" aria-hidden="true"></svg>
+            <div class="flow-col">
+              <p class="col-label">Agent asks</p>
+              <div class="fcard tip" id="f-ask" tabindex="0" title="The agent states the fact it needs as the goal, not only what to type." data-tip="The agent states the fact it needs as the goal, not only what to type.">
+                <code class="fcode">search(query, goal)</code>
+                <p>The agent says what it needs, not only what to type.</p>
+              </div>
             </div>
-          </div>
-          <div class="flow-col">
-            <p class="col-label">Checker decides</p>
-            <div class="fcard" id="f-check">
-              <ul class="verdict-list">
-                <li><span class="verdict verdict-hit">Hit</span><span>A top result states the answer.</span></li>
-                <li><span class="verdict verdict-stale">Stale</span><span>On topic, but older than the goal needs.</span></li>
-                <li><span class="verdict verdict-wrong-entity">Wrong entity</span><span>A similar name, a different thing.</span></li>
-                <li><span class="verdict verdict-shallow">Shallow</span><span>The right page, a thin snippet.</span></li>
-                <li><span class="verdict verdict-dead">Dead</span><span>Nothing relevant came back.</span></li>
-              </ul>
+            <div class="flow-col">
+              <p class="col-label">One engine first</p>
+              <div class="fcard tip" id="f-first" tabindex="0" title="First engine routed by question type, measured on the learn split (out/first_engine.json); Tavily is the fallback first engine." data-tip="First engine routed by question type, measured on the learn split (out/first_engine.json); Tavily is the fallback first engine.">
+                <p class="route-head"><span class="route-badge">Routed</span>by question type, measured on the learn split</p>
+                <ul class="route-list" aria-label="First engine by question type">
+                  <li><span class="engine-tag">Perplexity</span><span>fact questions</span></li>
+                  <li><span class="engine-tag">Exa</span><span>finance questions</span></li>
+                  <li><span class="engine-tag">Tavily</span><span>fallback first engine, routing off</span></li>
+                </ul>
+                <p>Searched through Telem with the goal and session attached. An engine error moves to the next engine without using a rescue.</p>
+              </div>
             </div>
-          </div>
-          <div class="flow-col">
-            <p class="col-label">Rescue</p>
-            <div class="fcard fcard-sm" id="f-r1"><strong>Retry</strong><span>on the engine the rescue table picks</span></div>
-            <div class="fcard fcard-sm" id="f-r2"><strong>Read the page</strong><span>with Tavily Extract</span></div>
-            <div class="fcard fcard-sm" id="f-r3"><strong>Rewrite</strong><span>the query for the miss it had</span></div>
-          </div>
-          <div class="flow-col">
-            <p class="col-label">Answer</p>
-            <div class="fcard outcome outcome-ok" id="f-ok"><span class="outcome-title">Verified</span><span>Evidence and citations go back to the agent.</span></div>
-            <div class="fcard outcome outcome-nf" id="f-nf"><span class="outcome-title">Not found</span><span>After two failed rescues Backstop declines instead of guessing.</span></div>
+            <div class="flow-col">
+              <p class="col-label">Checker decides</p>
+              <div class="fcard tip" id="f-check" tabindex="0" title="Reads the top 5 results against the goal; the default backend is the Haiku LLM checker." data-tip="Reads the top 5 results against the goal; the default backend is the Haiku LLM checker.">
+                <p class="fcard-lead">Reads the top 5 results against the goal.</p>
+                <ul class="verdict-list">
+                  <li id="v-hit"><span class="verdict verdict-hit">Hit</span><span>A top result states the answer.</span><span class="v-next">Goes straight to Verified.</span></li>
+                  <li id="v-shallow"><span class="verdict verdict-shallow">Shallow</span><span>The right page, a thin snippet.</span><span class="v-next">Goes to Read the best page.</span></li>
+                  <li id="v-stale"><span class="verdict verdict-stale">Stale</span><span>On topic, but older than the goal needs.</span><span class="v-next">Goes to Retry on the next engine.</span></li>
+                  <li id="v-wrong"><span class="verdict verdict-wrong-entity">Wrong entity</span><span>A similar name, a different thing.</span><span class="v-next">Goes to Retry on the next engine.</span></li>
+                  <li id="v-dead"><span class="verdict verdict-dead">Dead</span><span>Nothing relevant came back.</span><span class="v-next">Goes to Retry on the next engine.</span></li>
+                </ul>
+              </div>
+              <p class="guard" id="g-open"><strong>Fails open.</strong> If the checker errors or takes over <span data-limit="checker">4 s</span>, the results go back unchecked.</p>
+            </div>
+            <div class="flow-col flow-col-rescue">
+              <p class="col-label">Rescue on a miss <span class="loop-count" id="loop-count" title="Page reads and engine retries share a limit of 2 rescues per search.">max 2</span></p>
+              <div class="fcard fcard-sm tip" id="f-read" tabindex="0" title="Shallow reads the cited page, then the checker looks again; an unsure Hit (below 0.6 confidence) comes here too." data-tip="Shallow reads the cited page, then the checker looks again; an unsure Hit (below 0.6 confidence) comes here too.">
+                <strong>Read the best page</strong>
+                <span>Tavily Extract with the goal as its query, Telem fetch if that fails, then a re-check.</span>
+                <span class="fnote">Finance questions: any miss takes this path once (5 chunks), with no new search.</span>
+              </div>
+              <div class="fcard fcard-sm tip" id="f-retry" tabindex="0" title="The next untried engine in the measured rescue order, with the checker's rewritten query." data-tip="The next untried engine in the measured rescue order, with the checker's rewritten query.">
+                <strong>Retry on the next engine</strong>
+                <ul class="chip-row chain" id="retry-chain" aria-label="Rescue order">
+                  <li class="engine-tag">Exa</li><li class="chain-then">then</li><li class="engine-tag">Parallel</li>
+                </ul>
+                <span class="chain-note" id="retry-note">Each rescue follows the engine that just missed; shown after a Tavily or Perplexity first search (out/rescue_table.json).</span>
+                <span>With the checker's rewritten query; Stale adds <code>published_after</code>. Never the same engine twice.</span>
+              </div>
+              <p class="guard" id="g-limits"><strong>Limits.</strong> Rescues stop at <span data-limit="cost">$0.03</span> or <span data-limit="time">12 s</span> per search.</p>
+            </div>
+            <div class="flow-col">
+              <p class="col-label">Answer</p>
+              <div class="fcard outcome outcome-ok tip" id="f-ok" tabindex="0" title="A Hit returns the cited result, any page read and one more result, with the evidence and its source link." data-tip="A Hit returns the cited result, any page read and one more result, with the evidence and its source link."><span class="outcome-title">Verified</span><span>Evidence and source links go back to the agent.</span></div>
+              <div class="fcard outcome outcome-nf tip" id="f-nf" tabindex="0" title="Still a miss after 2 rescues, no engine left, or a limit reached: the agent is told not to guess." data-tip="Still a miss after 2 rescues, no engine left, or a limit reached: the agent is told not to guess."><span class="outcome-title">Not found</span><span>After 2 failed rescues the agent declines instead of guessing.</span></div>
+            </div>
           </div>
         </div>
         <p class="answer-key" id="answer-key">The checker never sees the answer key.</p>

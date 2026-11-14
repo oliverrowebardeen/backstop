@@ -36,13 +36,35 @@ Default routing asks several engines per search, chosen before any results exist
 nothing checks whether the answer came back. Backstop puts the decision after the
 results instead.
 
+```mermaid
+flowchart LR
+  subgraph TELEM["Telem default"]
+    direction LR
+    d1["Agent: search(query, goal)"] --> d2["Telem auto routing picks engines before any results exist"]
+    d2 --> d3["Exa, Tavily, Brave, You.com, Seltz, Ceramic, Parallel, all called at once"]
+    d3 --> d4["Every result returned unchecked: 5.71 engines per search"]
+  end
+  subgraph BACKSTOP["Backstop: ask one, check, rescue only on a miss."]
+    direction LR
+    a["Agent: search(query, goal)"] --> f["One engine first, routed by question type, measured on the learn split: Perplexity for fact, Exa for finance, Tavily as the fallback first engine"]
+    f -->|"top 5 results, goal and session attached"| c{"Checker reads the top 5 against the goal"}
+    c -->|"Hit"| ok(["Verified: evidence and source links"])
+    c -->|"Shallow"| p["Read the best page: Tavily Extract, Telem fetch if that fails"]
+    p -->|"re-check"| c
+    c -->|"Stale, Wrong entity, Dead"| r["Retry on the next untried engine: Exa then Parallel, with the rewritten query, published_after for Stale"]
+    r -->|"re-check, max 2 rescues"| c
+    c -->|"still a miss after 2 rescues, or a limit reached"| nf(["Not found: the agent declines instead of guessing"])
+    c -.->|"fails open: checker errors or takes over 4 s"| un(["Unchecked: results returned with the reason"])
+    fin["Finance question: any miss reads the best page once, 5 chunks, no new search"] -.- p
+    lim["Limits: rescues stop at $0.03 or 12 s per search"] -.- r
+  end
 ```
-agent ──search(query, goal)──▶ Telem: one pinned engine ──▶ checker
-                                                             │
-          HIT ◀── return ranked results, tell the agent to stop
-          miss ─▶ rescue: read the page, or retry on the next engine with a rewritten query
-          two failed rescues ─▶ NOT_FOUND: "do not guess"
-```
+
+Each rescue takes the next untried engine in `out/rescue_table.json` after the engine
+that just missed, so after a Tavily or Perplexity miss the order is Exa, then Parallel.
+Page reads and engine retries share the limit of 2 rescues; an engine error moves to the
+next engine without using one. Engines per search: 1,600 engine calls over 280 searches
+for Telem default and 261 over 242 for Backstop in the held-out eval (`out/results.json`).
 
 **Query understanding.** The checker reads the query, the agent's goal, today's date
 and the top 5 results, and says why a search missed: wrong entity, stale, shallow, or

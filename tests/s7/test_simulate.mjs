@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync, readdirSync} from 'node:fs';
 import {parseLog, buildScenario, stateAt, searchCalls, ticks} from '../../ui/simulate.js';
 import {findingsFrom, coverageBySetup, measured} from '../../ui/results.js';
-import {flowLabels} from '../../ui/flow.js';
+import {flowLabels, rescueChain, enginesPerSearch, FALLBACK_ORDER} from '../../ui/flow.js';
 
 const dir = new URL('../../ui/fixtures/', import.meta.url);
 const read = name => readFileSync(new URL(name, dir), 'utf8');
@@ -79,6 +79,23 @@ test('flow labels come from the rescue table, plain labels without it', () => {
   assert.equal(flowLabels(table).miss, 'Tavily missed\n30 of 100');
   assert.equal(flowLabels(table).rescued, 'Exa rescued\n15 of 30');
   assert.equal(flowLabels(null).miss, 'on a\nmiss');
+});
+
+test('rescue chain follows order_after of the engine that just missed, then fallback_order', () => {
+  const table = JSON.parse(readFileSync(new URL('../../out/rescue_table.json', import.meta.url), 'utf8'));
+  assert.deepEqual(rescueChain(table, 'tavily'), ['tavily', 'exa', 'parallel']);
+  assert.deepEqual(rescueChain(table, 'perplexity'), ['perplexity', 'exa', 'parallel']);
+  assert.deepEqual(rescueChain({order_after: {tavily: ['exa'], exa: ['tavily', 'brave']}, fallback_order: ['ceramic']}, 'tavily'), ['tavily', 'exa', 'brave']);
+  assert.deepEqual(rescueChain(null, 'tavily'), ['tavily', ...FALLBACK_ORDER.slice(0, 2)]);
+  assert.deepEqual(flowLabels(table).chains.tavily, ['tavily', 'exa', 'parallel']);
+  assert.equal(flowLabels(null).orderSource, 'fallback order in so/config.py');
+});
+
+test('engines per search divide engine calls by search tool calls', () => {
+  const results = {setups: {telem_default: {engine_calls: 1600, search_calls: 280}, single: {engine_calls: 3}}};
+  assert.equal(enginesPerSearch(results, 'telem_default').perSearch.toFixed(2), '5.71');
+  assert.equal(enginesPerSearch(results, 'single'), null);
+  assert.equal(enginesPerSearch(null, 'telem_default'), null);
 });
 
 test('no em dashes in the site files', () => {
