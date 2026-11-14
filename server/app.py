@@ -9,9 +9,11 @@ import json
 from pathlib import Path
 import re
 from typing import Any, AsyncIterator, Awaitable, Callable
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -47,6 +49,7 @@ class ServerSettings:
     poll_seconds: float
     keepalive_seconds: float
     live_races: bool = False
+    cors_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls) -> ServerSettings:
@@ -54,6 +57,7 @@ class ServerSettings:
         fixture_dir = config.SERVER_FIXTURE_DIR
         return cls(
             live_races=config.SERVER_LIVE_RACES,
+            cors_origins=tuple(config.SERVER_CORS_ORIGINS),
             ui_dir=Path(config.SERVER_UI_DIR), demo_dir=Path(config.SERVER_DEMO_DIR),
             fixture_dir=Path(fixture_dir) if fixture_dir else None,
             log_dir=Path(config.SERVER_LOG_DIR), results_path=Path(config.SERVER_RESULTS_PATH),
@@ -71,6 +75,17 @@ class ServerSettings:
             raise ValueError("Server run capacity must be at least two and question length must be positive")
         if min(self.start_timeout, self.run_timeout, self.poll_seconds, self.keepalive_seconds) <= 0:
             raise ValueError("Server timeouts and polling intervals must be positive")
+        for origin in self.cors_origins:
+            try:
+                parsed = urlsplit(origin)
+                valid = (parsed.scheme in {"http", "https"} and parsed.hostname and "*" not in origin
+                         and parsed.username is None and parsed.password is None
+                         and origin == f"{parsed.scheme}://{parsed.netloc}")
+                parsed.port  # Validate the optional port as well as the origin shape.
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ValueError("SERVER_CORS_ORIGINS must contain exact HTTP(S) origins without paths or wildcards")
 
 
 @dataclass
@@ -154,6 +169,14 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         await manager.close()
 
     app = FastAPI(title="Backstop", lifespan=lifespan)
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware, allow_origins=list(settings.cors_origins),
+            allow_methods=["GET", "POST"],
+            allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+            expose_headers=["Retry-After", "WWW-Authenticate"],
+            allow_credentials=False,
+        )
     app.mount("/ui", StaticFiles(directory=settings.ui_dir), name="ui")
     app.include_router(api_v1.router)  # Hosted API: /v1/search, /v1/usage, /health
 
@@ -339,8 +362,6 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                     raise HTTPException(503, f"The {name} artifact is not ready to display.") from None
         return output
 
-    from server.presentation import install_presentation
-    install_presentation(app, settings, manager, live_key)
     from server.site import install_site
     install_site(app, settings)
     return app

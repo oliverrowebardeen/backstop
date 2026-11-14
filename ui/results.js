@@ -1,5 +1,26 @@
 /** Results section: measured numbers only, with their question counts. Never invents a value. */
-import {proofMetrics, efficientFrontier} from './proof.js';
+/** Derive claims only from complete, comparable held-out setup totals. */
+function proofMetrics(results) {
+  if (!results || !Number.isInteger(results.n_test) || results.n_test <= 0) return null;
+  const n = results.n_test;
+  const {single, telem_default: baseline, second_opinion: ours} = results.setups || {};
+  if (![single, baseline, ours].every(s => s && s.correct + s.wrong + s.declined === n && (s.n ?? n) === n)) return null;
+  const wrong = single.wrong ? 100 * (single.wrong - ours.wrong) / single.wrong : null;
+  const accuracy = 100 * (ours.accuracy - baseline.accuracy);
+  const cost = baseline.cost_per_q_total > 0 ? 100 * (baseline.cost_per_q_total - ours.cost_per_q_total) / baseline.cost_per_q_total : null;
+  return {n, wrong, accuracy, cost, single, baseline, ours};
+}
+
+/** Nondominated observed points. Never force Backstop onto the efficient frontier. */
+function efficientFrontier(points) {
+  const sorted = [...points].sort((a, b) => a.cost - b.cost || b.accuracy - a.accuracy);
+  let best = -1;
+  return sorted.filter(point => {
+    if (point.accuracy <= best) return false;
+    best = point.accuracy;
+    return true;
+  });
+}
 
 const SETUPS = [['single', 'Single engine'], ['telem_default', 'Telem default'], ['second_opinion', 'Backstop']];
 const PENDING = 'Results pending';
@@ -37,7 +58,25 @@ export function coverageBySetup(frontier, firstEngine = 'tavily') {
   };
 }
 
-/** Results are shown only when every setup is complete and the server's vetting agrees. */
+/** Preserve the removed presentation endpoint's checks on the /results payload. */
+export function validateResults(results) {
+  if (!results || ['fake', 'fixture', 'simulated'].some(flag => results[flag]) ||
+      String(results.generated_from || '').toLowerCase().includes('fake')) return false;
+  const n = results.n_test;
+  if (!Number.isInteger(n) || n <= 0) return false;
+  return SETUPS.every(([key]) => {
+    const block = results.setups?.[key];
+    if (!block) return false;
+    const counts = [block.correct, block.wrong, block.declined];
+    return counts.every(count => Number.isInteger(count) && count >= 0) &&
+      counts.reduce((sum, count) => sum + count, 0) === n && (block.n ?? n) === n &&
+      ['accuracy', 'wrong_rate', 'cost_per_q_total'].every(field => Number.isFinite(block[field]) && block[field] >= 0) &&
+      Math.abs(block.accuracy - block.correct / n) <= .00011 &&
+      Math.abs(block.wrong_rate - block.wrong / n) <= .00011;
+  });
+}
+
+/** Results are shown only when every setup is complete and validation agrees. */
 export function measured(results, vetted) {
   const metrics = proofMetrics(results);
   if (!metrics) return null;
@@ -192,13 +231,11 @@ function renderFindings(root, markdown) {
 }
 
 export async function loadResults(root, {firstEngine = 'tavily'} = {}) {
-  const [data, presentation, site] = await Promise.all([getJSON('/results'), getJSON('/presentation'), getJSON('/site-data')]);
+  const [data, site] = await Promise.all([getJSON('/results'), getJSON('/site-data')]);
   const results = data?.results || null;
-  // /presentation applies the server's completeness and no-fixture checks; respect a negative verdict.
-  const vetted = presentation ? Boolean(presentation.results) : undefined;
-  const metrics = measured(results, vetted);
+  const metrics = measured(results, validateResults(results));
   const status = root.querySelector('.results-status');
-  status.textContent = metrics ? `${metrics.n} held-out questions per setup` : (presentation?.status && presentation.status !== 'Awaiting the held-out evaluation' ? `Results pending: ${presentation.status}` : 'Results pending: the held-out evaluation has not finished');
+  status.textContent = metrics ? `${metrics.n} held-out questions per setup` : 'Results pending: the held-out evaluation has not finished';
   status.classList.toggle('is-pending', !metrics);
   renderHeadline(root, metrics);
   // Prefer the raw file (it carries the simulated flag and question counts); /results drops those fields.

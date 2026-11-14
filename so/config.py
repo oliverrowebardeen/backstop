@@ -340,6 +340,7 @@ async def retry(call: Callable[[], Awaitable[T]]) -> T:
 
 # Server
 SERVER_LIVE_RACES = _bool("SERVER_LIVE_RACES", False)
+SERVER_CORS_ORIGINS = _csv("SERVER_CORS_ORIGINS", "")
 SERVER_UI_DIR = Path(os.getenv("SERVER_UI_DIR", str(ROOT / "ui")))
 SERVER_DEMO_DIR = Path(os.getenv("SERVER_DEMO_DIR", str(ROOT / "demo")))
 _server_fixture_dir = os.getenv("SERVER_FIXTURE_DIR", "").strip()

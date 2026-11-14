@@ -32,6 +32,7 @@ def test_server_defaults_inherit_shared_paths_and_disable_fixtures(tmp_path: Pat
     assert settings["SERVER_FRONTIER_PATH"] == str(tmp_path / "output/frontier.json")
     assert settings["SERVER_FIXTURE_DIR"] is None
     assert settings["SERVER_LIVE_RACES"] is False
+    assert settings["SERVER_CORS_ORIGINS"] == []
     assert settings["SERVER_HOST"] == "127.0.0.1"
     assert settings["SERVER_PORT"] == 8000
 
@@ -68,3 +69,9 @@ def test_invalid_server_settings_fail_clearly(tmp_path: Path, overrides: dict[st
     result = read_config(tmp_path, **overrides)
     assert result.returncode != 0
     assert next(iter(overrides)) in result.stderr
+
+
+def test_cors_origins_are_trimmed_and_deduplicated(tmp_path: Path) -> None:
+    result = read_config(tmp_path, SERVER_CORS_ORIGINS=" https://site.example, http://localhost:3000,https://site.example, ")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["SERVER_CORS_ORIGINS"] == ["https://site.example", "http://localhost:3000"]

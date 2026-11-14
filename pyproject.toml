@@ -18,7 +18,7 @@ include = ["backstop*", "so*", "server*", "data*", "evals*", "analysis*", "ui"]
 [tool.setuptools.package-data]
 so = ["prompts/*.md"]
 data = ["questions.jsonl", "traps.jsonl"]
-ui = ["*.html", "*.css", "*.js", "*.svg", "fonts/*.ttf", "fonts/OFL.txt", "fixtures/*.json", "fixtures/*.jsonl"]
+ui = ["*.html", "*.css", "*.js", "*.svg", "fixtures/*.json", "fixtures/*.jsonl"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

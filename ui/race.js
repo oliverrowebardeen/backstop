@@ -1,11 +1,13 @@
 /** Live race section of the product site. Race logic is unchanged from the race view; it now lives at /#race. */
 import {newRun, applyEvent, failRun, citationVerified, VERDICTS, SETUPS, safeURL} from './race-state.js';
 import {raceControls, liveHeaders} from './race-access.js';
+import {watchRun} from './run-stream.js';
 
 const $ = selector => document.querySelector(selector);
 const elements = {}, states = {};
 let firstEngine = 'tavily', active = false, replayPair = null, replaySource = null, controller = null;
 let replayMode = false, autoplayDone = false, raceVisible = false, ready = false, liveAvailable = false;
+const liveStreams = new Map();
 let auditQuestion = '', pairs = [];
 const setups = {left: 'single', right: 'second_opinion'};
 const origins = {};
@@ -110,7 +112,10 @@ function render(side) {
   $('#export-audit').disabled = !states.left?.events.length && !states.right?.events.length;
 }
 
-function closeConnections() { replaySource?.close(); replaySource = null; controller?.abort(); controller = null; }
+function closeConnections() {
+  replaySource?.close(); replaySource = null; controller?.abort(); controller = null;
+  liveStreams.forEach(close => close()); liveStreams.clear();
+}
 function reset(mode) {
   closeConnections(); replayMode = mode !== 'live';
   applySetups();
@@ -164,7 +169,7 @@ function playReplay() {
   notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded evidence, played at its original pace.');
   const source = new EventSource(`/replay/${encodeURIComponent(replayPair.name)}`);
   replaySource = source;
-  source.addEventListener('log', message => { try { const payload = JSON.parse(message.data); receive(payload.side, payload.event); } catch { source.close(); fail('The recording contains an invalid event.'); } });
+  source.addEventListener('log', message => { if (source !== replaySource) return; try { const payload = JSON.parse(message.data); receive(payload.side, payload.event); } catch { source.close(); fail('The recording contains an invalid event.'); } });
   source.addEventListener('complete', () => { source.close(); if (!(states.left.finished && states.right.finished)) fail('The recording ended before final totals.'); });
   source.addEventListener('stream_error', () => { source.close(); fail('The recorded stream was interrupted.'); });
   source.onerror = () => { source.close(); if (active) fail('The recording disconnected. You can replay it or run a question.'); };
@@ -176,29 +181,11 @@ $('#race-theme').addEventListener('click', () => {
   $('#race-theme').textContent = light ? 'Dark mode' : 'Light mode';
   $('#race-theme').setAttribute('aria-pressed', String(light));
 });
-$('#stop-button').addEventListener('click', () => { closeConnections(); fail('Stopped. The received events are still available to export.'); });
+$('#stop-button').addEventListener('click', () => {
+  closeConnections();
+  fail(replayMode ? 'Replay stopped. The received events are available to export.' : 'Stopped viewing. Live agents continue until completion or the server timeout.');
+});
 
-async function consumeStream(response) {
-  if (!response.body) throw new Error('Streaming is unavailable in this browser.');
-  const reader = response.body.getReader(), decoder = new TextDecoder();
-  let pending = '';
-  while (true) {
-    const {done,value} = await reader.read();
-    if (done) break;
-    pending += decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n');
-    let end;
-    while ((end = pending.indexOf('\n\n')) >= 0) {
-      const block = pending.slice(0,end); pending = pending.slice(end+2);
-      const kind = block.split('\n').find(line=>line.startsWith('event:'))?.slice(6).trim();
-      const raw = block.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
-      if (!raw) continue;
-      const payload = JSON.parse(raw);
-      if (kind === 'log') receive(payload.side,payload.event);
-      if (kind === 'stream_error') fail(payload.message || 'One agent stopped.',payload.side);
-    }
-  }
-  if (!(states.left.finished && states.right.finished)) throw new Error('The connection ended before both agents recorded final totals.');
-}
 $('#api-key').addEventListener('input', () => setActive(active));
 $('#race-form').addEventListener('submit', async event => {
   event.preventDefault(); if (active || !liveAvailable) return;
@@ -210,9 +197,23 @@ $('#race-form').addEventListener('submit', async event => {
   autoplayDone = true; reset('live'); notify('Both agents are searching. Every counter comes from the event log.');
   const abort = new AbortController(); controller = abort;
   try {
-    const response = await fetch('/race-stream',{method:'POST',headers,body:JSON.stringify({question,left:setups.left,right:setups.right}),signal:abort.signal});
+    const response = await fetch('/race',{method:'POST',headers,body:JSON.stringify({question,left:setups.left,right:setups.right}),signal:abort.signal});
     if (!response.ok) { const error = await response.json(); throw new Error(typeof error.detail === 'string' ? error.detail : error.detail?.message || 'The race could not start.'); }
-    await consumeStream(response);
+    const runs = await response.json();
+    if (typeof runs.left_run_id !== 'string' || typeof runs.right_run_id !== 'string') {
+      throw new Error('The server did not return both run IDs.');
+    }
+    for (const side of ['left', 'right']) {
+      liveStreams.set(side, watchRun(runs[`${side}_run_id`], {
+        onEvent: event => receive(side, event),
+        onComplete: () => {
+          liveStreams.delete(side);
+          if (!states[side].finished) fail('The stream ended before final totals.', side);
+        },
+        onFailure: message => { liveStreams.delete(side); fail(message, side); },
+        onReconnect: () => notify('Reconnecting to the run. The agent continues on the server.'),
+      }));
+    }
   } catch(error) { if (error.name !== 'AbortError') fail(error.message); }
 });
 $('#export-audit').addEventListener('click', () => {
@@ -221,11 +222,13 @@ $('#export-audit').addEventListener('click', () => {
   const anchor = element('a'); anchor.href=url; anchor.download='backstop-race-audit.json';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 
-async function loadPresentation() {
-  try {
-    const response=await fetch('/presentation',{cache:'no-store'});if(!response.ok)throw new Error();const data=await response.json();
-    firstEngine=data.first_engine||'tavily';liveAvailable=data.live_available===true;if(!active)setActive(false);
-  } catch { /* replay still works without it */ }
+async function loadConfiguration() {
+  const response = await fetch('/config', {cache: 'no-store'});
+  if (!response.ok) throw new Error('The race server configuration could not be loaded.');
+  const data = await response.json();
+  firstEngine = data.first_engine;
+  liveAvailable = data.live_available === true;
+  $('#question').maxLength = data.max_question_chars;
 }
 function selectPair(pair) {
   replayPair = pair;
@@ -243,13 +246,18 @@ $('#replay-select').addEventListener('change', event => {
 function maybeAutoplay(){if(ready&&raceVisible&&!autoplayDone&&replayPair&&!replayPair.fixture)playReplay();}
 new IntersectionObserver(entries=>{raceVisible=entries[0].isIntersecting;maybeAutoplay();},{threshold:.2}).observe($('#race'));
 async function initialize(){
-  await loadPresentation();
-  try{const response=await fetch('/replays');if(!response.ok)throw new Error();pairs=await response.json();
+  try {
+    await loadConfiguration();
+    const response = await fetch('/replays');
+    if (!response.ok) throw new Error('The recordings could not be loaded.');
+    pairs = await response.json();
     $('#replay-select').replaceChildren(...pairs.map(p=>{const option=element('option','',`${p.title}${p.fixture?' (synthetic fixture)':''}`);option.value=p.name;return option;}));
-    selectPair(pairs.find(p=>!p.fixture&&p.name.includes('golden'))||pairs.find(p=>!p.fixture)||pairs[0]||null);
-    if(replayPair){/* labelled by selectPair */}
-    else{$('#race-mode').textContent=liveAvailable?'API key required for live races':'Replay-only mode';notify(liveAvailable?'Enter your API key and a question to run both agents.':'No recording is available yet. Live races are disabled on this server.');}
-  }catch{$('#race-mode').textContent='Live server unavailable';notify('Connect the race server to run questions or replay a recording.');}
+    selectPair(pairs.find(p=>!p.fixture)||pairs[0]||null);
+    if (!replayPair) {$('#race-mode').textContent=liveAvailable?'API key required for live races':'Replay-only mode';notify(liveAvailable?'Enter your API key and a question to run both agents.':'No recording is available yet. Live races are disabled on this server.');}
+  } catch (error) {
+    $('#race-mode').textContent = 'Server unavailable';
+    notify(error.message);
+  }
   ready=true;setActive(false);maybeAutoplay();
 }
 initialize();

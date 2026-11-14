@@ -79,8 +79,8 @@ assert config.AGENT_PROMPT_PATH.read_text(encoding="utf-8")
 assert so.checker.SYSTEM_PROMPT and so.checker.PAGE_PROMPT
 questions, traps = load_questions(), load_traps()
 assert len(questions) == 300 and len(traps) == 30
-assets = ["/", "/ui/app.js", "/ui/proof.js", "/ui/race-state.js", "/ui/style.css",
-          "/ui/favicon.svg", "/ui/fonts/LibreCaslonDisplay-Regular.ttf", "/ui/fonts/OFL.txt"]
+assets = ["/", "/race", "/ui/app.js", "/ui/race.js", "/ui/race-state.js", "/ui/race-access.js",
+          "/ui/run-stream.js", "/ui/style.css", "/ui/favicon.svg"]
 with TestClient(app) as client:
     for path in assets:
         response = client.get(path)
@@ -90,4 +90,4 @@ print(json.dumps({"imports": 2, "prompts": 3, "questions": len(questions),
                   "traps": len(traps), "asset_routes": len(assets)}))
 '''
     result = json.loads(_run([str(python), "-I", "-c", probe], runtime, env=probe_env))
-    assert result == {"imports": 2, "prompts": 3, "questions": 300, "traps": 30, "asset_routes": 8}
+    assert result == {"imports": 2, "prompts": 3, "questions": 300, "traps": 30, "asset_routes": 9}

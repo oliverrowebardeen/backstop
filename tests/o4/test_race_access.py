@@ -1,4 +1,4 @@
-"""Both paid race routes share opt-in, API authentication, and admission controls."""
+"""Paid races retain opt-in, API authentication, and shared admission controls."""
 import asyncio
 from dataclasses import replace
 import json
@@ -18,7 +18,7 @@ from tests.o4.access import AUTH, KEY
 from tests.o4.fakes import run_question
 from tests.o4.test_server import settings
 
-ROUTES = ("/race", "/race-stream")
+ROUTES = ("/race",)
 
 
 @pytest.fixture
@@ -53,7 +53,6 @@ def test_default_app_disables_paid_routes_even_with_provider_credentials(tmp_pat
                 assert response.status_code == 403
                 assert response.json()["detail"]["code"] == "live_races_disabled"
         assert client.get("/config").json()["live_available"] is False
-        assert client.get("/presentation").json()["live_available"] is False
         assert client.get("/replays").status_code == 200
     assert called == [] and not configured.log_dir.exists()
 
@@ -82,7 +81,7 @@ def test_races_share_the_api_rate_limit(build, first):
         assert response.json()["detail"]["code"] == "rate_limited"
 
 
-def test_api_admission_also_limits_both_race_routes(build):
+def test_api_admission_also_limits_races(build):
     app = build(limit=1)
 
     class UnusedClient:
@@ -97,7 +96,7 @@ def test_api_admission_also_limits_both_race_routes(build):
 
 
 @pytest.mark.parametrize("first", ROUTES)
-async def test_both_routes_share_capacity_and_release_it(build, first):
+async def test_races_share_capacity_and_release_it(build, first):
     started, release = asyncio.Event(), asyncio.Event()
     calls = []
 
@@ -109,7 +108,7 @@ async def test_both_routes_share_capacity_and_release_it(build, first):
         return await run_question(question, setup, log_dir=log_dir)
 
     app = build(runner=waiting, capacity=2)
-    other = next(route for route in ROUTES if route != first)
+    other = "/race"
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH) as client:
         pending = asyncio.create_task(client.post(first, json={"question": "Hold the shared capacity"}))
         try:
