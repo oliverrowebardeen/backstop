@@ -8,3 +8,5 @@ __pycache__/
 out/logs/
 out/usage.db
 out/usage.db-*
+out/factsheets.db
+out/factsheets.db-*

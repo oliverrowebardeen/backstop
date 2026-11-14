@@ -140,6 +140,39 @@ Errors are JSON with the right status codes: 401 bad key, 422 bad body, 429 rate
 limited, 502 Telem unavailable. The same server hosts the race screen at `/`, which
 plays a single-engine agent and a Backstop agent side by side from their event logs.
 
+## Staying verified
+
+A diligence fact is only verified until the company changes it. `server/monitors` builds a
+fact sheet with Backstop and keeps it honest with Telem Monitors ("only what is new, on a
+schedule").
+
+```sh
+python -m server.monitors build --company "Tavily"   # one verified search per field, one monitor per field
+python -m server.monitors poll                       # read every monitor, check what is new
+python -m server.monitors show --company "Tavily"    # add --json for machine output
+python -m server.monitors teardown                   # delete the monitors; the sheet stays
+```
+
+`build` runs one Backstop search per field (CEO, HQ city, latest fiscal year revenue, latest
+funding round, latest 10-K filing date), each with an explicit goal and all in one Telem
+session. Each field is stored in `out/factsheets.db` (git-ignored) with its value, verdict
+(`VERIFIED` on a `HIT`, otherwise `NOT_FOUND`), evidence snippet, source URL, engines tried,
+cost and Telem session id. Each field then gets a daily Telem Monitor whose query is one
+sentence naming the change that would invalidate it, such as "Tavily files a new annual
+report on Form 10-K with the SEC.", with `include_domains=["sec.gov"]` for filings.
+
+`poll` stores every item each monitor returns (Telem returns each item once) and runs the
+Backstop checker on each new item against the field's query, goal and stored value. When an
+item states a different or newer value, the field turns `STALE` and keeps the old value next
+to the new evidence, URL, the checker's reason and a timestamp. A field that was `NOT_FOUND`
+turns `STALE` when an item answers its goal.
+
+For push delivery, pass `--webhook-base https://your-host` to `build` and serve the receiver
+with `uvicorn server.monitors.webhook:app`. Each delivery must carry a `Telem-Signature` that
+verifies with the SDK's `verify_webhook` against that monitor's secret, or it is rejected with
+401. `pause` and `resume` PATCH every monitor. Every Monitors failure is logged with its HTTP
+status and body and the run continues, so the sheet always renders.
+
 ## Results
 
 Results land here after the held-out eval runs.
