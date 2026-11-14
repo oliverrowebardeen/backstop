@@ -2,10 +2,10 @@
 
 Usage: python tests/s10/live_smoke.py [memo_id] [--record]
 
-Checks one example memo from ui/fixtures/memos.json end to end with a $0.40 cap,
+Checks one example memo from tests/s10/example_memos.json end to end with a $0.40 cap,
 prints the report, and fails unless at least one claim is VERIFIED with a real
 source URL and the memo cost stays under $0.40. --record writes the finished
-report to demo/memo_examples/<memo_id>.json as the UI's replay fallback.
+report to demo/memo_examples/<memo_id>.json, served by GET /memo/recordings.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ CAP_USD = 0.40
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     memo_id = args[0] if args else "microsoft"
-    memos = {m["id"]: m for m in json.loads((ROOT / "ui" / "fixtures" / "memos.json").read_text())["memos"]}
+    memos = {m["id"]: m for m in json.loads((ROOT / "tests" / "s10" / "example_memos.json").read_text())["memos"]}
     memo = memos[memo_id]
     report = asyncio.run(claims.check_memo(memo["text"], max_cost_usd=CAP_USD))
     for c in report.claims:

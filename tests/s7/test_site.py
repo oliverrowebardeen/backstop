@@ -28,6 +28,10 @@ def test_home_race_and_site_data(tmp_path):
     with _client(tmp_path) as client:
         home = client.get("/").text
         assert 'id="simulate"' not in home and 'Simulate a miss' not in home
+        for gone in ('id="memo"', 'id="autopsy"', "memo.js", "memo.css", "Miss autopsy", "Check a memo"):
+            assert gone not in home, gone
+        for path in ("/ui/memo.js", "/ui/memo-view.js", "/ui/memo.css", "/ui/fixtures/memos.json"):
+            assert client.get(path).status_code == 404, path
         for anchor in ('id="race"', 'id="how"', 'id="results"', 'id="developers"', 'href="#race"'):
             assert anchor in home
         assert 'id="race-form"' in home and 'src="/ui/race.js"' in home
@@ -68,7 +72,10 @@ def test_developer_curl_matches_the_hosted_api():
 
     html = (ROOT / "ui/index.html").read_text()
     curl = re.search(r'<pre id="code-curl"><code>(.*?)</code></pre>', html, re.S).group(1)
-    assert re.search(r"curl -s \S+/v1/search \\", curl)
+    # app.js swaps the base URL for the page's own origin; the shipped default is the deployed site.
+    assert '<span class="api-base">https://backstop-pied.vercel.app</span>/v1/search' in curl
+    curl = re.sub(r"<[^>]+>", "", curl)
+    assert re.search(r"curl -s https://\S+/v1/search \\", curl) and "localhost" not in curl
     routes = {(route.path, method) for route in api_v1.router.routes for method in getattr(route, "methods", ())}
     assert ("/v1/search", "POST") in routes and " -d " in curl  # -d makes curl send a POST
     assert '-H "Authorization: Bearer $BACKSTOP_KEY"' in curl

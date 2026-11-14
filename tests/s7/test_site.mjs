@@ -62,3 +62,31 @@ test('no em dashes in the site files', () => {
     assert.ok(!readFileSync(new URL(`../../ui/${name}`, import.meta.url), 'utf8').includes('\u2014'), name);
   }
 });
+
+test('Check a memo and Miss autopsy are gone from the page, with their scripts and styles', () => {
+  const names = readdirSync(new URL('../../ui/', import.meta.url));
+  for (const name of ['memo.js', 'memo-view.js', 'memo.css']) assert.ok(!names.includes(name), name);
+  assert.ok(!readdirSync(dir).includes('memos.json'));
+  for (const name of names.filter(name => /\.(html|js|css)$/.test(name))) {
+    const text = readFileSync(new URL(`../../ui/${name}`, import.meta.url), 'utf8');
+    assert.ok(!/memo|autopsy/i.test(text), name);
+  }
+});
+
+test('the theme follows prefers-color-scheme, with no toggle on the page', () => {
+  const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../ui/style.css', import.meta.url), 'utf8');
+  const race = readFileSync(new URL('../../ui/race.js', import.meta.url), 'utf8');
+  assert.ok(!/id="(race|memo)-theme"|data-theme=|Dark mode|Light mode/.test(html));
+  assert.ok(!/data-theme|dataset\.theme/.test(css + race));
+  assert.ok(css.includes('@media (prefers-color-scheme: dark)') && html.includes('name="color-scheme" content="light dark"'));
+});
+
+test('the HTTP example takes its base URL from the page origin, not localhost', () => {
+  const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
+  const dev = html.slice(html.indexOf('id="developers"'));
+  assert.ok(!/localhost|127\.0\.0\.1/.test(dev));
+  assert.ok(dev.includes('<span class="api-base">https://backstop-pied.vercel.app</span>/v1/search'));
+  const app = readFileSync(new URL('../../ui/app.js', import.meta.url), 'utf8');
+  assert.ok(app.includes("querySelectorAll('.api-base')") && app.includes('location.origin'));
+});

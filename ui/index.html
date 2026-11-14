@@ -4,16 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#161714">
-  <title>Backstop · Verified search on Telem</title>
-  <meta name="description" content="Backstop checks every Telem search against the agent's goal, rescues misses on the engine that catches them, and says not found instead of guessing.">
-  <meta property="og:title" content="Backstop · When search misses, Backstop catches it.">
-  <meta property="og:description" content="Verified search for AI agents, built on Telem and Tavily.">
+  <meta name="color-scheme" content="light dark">
+  <title>Backstop · Checked search on Telem</title>
+  <meta name="description" content="Backstop asks one engine through Telem, checks the results against the agent's goal, and pays for another engine only when the first one missed.">
+  <meta property="og:title" content="Backstop: pay for another search engine only when the first one misses">
+  <meta property="og:description" content="Checked search for AI agents, built on Telem and Tavily.">
   <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/style.css">
   <script type="module" src="/ui/app.js"></script>
   <script type="module" src="/ui/race.js"></script>
-  <link rel="stylesheet" href="/ui/memo.css">
-  <script type="module" src="/ui/memo.js"></script>
 </head>
 <body>
   <a class="skip" href="#race">Skip to the live race</a>
@@ -41,9 +40,13 @@
     <section class="hero dark" aria-labelledby="hero-title">
       <canvas class="dots" aria-hidden="true"></canvas>
       <div class="wrap hero-inner">
-        <p class="label label-dark"><span class="live-dot" aria-hidden="true"></span>Verified search on Telem</p>
-        <h1 id="hero-title">When search misses, <span class="nowrap">Backstop</span> catches&nbsp;it.</h1>
-        <p class="hero-sub">Backstop checks every Telem search against the agent's goal, rescues misses on the engine that catches them, and says not found instead of guessing.</p>
+        <p class="label label-dark"><span class="live-dot" aria-hidden="true"></span>Checked search on Telem</p>
+        <h1 id="hero-title"><span class="h1-line">Same accuracy.</span> <span class="h1-line">Half the&nbsp;cost.</span></h1>
+        <p class="hero-sub">Backstop asks one engine through Telem, checks the results against your agent's goal, and pays for another engine only when the first one missed.</p>
+        <div class="hero-proof" hidden>
+          <dl class="proof-list"></dl>
+          <p class="proof-note">Against Telem's default routing, on held-out test questions never used for tuning. <a href="#results">See the results</a></p>
+        </div>
         <div class="hero-ctas">
           <a class="btn btn-accent btn-lg" href="#race"><span aria-hidden="true">&#9654;</span> Try the live race</a>
           <a class="btn btn-ghost btn-lg" href="#how">How it works</a>
@@ -54,7 +57,7 @@
       </div>
     </section>
 
-    <section class="race-section" id="race" data-theme="light" aria-labelledby="race-title">
+    <section class="race-section" id="race" aria-labelledby="race-title">
       <div class="wrap">
         <div class="section-head">
           <div>
@@ -72,7 +75,6 @@
             <span id="race-mode" class="race-badge">Loading</span>
           </div>
           <div class="race-tools">
-            <button class="chip-button" id="race-theme" type="button" aria-pressed="true" aria-label="Toggle race dark mode">Dark mode</button>
             <button class="chip-button" id="stop-button" type="button" hidden>Stop run &#9632;</button>
             <button class="chip-button" id="save-recording" type="button" hidden>Save as recording</button>
             <button class="chip-button chip-button-strong" id="export-audit" type="button" disabled>Export audit trail &#8595;</button>
@@ -105,52 +107,6 @@
         <p class="race-honest" id="race-honest" hidden></p>
       </div>
       <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div title="Every engine query Telem runs and bills. One Telem default request can fan out to many engines."><dd class="engine-count">0</dd><dt>Engine calls</dt></div><div title="Engine calls, page reads and the checker."><dd class="search-cost">$0.0000</dd><dt>Search cost</dt></div><div title="Search cost plus the agent model's own turns."><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details><p class="grade-note" hidden>Not graded: live question</p><button class="chip-button watch-recorded" type="button" hidden>Watch a recorded run instead</button></div><p class="session">Session pending</p></article></template>
-    </section>
-
-    <!-- S10: Check a memo (ui/memo.js, ui/memo.css) -->
-    <section class="race-section memo-section" id="memo" data-theme="light" aria-labelledby="memo-title">
-      <div class="wrap">
-        <div class="section-head">
-          <div>
-            <p class="label">Memo check</p>
-            <h2 id="memo-title">Paste a memo. Check every&nbsp;claim.</h2>
-          </div>
-          <p class="section-intro">Backstop splits an AI-written memo into its factual claims, searches all of them in one batched Telem call, and rescues the misses. Each claim comes back Verified, Contradicted or Not found, with the evidence and the source.</p>
-        </div>
-        <div class="race-bar">
-          <div class="race-modes"><span id="memo-mode" class="race-badge">Loading</span></div>
-          <div class="race-tools">
-            <button class="chip-button" id="memo-theme" type="button" aria-pressed="true" aria-label="Toggle memo check dark mode">Dark mode</button>
-            <button class="chip-button chip-button-strong" id="memo-export" type="button" disabled>Export report &#8595;</button>
-          </div>
-        </div>
-        <div class="example-chips" id="memo-examples" aria-label="Example memos" hidden></div>
-        <form id="memo-form" class="memo-form" novalidate>
-          <label class="sr-only" for="memo-input">Memo to check</label>
-          <textarea id="memo-input" maxlength="4000" placeholder="Paste a company memo or an AI-written diligence summary (up to 4,000 characters)" spellcheck="true" aria-describedby="memo-count"></textarea>
-          <div class="memo-form-foot">
-            <span class="memo-count" id="memo-count">0 / 4,000</span>
-            <button class="btn btn-dark" id="memo-run" type="submit" disabled>Check memo <span aria-hidden="true">&#8599;</span></button>
-          </div>
-        </form>
-        <p id="memo-live-off" class="race-note" hidden>Live checks are off on this server. Pick an example to see a recorded live check.</p>
-        <div id="memo-code-box" class="race-credentials" hidden><label for="memo-code">Demo code</label><input id="memo-code" type="password" autocomplete="off" spellcheck="false" aria-describedby="memo-code-help"><p id="memo-code-help">The same code as the live race. It is remembered in this browser.</p></div>
-        <div id="memo-key-box" class="race-credentials" hidden><label for="memo-key">Backstop API key</label><input id="memo-key" type="password" autocomplete="off" spellcheck="false"></div>
-        <p id="memo-progress" class="memo-progress" role="status" hidden></p>
-        <p id="memo-message" class="race-message" role="status"></p>
-        <div id="memo-result" class="memo-result" hidden>
-          <div class="memo-summary">
-            <div class="memo-totals" id="memo-totals" aria-label="Claim verdicts"></div>
-            <dl class="memo-counters" id="memo-counters"></dl>
-          </div>
-          <div class="memo-session" id="memo-session"></div>
-          <p class="memo-replay-note" id="memo-replay-note" hidden></p>
-          <div class="memo-body">
-            <div class="memo-text" id="memo-text" aria-label="Memo with checked claims highlighted"></div>
-            <aside class="memo-panel" id="memo-panel" aria-live="polite" aria-label="Claim details"></aside>
-          </div>
-        </div>
-      </div>
     </section>
 
     <section class="how light" id="how" aria-labelledby="how-title">
@@ -198,14 +154,14 @@
             <p class="col-label">Rescue on a miss</p>
             <div class="fcard" id="f-rescue">
               <ul class="rescue-list">
-                <li><strong>Next engine</strong><span>from the measured rescue table</span>
+                <li><strong>Next engine</strong><span>from the measured rescue table, with the query rewritten from the checker's reason</span>
                   <ul class="chip-row chain" id="retry-chain" aria-label="Rescue order">
                     <li class="engine-tag">Exa</li><li class="chain-then">then</li><li class="engine-tag">Parallel</li>
                   </ul>
                 </li>
-                <li><strong>Read the page</strong><span>with Tavily Extract</span></li>
-                <li><strong>Rewrite the query</strong><span>from the checker's reason</span></li>
+                <li><strong>Read the page</strong><span>with Tavily Extract when the right page has a thin snippet (Shallow)</span></li>
               </ul>
+              <p class="rescue-cap">At most two rescues per search, then Not found.</p>
             </div>
           </div>
           <div class="flow-col">
@@ -228,9 +184,12 @@
         <div class="section-head">
           <div>
             <p class="label">Results</p>
-            <h2 id="results-title">Measured on questions we never tuned&nbsp;on.</h2>
+            <h2 id="results-title">Measured on held&#8209;out&nbsp;questions.</h2>
           </div>
-          <p class="results-status is-pending">Loading results</p>
+          <div class="results-intro">
+            <p class="section-intro">None of these test questions were used to tune the checker or build the rescue table. Total cost counts search, page reads, the checker and the agent model.</p>
+            <p class="results-status is-pending">Loading results</p>
+          </div>
         </div>
         <div class="headline-numbers"></div>
         <div class="results-grid">
@@ -242,34 +201,12 @@
             </table>
           </div>
           <figure class="chart-card">
-            <figcaption><p class="label">Accuracy against cost</p><p class="chart-title">Correct final answers against total cost per&nbsp;question.</p></figcaption>
+            <figcaption><p class="label">Accuracy against cost</p><p class="chart-title">Accuracy against total cost per&nbsp;question.</p></figcaption>
             <div class="accuracy-chart"></div>
             <p class="chart-note"></p>
           </figure>
         </div>
         <div class="findings"></div>
-      </div>
-    </section>
-
-    <section class="autopsy light" id="autopsy" aria-labelledby="autopsy-title">
-      <div class="wrap autopsy-grid">
-        <div>
-          <p class="label">Miss autopsy</p>
-          <h2 id="autopsy-title">Find the search that went&nbsp;wrong.</h2>
-          <p class="section-intro">Give a Telem session id from a Backstop search. The autopsy replays every search in it through the checker and marks the first miss.</p>
-          <form class="autopsy-form" id="autopsy-form">
-            <label for="autopsy-key">Backstop API key</label>
-            <input id="autopsy-key" type="password" autocomplete="off" spellcheck="false" required aria-describedby="autopsy-help">
-            <label for="autopsy-session">Telem session id</label>
-            <input id="autopsy-session" class="mono" autocomplete="off" spellcheck="false" required maxlength="200" placeholder="8a30f5f0-f0e9-4821-...">
-            <button class="btn btn-dark" type="submit">Run autopsy</button>
-            <p id="autopsy-help" class="form-help">Calls GET /v1/autopsy/{session_id}. The key stays in this page. Each step is checked once and metered to your key, and only sessions created by that key are visible.</p>
-          </form>
-        </div>
-        <div class="autopsy-panel">
-          <p class="autopsy-message" role="status" aria-live="polite">No session loaded yet.</p>
-          <ol class="autopsy-steps"></ol>
-        </div>
       </div>
     </section>
 
@@ -299,7 +236,7 @@ print(resp.status, resp.results[0].url)</code></pre>
           </div>
           <div class="code-card">
             <div class="code-head"><span>HTTP</span><button class="copy" type="button" data-copy="code-curl">Copy</button></div>
-<pre id="code-curl"><code>curl -s http://localhost:8000/v1/search \
+<pre id="code-curl"><code>curl -s <span class="api-base">https://backstop-pied.vercel.app</span>/v1/search \
   -H "Authorization: Bearer $BACKSTOP_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "What was Stripe'\''s valuation in its 2023 round?",
@@ -308,7 +245,7 @@ print(resp.status, resp.results[0].url)</code></pre>
           <div class="code-card code-card-wide">
             <div class="code-head"><span>Install</span><button class="copy" type="button" data-copy="code-install">Copy</button></div>
 <pre id="code-install"><code>git clone https://github.com/oliverrowebardeen/backstop && cd backstop
-pip install -e .   # Python 3.11+, TELEM_API_KEY and ANTHROPIC_API_KEY in .env</code></pre>
+pip install -e .   # Python 3.11+; TELEM_API_KEY, ANTHROPIC_API_KEY and OPENAI_API_KEY in .env</code></pre>
           </div>
         </div>
         <div class="dev-links">

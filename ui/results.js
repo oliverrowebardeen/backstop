@@ -85,14 +85,14 @@ function renderTable(table, metrics) {
   const body = table.querySelector('tbody');
   body.replaceChildren();
   const rows = [
+    ['Accuracy', 'Final answers graded against the answer key', s =>
+      [pct(s.accuracy), `${s.correct}/${scored(s, metrics.n)} correct`]],
     ['Total cost per question', 'Search, page reads, checker and agent model', s =>
-      Number.isFinite(s.cost_per_q_total) ? [usd(s.cost_per_q_total), `over ${scored(s, metrics.n)} questions`] : [PENDING]],
-    ['Median time per question', 'p50 wall time of the agent run', s =>
-      latencyOk(s) ? [seconds(s.latency_p50_ms), `over ${scored(s, metrics.n)} questions`] : [PENDING]],
+      Number.isFinite(s.cost_per_q_total) ? [usd(s.cost_per_q_total)] : [PENDING]],
     ['Engine calls per question', 'Every engine query Telem bills', s =>
-      Number.isFinite(s.engine_calls_per_q) ? [s.engine_calls_per_q.toFixed(2), `over ${scored(s, metrics.n)} questions`] : [PENDING]],
-    ['Correct final answers', 'Graded against the answer key', s =>
-      [`${s.correct}/${scored(s, metrics.n)}`, pct(s.correct / scored(s, metrics.n))]],
+      Number.isFinite(s.engine_calls_per_q) ? [s.engine_calls_per_q.toFixed(2)] : [PENDING]],
+    ['Median time per question', 'p50 wall time of the agent run', s =>
+      latencyOk(s) ? [seconds(s.latency_p50_ms)] : [PENDING]],
   ];
   for (const [label, sub, value] of rows) {
     const tr = el('tr');
@@ -111,7 +111,33 @@ function renderTable(table, metrics) {
   }
 }
 
-/** Cost and time lead; accuracy is shown as equal when it is. */
+/**
+ * Backstop against Telem default, as whole percents: cost and engine calls saved, time saved.
+ * Positive means Backstop is lower or faster. Null for a value the results do not carry.
+ */
+export function economy(metrics) {
+  if (!metrics) return null;
+  const {baseline: base, ours} = metrics;
+  const drop = (a, b) => Number.isFinite(a) && Number.isFinite(b) && b > 0 ? Math.round(100 * (b - a) / b) : null;
+  return {
+    same: sameAccuracy(ours, base),
+    cost: drop(ours.cost_per_q_total, base.cost_per_q_total),
+    calls: drop(ours.engine_calls_per_q, base.engine_calls_per_q),
+    time: latencyOk(ours) && latencyOk(base) ? drop(ours.latency_p50_ms, base.latency_p50_ms) : null,
+    ratio: base.cost_per_q_total > 0 ? ours.cost_per_q_total / base.cost_per_q_total : null,
+  };
+}
+
+/** The hero headline's claim, "Same accuracy. Half the cost.", holds only for these results. */
+export const HERO_FALLBACK = 'Pay for another engine only when the first one misses.';
+export function heroClaimHolds(metrics) {
+  const e = economy(metrics);
+  return Boolean(e && e.same && e.ratio !== null && e.ratio >= 0.45 && e.ratio <= 0.55);
+}
+
+const change = (value, down, up) => `${Math.abs(value)}% ${value >= 0 ? down : up}`;
+
+/** Accuracy first (the same), then what Backstop saves. */
 function renderHeadline(root, metrics) {
   const tiles = root.querySelector('.headline-numbers');
   tiles.replaceChildren();
@@ -121,26 +147,49 @@ function renderHeadline(root, metrics) {
     tiles.append(box);
   };
   if (!metrics) {
-    tile(PENDING, 'Total cost per question against Telem default', 'The held-out evaluation has not finished.', true);
-    tile(PENDING, 'Median time per question against Telem default', 'Numbers appear when every setup has run.', true);
-    tile(PENDING, 'Accuracy against Telem default', 'Checker and agent cost will be counted in.', true);
+    tile(PENDING, 'Accuracy against Telem default', 'The held-out evaluation has not finished.', true);
+    tile(PENDING, 'Total cost per question', 'Checker and agent cost will be counted in.', true);
+    tile(PENDING, 'Engine calls per question', 'Numbers appear when every setup has run.', true);
+    tile(PENDING, 'Median time per question', 'Numbers appear when every setup has run.', true);
     return;
   }
-  const {n, baseline, ours} = metrics;
-  const cost = metrics.cost;
-  tile(cost === null ? PENDING : `${Math.abs(cost).toFixed(1)}% ${cost >= 0 ? 'lower' : 'higher'}`, 'Total cost per question, Backstop vs Telem default',
-    `${usd(ours.cost_per_q_total)} vs ${usd(baseline.cost_per_q_total)}, checker and agent model included`, cost === null);
-  if (latencyOk(ours) && latencyOk(baseline)) {
-    const change = 100 * (baseline.latency_p50_ms - ours.latency_p50_ms) / baseline.latency_p50_ms;
-    tile(`${Math.abs(change).toFixed(1)}% ${change >= 0 ? 'faster' : 'slower'}`, 'Median time per question, Backstop vs Telem default',
-      `${seconds(ours.latency_p50_ms)} vs ${seconds(baseline.latency_p50_ms)} (p50)`);
-  } else tile(PENDING, 'Median time per question against Telem default', 'Latency was not recorded.', true);
-  const counts = `${ours.correct}/${scored(ours, n)} vs ${baseline.correct}/${scored(baseline, n)} correct`;
-  if (sameAccuracy(ours, baseline)) tile('Backstop = Telem default', 'Accuracy', counts, false, 'is-equal');
-  else tile(`${pct(ours.accuracy)} vs ${pct(baseline.accuracy)}`, 'Accuracy, Backstop vs Telem default', counts);
+  const {single, baseline: base, ours} = metrics;
+  const e = economy(metrics);
+  if (e.same) tile(pct(ours.accuracy), 'Accuracy, the same as Telem default', `Telem default ${pct(base.accuracy)}, single engine ${pct(single.accuracy)}`);
+  else tile(`${pct(ours.accuracy)} vs ${pct(base.accuracy)}`, 'Accuracy, Backstop vs Telem default', `Single engine ${pct(single.accuracy)}`);
+  if (e.cost === null) tile(PENDING, 'Total cost per question', 'Cost was not recorded.', true);
+  else tile(change(e.cost, 'lower', 'higher'), 'Total cost per question', `${usd(ours.cost_per_q_total)} vs ${usd(base.cost_per_q_total)} for Telem default`);
+  if (e.calls === null) tile(PENDING, 'Engine calls per question', 'Engine calls were not recorded.', true);
+  else tile(change(e.calls, 'fewer', 'more'), 'Engine calls per question', `${ours.engine_calls_per_q.toFixed(2)} vs ${base.engine_calls_per_q.toFixed(2)} for Telem default`);
+  if (e.time === null) tile(PENDING, 'Median time per question', 'Latency was not recorded.', true);
+  else tile(change(e.time, 'faster', 'slower'), 'Median time per question', `${seconds(ours.latency_p50_ms)} vs ${seconds(base.latency_p50_ms)} for Telem default`);
 }
 
-/** Correct final answers against total cost per question, one labelled point per setup. */
+/** The hero's measured line, from the same numbers as the Results tiles. Hidden without results. */
+function renderHero(metrics) {
+  const proof = document.querySelector('.hero-proof');
+  const title = document.getElementById('hero-title');
+  if (title && metrics && !heroClaimHolds(metrics)) title.textContent = HERO_FALLBACK;
+  if (!proof) return;
+  const e = economy(metrics);
+  const items = !e ? [] : [
+    e.cost !== null && [change(e.cost, 'lower', 'higher'), 'cost per question'],
+    e.calls !== null && [change(e.calls, 'fewer', 'more'), 'engine calls'],
+    e.same ? [pct(metrics.ours.accuracy), 'accuracy, the same as Telem default']
+      : [`${pct(metrics.ours.accuracy)} vs ${pct(metrics.baseline.accuracy)}`, 'accuracy against Telem default'],
+  ].filter(Boolean);
+  const list = proof.querySelector('.proof-list');
+  list.replaceChildren(...items.map(([value, label]) => {
+    const row = el('div');
+    row.append(el('dt', null, label), el('dd', null, value));
+    return row;
+  }));
+  proof.hidden = items.length === 0;
+}
+
+const narrowChart = container => container.clientWidth > 0 && container.clientWidth < 480;
+
+/** Accuracy against total cost per question, one labelled point per setup. */
 export function drawAccuracyCost(container, metrics) {
   const note = container.parentElement.querySelector('.chart-note');
   const points = metrics ? SETUPS.map(([key, name]) => ({key, name, s: pick(metrics, key)}))
@@ -150,14 +199,15 @@ export function drawAccuracyCost(container, metrics) {
     if (note) note.textContent = 'The chart appears when out/results.json has every setup.';
     return;
   }
-  const W = 620, H = 400, L = 64, R = 34, T = 24, B = 62;
+  // A narrow card gets a narrower drawing, so the labels stay readable on a phone.
+  const W = narrowChart(container) ? 380 : 620, H = 400, L = 64, R = 34, T = 24, B = 62;
   const maxCost = Math.max(...points.map(p => p.s.cost_per_q_total)) * 1.18;
   // A scatter needs no zero baseline; the floor is a round 5 points, at least 8 below the lowest setup.
   const floor = Math.max(0, Math.floor((Math.min(...points.map(p => p.s.accuracy)) - 0.08) * 20) / 20);
   const x = v => L + (v / maxCost) * (W - L - R);
   const y = v => H - B - ((v - floor) / (1 - floor)) * (H - T - B);
   const chart = svg('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img', class: 'frontier-svg',
-    'aria-label': `Correct final answers against total cost per question: ${points.map(p => `${p.name} ${pct(p.s.accuracy)} at ${usd(p.s.cost_per_q_total)}`).join(', ')}.`});
+    'aria-label': `Accuracy against total cost per question: ${points.map(p => `${p.name} ${pct(p.s.accuracy)} at ${usd(p.s.cost_per_q_total)}`).join(', ')}.`});
   const steps = Math.round((1 - floor) / 0.05);
   for (let i = 0; i <= steps; i += 1) {
     const value = floor + i * 0.05, gy = y(value);
@@ -178,12 +228,12 @@ export function drawAccuracyCost(container, metrics) {
     const above = i % 2 === 0;
     chart.append(dot,
       svg('text', {x: cx, y: cy + (above ? -32 : 34), 'text-anchor': 'middle', class: `point-label${p.key === 'second_opinion' ? ' label-ours' : ''}`}, p.name),
-      svg('text', {x: cx, y: cy + (above ? -15 : 51), 'text-anchor': 'middle', class: 'point-sub'}, `${p.s.correct}/${count} correct, ${usd(p.s.cost_per_q_total)}`));
+      svg('text', {x: cx, y: cy + (above ? -15 : 51), 'text-anchor': 'middle', class: 'point-sub'}, `${pct(p.s.accuracy)} at ${usd(p.s.cost_per_q_total)}`));
   });
   chart.append(svg('text', {x: (L + W - R) / 2, y: H - 14, 'text-anchor': 'middle', class: 'axis-label'}, 'total cost per question'),
-    svg('text', {transform: `translate(20 ${(T + H - B) / 2}) rotate(-90)`, 'text-anchor': 'middle', class: 'axis-label'}, 'correct final answers'));
+    svg('text', {transform: `translate(20 ${(T + H - B) / 2}) rotate(-90)`, 'text-anchor': 'middle', class: 'axis-label'}, 'accuracy'));
   container.replaceChildren(chart);
-  if (note) note.textContent = `${metrics.n} held-out questions; each setup is scored on the runs it finished. Total cost includes search, page reads, the checker and the agent model. The vertical axis starts at ${Math.round(floor * 100)}%.`;
+  if (note) note.textContent = `Held-out test questions. Total cost includes search, page reads, the checker and the agent model. The vertical axis starts at ${Math.round(floor * 100)}%.`;
 }
 
 /** Two plain findings from analysis/findings.md. A FAKE DATA banner keeps them hidden. */
@@ -198,14 +248,19 @@ export function findingsFrom(markdown) {
   return paragraphs.slice(0, 2);
 }
 
+const ENGINE_NAMES = {tavily: 'Tavily', exa: 'Exa', brave: 'Brave', perplexity: 'Perplexity', parallel: 'Parallel', ceramic: 'Ceramic'};
+/** analysis/findings.md writes engine ids; the site writes engine names. */
+export const withEngineNames = text => text.replace(/\b(tavily|exa|brave|perplexity|parallel|ceramic)\b/g, id => ENGINE_NAMES[id]);
+
 function renderFindings(root, markdown) {
   const list = root.querySelector('.findings');
   const items = findingsFrom(markdown);
   list.replaceChildren(...(items.length ? items.map((text, i) => {
     const card = el('article', 'finding');
-    card.append(el('p', 'label', `Finding ${i + 1}`), el('p', 'finding-text', text));
+    card.append(el('p', 'label', `Finding ${i + 1}`), el('p', 'finding-text', withEngineNames(text)));
     return card;
   }) : [el('p', 'pending-box', PENDING)]));
+  if (items.length) list.append(el('p', 'findings-note', 'Both findings come from the engine hit matrix, where each question was asked of each engine once, with Tavily as the first engine. They are not from the agent runs above. Source: analysis/findings.md.'));
 }
 
 /**
@@ -230,14 +285,21 @@ export async function loadResults(root) {
   const results = data?.results || null;
   const metrics = measured(results, validateResults(results));
   const status = root.querySelector('.results-status');
-  const counts = metrics ? [metrics.single, metrics.baseline, metrics.ours].map(b => scored(b, metrics.n)) : [];
-  status.textContent = metrics ? (counts.every(c => c === metrics.n) ? `${metrics.n} held-out questions per setup` : `${metrics.n} held-out questions; Backstop scored ${scored(metrics.ours, metrics.n)} (one run failed and is not counted)`) : 'Results pending: the held-out evaluation has not finished';
+  status.textContent = metrics ? 'Same test questions for all three setups' : 'Results pending: the held-out evaluation has not finished';
   status.classList.toggle('is-pending', !metrics);
+  renderHero(metrics);
   renderHeadline(root, metrics);
   const note = document.getElementById('race-honest');
   if (note) { const text = raceNote(metrics); note.textContent = text || ''; note.hidden = !text; }
   renderTable(root.querySelector('.results-table'), metrics);
-  drawAccuracyCost(root.querySelector('.accuracy-chart'), metrics);
+  const chart = root.querySelector('.accuracy-chart');
+  drawAccuracyCost(chart, metrics);
+  let narrow = narrowChart(chart);
+  addEventListener('resize', () => {
+    if (narrowChart(chart) === narrow) return;
+    narrow = narrowChart(chart);
+    drawAccuracyCost(chart, metrics);
+  });
   renderFindings(root, site?.findings ?? null);
   return {metrics, rescueTable: site?.rescue_table || null};
 }

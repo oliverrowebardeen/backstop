@@ -242,12 +242,6 @@ function playReplay() {
   source.onerror = () => { source.close(); if (active) fail('The recording disconnected. You can replay it or run a question.'); };
 }
 $('#replay-button').addEventListener('click', playReplay);
-$('#race-theme').addEventListener('click', () => {
-  const light = $('#race').dataset.theme !== 'light';
-  $('#race').dataset.theme = light ? 'light' : 'dark';
-  $('#race-theme').textContent = light ? 'Dark mode' : 'Light mode';
-  $('#race-theme').setAttribute('aria-pressed', String(light));
-});
 $('#stop-button').addEventListener('click', () => {
   closeConnections();
   fail(replayMode ? 'Replay stopped. The received events are available to export.' : 'Stopped viewing. Live agents continue until completion or the server timeout.');

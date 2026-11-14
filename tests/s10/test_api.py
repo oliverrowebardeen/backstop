@@ -119,8 +119,8 @@ def test_recordings_are_listed_and_served(fakes: Fakes, tmp_path) -> None:
         assert client.get("/memo/recordings/missing").status_code == 404
 
 
-def test_shipped_fixtures_and_recording_are_valid() -> None:
-    memos = json.loads((ROOT / "ui" / "fixtures" / "memos.json").read_text())["memos"]
+def test_example_memos_and_recordings_are_valid() -> None:
+    memos = json.loads((ROOT / "tests" / "s10" / "example_memos.json").read_text())["memos"]
     assert 2 <= len(memos) <= 3
     for memo in memos:
         assert len(memo["text"]) <= claims.MAX_MEMO_CHARS and "—" not in memo["text"]
