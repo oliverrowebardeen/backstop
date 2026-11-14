@@ -192,10 +192,13 @@ engine, unchecked), `telem_default` (Telem's accuracy routing, unchecked) or
 model, prompt and tools. Each column streams its searches with the Telem engines called,
 the checker's verdict in words, page reads (Tavily Extract or Telem fetch), running
 counters for engine calls, cost and time, and the cited final answer. A not-found answer
-is shown as a deliberate outcome. Each column can export its full audit trail as JSON.
+is shown as a deliberate outcome. When both runs finish, one line under the race
+compares their engine calls, total cost and time.
 
-Recorded races in [`demo/`](demo/) play back with their original timing and are
-labelled on screen as replays of a live run. To record new ones from evaluation results:
+Recorded races in [`ui/fixtures/`](ui/fixtures/) (the examples the site ships) and
+[`demo/`](demo/) play back with their original timing. They are labelled on screen as
+replays of a live run, with the date, commit and checker, routing and cache settings
+they were recorded with. To record new ones from evaluation results:
 
 ```sh
 python -m demo.candidates --write   # test-split runs that show each story -> demo/golden.json

@@ -175,3 +175,18 @@ def test_vercel_function_fits_a_race():
     functions = json.loads((root / "vercel.json").read_text())["functions"]
     assert functions["server/app.py"]["maxDuration"] >= 90 + 10  # the 90 s race limit plus start-up
     assert 'entrypoint = "server.app:app"' in (root / "pyproject.toml").read_text()
+
+
+def test_shipped_replays_state_how_they_were_recorded_and_claim_no_selection():
+    root = Path(__file__).resolve().parents[2]
+    from server.app import replay_catalog
+    shipped = replay_catalog(root / "none", None, root / "ui" / "fixtures")
+    assert shipped
+    for name, pair in shipped.items():
+        meta = pair.summary()
+        assert meta["commit"] and meta["recorded_at"], name
+        assert (meta["checker_backend"], meta["first_engine_routing"], meta["cache"]) == ("cascade", "on", "off"), name
+        assert "seed" not in meta and "selection" not in meta, name
+    for manifest in (root / "ui" / "fixtures").glob("race-*.json"):
+        text = manifest.read_text().lower()
+        assert not any(word in text for word in ("seed", "selection", "random", "whatever the outcome")), manifest.name

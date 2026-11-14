@@ -48,12 +48,17 @@ test('summary splits by subject when the sides trade wins, and reports ties plai
   assert.equal(raceSummary(backstop, {name: 'x', engineCalls: NaN, cost: 0, elapsed: 0}), null);
 });
 
-test('replay label states date and commit from the manifest, never for synthetic fixtures', () => {
+test('replay label states date, commit and recording settings from the manifest, never for synthetic fixtures', () => {
   const pair = {recorded_at: '2026-11-14T22:40:05+00:00', commit: '0ef610b456cc', fixture: false,
-    selection: 'One of 6 test-split questions drawn at random with seed 14; all 6 recordings are shown, whatever the outcome'};
-  assert.equal(replayLabel(pair), 'Recorded Nov 14, 2026 on commit 0ef610b. One of 6 test-split questions drawn at random ' +
-    'with seed 14; all 6 recordings are shown, whatever the outcome.');
-  assert.equal(replayLabel({...pair, commit: 'not a sha', selection: undefined}), 'Recorded Nov 14, 2026.');
+    checker_backend: 'cascade', first_engine_routing: 'on', cache: 'off'};
+  const label = replayLabel(pair);
+  assert.equal(label, 'Example race. Recorded live Nov 14, 2026 on commit 0ef610b with the cascade checker, ' +
+    'first-engine routing on and the cache off.');
+  assert.ok(!/random|seed|whatever/i.test(label));
+  assert.equal(replayLabel({...pair, checker_backend: 'llm', first_engine_routing: undefined, cache: undefined}),
+    'Example race. Recorded live Nov 14, 2026 on commit 0ef610b with the LLM checker.');
+  assert.equal(replayLabel({recorded_at: pair.recorded_at, commit: 'not a sha'}), 'Example race. Recorded live Nov 14, 2026.');
+  assert.equal(replayLabel({...pair, recorded_at: undefined}), '');
   assert.equal(replayLabel({...pair, fixture: true}), '');
   assert.equal(replayLabel(null), '');
 });

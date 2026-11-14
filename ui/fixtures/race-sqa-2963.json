@@ -10,8 +10,6 @@
   "first_engine_routing": "on",
   "cache": "off",
   "split": "test",
-  "seed": 14,
-  "selection": "One of 6 test-split questions drawn at random with seed 14; all 6 recordings are shown, whatever the outcome",
   "commit": "0ef610b456cc",
   "checker_cascade_threshold": 0.7
 }

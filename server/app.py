@@ -127,7 +127,7 @@ class ServerSettings:
 
 
 # Provenance a recording manifest may carry; /replays passes it through for the race label.
-REPLAY_META = ("recorded_at", "commit", "question_id", "split", "seed", "selection", "checker_backend")
+REPLAY_META = ("recorded_at", "commit", "question_id", "split", "checker_backend", "first_engine_routing", "cache")
 
 
 @dataclass

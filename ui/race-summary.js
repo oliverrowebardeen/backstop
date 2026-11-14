@@ -39,13 +39,23 @@ export function raceSummary(a, b) {
   }).join(' ');
 }
 
-/** "Recorded Nov 14, 2026 on commit abc1234." plus how the question was chosen, from the manifest. */
+/** How a recording was made, read from its manifest. */
+const SETTINGS = {
+  checker_backend: value => `the ${value === 'llm' ? 'LLM' : value} checker`,
+  first_engine_routing: value => `first-engine routing ${value}`,
+  cache: value => `the cache ${value}`,
+};
+
+/** "Example race. Recorded live Nov 14, 2026 on commit abc1234 with ..." from the manifest; empty for fixtures. */
 export function replayLabel(pair) {
   if (!pair || pair.fixture) return '';
   const when = Date.parse(pair.recorded_at || '');
   const date = Number.isFinite(when) ? new Date(when).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'}) : null;
   const commit = typeof pair.commit === 'string' && /^[0-9a-f]{7,40}$/.test(pair.commit) ? pair.commit.slice(0, 7) : null;
-  const recorded = date && commit ? `Recorded ${date} on commit ${commit}.` : date ? `Recorded ${date}.` : '';
-  const selection = typeof pair.selection === 'string' ? pair.selection.trim().replace(/\.?$/, '.') : '';
-  return [recorded, selection].filter(Boolean).join(' ');
+  if (!date) return '';
+  const settings = Object.entries(SETTINGS).filter(([key]) => /^[a-z]+$/.test(String(pair[key] ?? '')))
+    .map(([key, say]) => say(pair[key]));
+  const how = settings.length > 1 ? `${settings.slice(0, -1).join(', ')} and ${settings.at(-1)}` : settings[0];
+  return `Example race. Recorded live ${date}${commit ? ` on commit ${commit}` : ''}${how ? ` with ${how}` : ''}.`;
 }
+

@@ -3,7 +3,9 @@
   python -m demo.record --golden                       # every entry in demo/golden.json
   python -m demo.record --name NAME --question-id ID [--left single] [--right second_opinion]
   python -m demo.record --golden --checker-backend cascade   # default: CHECKER_BACKEND
-  python -m demo.record --sample 6 --seed 14 --layout flat --demo-dir ui/fixtures --commit origin/main
+  python -m demo.record --name race-sqa-2963 --question-id sqa-2963 --left telem_default \
+      --layout flat --demo-dir ui/fixtures --commit origin/main      # one shipped example
+  python -m demo.record --sample N --seed S --layout flat --demo-dir DIR   # N drawn test questions
 
 Both setups run at the same time on the same question with the response cache
 off, so every search, page read and model call in the recording is live and its
@@ -16,12 +18,12 @@ that fails to load is removed again, so a bad recording never breaks the list.
 The race screen labels these pairs as replays of a live run.
 
 `--sample N --seed S` draws N questions at random from one split's question file
-(traps excluded) with `random.Random(S)`, after sorting by id, so the pick depends
-only on the seed and nobody chooses the questions. Telem default races Backstop on
-each, and every recording is kept whatever the outcome. `--layout flat` writes the
-shipped-fixture layout (`<name>.json` beside `<question id>.<setup>.jsonl`), and the
-manifest records the commit whose agent code ran, the seed and the selection rule,
-which the race screen shows as "Recorded <date> on commit <sha>".
+(traps excluded) with `random.Random(S)`, after sorting by id, and Telem default
+races Backstop on each. Which recordings ship is decided afterwards, so manifests
+carry no selection claim. `--layout flat` writes the shipped-fixture layout
+(`<name>.json` beside `<question id>.<setup>.jsonl`). Every manifest records the
+commit whose agent code ran and the checker, routing and cache settings, which the
+race screen shows as "Recorded live <date> on commit <sha> with ...".
 """
 from __future__ import annotations
 
@@ -295,9 +297,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("--sample needs --seed")
         specs = sample_specs(args.sample, args.seed, split=args.split, left=args.left or "telem_default",
                              right=args.right)
-        provenance = {"split": args.split, "seed": args.seed,
-                      "selection": f"One of {args.sample} {args.split}-split questions drawn at random with seed "
-                                   f"{args.seed}; all {args.sample} recordings are shown, whatever the outcome"}
+        provenance = {"split": args.split}
     elif args.golden:
         specs = golden_specs(args.demo_dir / "golden.json")
     elif not (args.name and args.question_id):
