@@ -1,0 +1,1237 @@
+{
+  "run_id": "memo-36dd3d0fd3d1",
+  "text": "Microsoft was founded in 1975 by Bill Gates and Paul Allen and is headquartered in Redmond, Washington. Satya Nadella became CEO in 2014. Microsoft acquired LinkedIn in 2016 for $26.2 billion and completed its acquisition of Activision Blizzard in October 2023 for about $69 billion. It bought GitHub in 2018 for $15 billion. Its first office in Albuquerque kept a vending machine stocked only with orange soda.",
+  "checked_at": "2026-11-14T21:42:39+00:00",
+  "claims": [
+    {
+      "id": "c1",
+      "text": "Microsoft was founded in 1975.",
+      "kind": "date",
+      "entities": [
+        "Microsoft"
+      ],
+      "goal": "the year Microsoft was founded",
+      "query": "Microsoft founding year 1975 founded",
+      "quote": "Microsoft was founded in 1975",
+      "span": [
+        0,
+        29
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.97,
+      "why": "Multiple sources state Microsoft was founded in 1975; claim gives only the year, matching the goal.",
+      "evidence_snippet": "Microsoft is a computer technology corporation founded on April 4, 1975, by Bill Gates and Paul Allen in Albuquerque, New Mexico, United States.",
+      "source_url": "https://en.wikipedia.org/wiki/History_of_Microsoft",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00029410000000000005,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.97,
+          "why": "Multiple sources state Microsoft was founded in 1975; claim gives only the year, matching the goal.",
+          "source_url": "https://en.wikipedia.org/wiki/History_of_Microsoft",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "text": "Microsoft was founded by Bill Gates and Paul Allen.",
+      "kind": "entity_role",
+      "entities": [
+        "Microsoft",
+        "Bill Gates",
+        "Paul Allen"
+      ],
+      "goal": "the people who founded Microsoft",
+      "query": "Microsoft founders Bill Gates Paul Allen",
+      "quote": "by Bill Gates and Paul Allen",
+      "span": [
+        30,
+        58
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.97,
+      "why": "Multiple sources state Gates and Allen co-founded Microsoft in 1975.",
+      "evidence_snippet": "He co-founded Microsoft Corporation with his childhood friend Bill Gates in 1975, which was followed by the microcomputer revolution of the 1970s and 1980s.",
+      "source_url": "https://en.wikipedia.org/wiki/Paul_Allen",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00029739999999999996,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.97,
+          "why": "Multiple sources state Gates and Allen co-founded Microsoft in 1975.",
+          "source_url": "https://en.wikipedia.org/wiki/Paul_Allen",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "text": "Microsoft is headquartered in Redmond, Washington.",
+      "kind": "other",
+      "entities": [
+        "Microsoft"
+      ],
+      "goal": "the city and state where Microsoft's headquarters is located",
+      "query": "Microsoft headquarters location Redmond Washington",
+      "quote": "headquartered in Redmond, Washington",
+      "span": [
+        66,
+        102
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.97,
+      "why": "Multiple sources state Microsoft's global headquarters is in Redmond, Washington, matching the claim's city and state.",
+      "evidence_snippet": "Microsoft\u2019s global headquarters are located on 500 acres in Redmond, Washington that includes public spaces, sports fields, green space, and more than 125 buildings.",
+      "source_url": "https://www.microsoft.com/en-us/about/office-locations",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00029,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.97,
+          "why": "Multiple sources state Microsoft's global headquarters is in Redmond, Washington, matching the claim's city and state.",
+          "source_url": "https://www.microsoft.com/en-us/about/office-locations",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "text": "Satya Nadella became CEO of Microsoft in 2014.",
+      "kind": "entity_role",
+      "entities": [
+        "Satya Nadella",
+        "Microsoft"
+      ],
+      "goal": "the year Satya Nadella became CEO of Microsoft",
+      "query": "Satya Nadella became Microsoft CEO year",
+      "quote": "Satya Nadella became CEO in 2014",
+      "span": [
+        104,
+        136
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.97,
+      "why": "Multiple sources state Nadella became Microsoft CEO in February 2014, matching the claimed year.",
+      "evidence_snippet": "On February 4, 2014, Nadella became CEO of Microsoft, the third person to hold the office in the company\u2019s nearly 40-year history",
+      "source_url": "https://www.britannica.com/money/Satya-Nadella",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00029580000000000003,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.97,
+          "why": "Multiple sources state Nadella became Microsoft CEO in February 2014, matching the claimed year.",
+          "source_url": "https://www.britannica.com/money/Satya-Nadella",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "text": "Microsoft acquired LinkedIn in 2016 for $26.2 billion.",
+      "kind": "event",
+      "entities": [
+        "Microsoft",
+        "LinkedIn"
+      ],
+      "goal": "the year and price Microsoft paid to acquire LinkedIn",
+      "query": "Microsoft acquires LinkedIn 2016 $26.2 billion",
+      "quote": "acquired LinkedIn in 2016 for $26.2 billion",
+      "span": [
+        148,
+        191
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.97,
+      "why": "Microsoft's official announcement states it would acquire LinkedIn for $196 per share, valued at $26.2 billion, dated June 13, 2016.",
+      "evidence_snippet": "on Monday announced they have entered into a definitive agreement under which Microsoft will acquire LinkedIn for $196 per share in an all-cash transaction valued at $26.2 billion",
+      "source_url": "https://news.microsoft.com/source/2016/06/13/microsoft-to-acquire-linkedin",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00032820000000000006,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.97,
+          "why": "Microsoft's official announcement states it would acquire LinkedIn for $196 per share, valued at $26.2 billion, dated June 13, 2016.",
+          "source_url": "https://news.microsoft.com/source/2016/06/13/microsoft-to-acquire-linkedin",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c6",
+      "text": "Microsoft completed its acquisition of Activision Blizzard in October 2023 for about $69 billion.",
+      "kind": "event",
+      "entities": [
+        "Microsoft",
+        "Activision Blizzard"
+      ],
+      "goal": "the completion date and price of Microsoft's acquisition of Activision Blizzard",
+      "query": "Microsoft completes Activision Blizzard acquisition October 2023 $69 billion",
+      "quote": "completed its acquisition of Activision Blizzard in October 2023 for about $69 billion",
+      "span": [
+        196,
+        282
+      ],
+      "verdict": "VERIFIED",
+      "confidence": 0.93,
+      "why": "Multiple sources state completion in October 2023 for $69 billion; source 1 gives 13 October 2023 completion and $68.7B announced price.",
+      "evidence_snippet": "Microsoft Corp. completed its $69 billion purchase of Activision Blizzard Inc. after a nearly two-year fight with global regulators threatened to scuttle the deal.",
+      "source_url": "https://www.bloomberg.com/news/articles/2023-10-13/microsoft-completes-69-billion-activision-purchase",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.0003213,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "VERIFIED",
+          "confidence": 0.93,
+          "why": "Multiple sources state completion in October 2023 for $69 billion; source 1 gives 13 October 2023 completion and $68.7B announced price.",
+          "source_url": "https://www.bloomberg.com/news/articles/2023-10-13/microsoft-completes-69-billion-activision-purchase",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "text": "Microsoft bought GitHub in 2018 for $15 billion.",
+      "kind": "event",
+      "entities": [
+        "Microsoft",
+        "GitHub"
+      ],
+      "goal": "the year and price Microsoft paid to acquire GitHub",
+      "query": "Microsoft acquires GitHub 2018 $15 billion",
+      "quote": "bought GitHub in 2018 for $15 billion",
+      "span": [
+        287,
+        324
+      ],
+      "verdict": "CONTRADICTED",
+      "confidence": 0.95,
+      "why": "Memo says \"$15 billion\", sources say the deal was valued at $7.5 billion; year 2018 matches.",
+      "evidence_snippet": "Microsoft Corp. on Monday announced it has reached an agreement to acquire GitHub, the world\u2019s leading software development platform",
+      "source_url": "https://news.microsoft.com/source/2018/06/04/microsoft-to-acquire-github-for-7-5-billion",
+      "engines_used": [
+        "tavily"
+      ],
+      "rescues_used": 0,
+      "cost_usd": 0.00029739999999999996,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "CONTRADICTED",
+          "confidence": 0.95,
+          "why": "Memo says \"$15 billion\", sources say the deal was valued at $7.5 billion; year 2018 matches.",
+          "source_url": "https://news.microsoft.com/source/2018/06/04/microsoft-to-acquire-github-for-7-5-billion",
+          "n_sources": 5,
+          "note": null
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "text": "Microsoft's first office in Albuquerque had a vending machine stocked only with orange soda.",
+      "kind": "other",
+      "entities": [
+        "Microsoft"
+      ],
+      "goal": "a source describing Microsoft's first Albuquerque office vending machine stocked with orange soda",
+      "query": "Microsoft first office Albuquerque vending machine orange soda",
+      "quote": "Its first office in Albuquerque kept a vending machine stocked only with orange soda",
+      "span": [
+        326,
+        410
+      ],
+      "verdict": "NOT_FOUND",
+      "confidence": 0.85,
+      "why": "No source confirmed or refuted this after 3 tries. Last check: Source mentions Gates liked Tang orange drink mix in Albuquerque, but says nothing about a vending machine stocked only with orange soda at the office.",
+      "evidence_snippet": "",
+      "source_url": null,
+      "engines_used": [
+        "tavily",
+        "perplexity",
+        "exa",
+        "parallel"
+      ],
+      "rescues_used": 2,
+      "cost_usd": 0.014162500000000001,
+      "error": null,
+      "trace": [
+        {
+          "step": "first_pass",
+          "verdict": "INSUFFICIENT",
+          "confidence": 0.8,
+          "why": "Source 1 mentions Gates's love of Tang orange drink mix, not a vending machine stocked only with orange soda at the first office. No source states the vending machine claim.",
+          "source_url": null,
+          "n_sources": 5,
+          "note": null
+        },
+        {
+          "step": "backstop_cascade",
+          "status": "NOT_FOUND",
+          "calls": 3,
+          "fetches": 0,
+          "engines": [
+            "perplexity",
+            "exa",
+            "parallel"
+          ],
+          "cost_usd": 0.0116487
+        },
+        {
+          "step": "backstop_cascade",
+          "verdict": "INSUFFICIENT",
+          "confidence": 0.9,
+          "why": "Sources confirm Microsoft's Albuquerque office but none mention a vending machine or orange soda at all.",
+          "source_url": null,
+          "n_sources": 10,
+          "note": null
+        },
+        {
+          "step": "page_read",
+          "verdict": "INSUFFICIENT",
+          "confidence": 0.85,
+          "why": "Source mentions Gates liked Tang orange drink mix in Albuquerque, but says nothing about a vending machine stocked only with orange soda at the office.",
+          "source_url": null,
+          "n_sources": 1,
+          "note": null
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "verified": 6,
+    "contradicted": 1,
+    "not_found": 1
+  },
+  "engine_calls": 11,
+  "fetches": 1,
+  "cost_usd": 0.05692,
+  "latency_ms": 19395.1,
+  "telem_session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+  "telem_interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201",
+  "limits": {
+    "max_claims": 12,
+    "max_memo_chars": 4000,
+    "max_cost_usd": 0.4,
+    "timeout_s": 90.0,
+    "concurrency": 6
+  },
+  "notes": [],
+  "trace": [
+    {
+      "type": "run_start",
+      "ts": "2026-11-14T21:42:19.813+00:00",
+      "data": {
+        "question": "Microsoft was founded in 1975 by Bill Gates and Paul Allen and is headquartered in Redmond, Washington. Satya Nadella became CEO in 2014. Microsoft acquired LinkedIn in 2016 for $26.2 billion and completed its acquisition of Activision Blizzard in October 2023 for about $69 billion. It bought GitHub",
+        "kind": "memo_check",
+        "memo_chars": 411
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:25.172+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 1190,
+        "tokens_out": 1029,
+        "cost_usd": 0.0006335,
+        "latency_ms": 5354.83770899009,
+        "cached": false,
+        "claim_id": null,
+        "step": "extract_claims"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft founding year 1975 founded",
+        "goal": "the year Microsoft was founded",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 1055.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c1",
+        "batch_index": 0,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft founders Bill Gates Paul Allen",
+        "goal": "the people who founded Microsoft",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 877.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c2",
+        "batch_index": 1,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft headquarters location Redmond Washington",
+        "goal": "the city and state where Microsoft's headquarters is located",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 1023.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c3",
+        "batch_index": 2,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Satya Nadella became Microsoft CEO year",
+        "goal": "the year Satya Nadella became CEO of Microsoft",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 1215.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c4",
+        "batch_index": 3,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft acquires LinkedIn 2016 $26.2 billion",
+        "goal": "the year and price Microsoft paid to acquire LinkedIn",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 876.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c5",
+        "batch_index": 4,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft completes Activision Blizzard acquisition October 2023 $69 billion",
+        "goal": "the completion date and price of Microsoft's acquisition of Activision Blizzard",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 1767.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c6",
+        "batch_index": 5,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft acquires GitHub 2018 $15 billion",
+        "goal": "the year and price Microsoft paid to acquire GitHub",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 939.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c7",
+        "batch_index": 6,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:27.299+00:00",
+      "data": {
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "goal": "a source describing Microsoft's first Albuquerque office vending machine stocked with orange soda",
+        "engines": [
+          "tavily"
+        ],
+        "n_results": 5,
+        "latency_ms": 1156.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "claim_id": "c8",
+        "batch_index": 7,
+        "session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "interaction_id": "7d703cf5-2d5d-4399-aef0-cfbf08b0d201"
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:29.497+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2175,
+        "tokens_out": 145,
+        "cost_usd": 0.00029,
+        "latency_ms": 2187.4671659898013,
+        "cached": false,
+        "claim_id": "c3",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:29.497+00:00",
+      "data": {
+        "claim_id": "c3",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.97,
+        "why": "Multiple sources state Microsoft's global headquarters is in Redmond, Washington, matching the claim's city and state.",
+        "evidence_rank": 3,
+        "source_url": "https://www.microsoft.com/en-us/about/office-locations",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:29.643+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2303,
+        "tokens_out": 131,
+        "cost_usd": 0.00029580000000000003,
+        "latency_ms": 2329.2797500034794,
+        "cached": false,
+        "claim_id": "c4",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:29.643+00:00",
+      "data": {
+        "claim_id": "c4",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.97,
+        "why": "Multiple sources state Nadella became Microsoft CEO in February 2014, matching the claimed year.",
+        "evidence_rank": 2,
+        "source_url": "https://www.britannica.com/money/Satya-Nadella",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:29.821+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2472,
+        "tokens_out": 162,
+        "cost_usd": 0.00032820000000000006,
+        "latency_ms": 2503.313999972306,
+        "cached": false,
+        "claim_id": "c5",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:29.821+00:00",
+      "data": {
+        "claim_id": "c5",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.97,
+        "why": "Microsoft's official announcement states it would acquire LinkedIn for $196 per share, valued at $26.2 billion, dated June 13, 2016.",
+        "evidence_rank": 3,
+        "source_url": "https://news.microsoft.com/source/2016/06/13/microsoft-to-acquire-linkedin",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:29.832+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2289,
+        "tokens_out": 137,
+        "cost_usd": 0.00029739999999999996,
+        "latency_ms": 2526.7136249458417,
+        "cached": false,
+        "claim_id": "c2",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:29.832+00:00",
+      "data": {
+        "claim_id": "c2",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.97,
+        "why": "Multiple sources state Gates and Allen co-founded Microsoft in 1975.",
+        "evidence_rank": 1,
+        "source_url": "https://en.wikipedia.org/wiki/Paul_Allen",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:30.011+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2236,
+        "tokens_out": 141,
+        "cost_usd": 0.00029410000000000005,
+        "latency_ms": 2710.956000024453,
+        "cached": false,
+        "claim_id": "c1",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:30.012+00:00",
+      "data": {
+        "claim_id": "c1",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.97,
+        "why": "Multiple sources state Microsoft was founded in 1975; claim gives only the year, matching the goal.",
+        "evidence_rank": 1,
+        "source_url": "https://en.wikipedia.org/wiki/History_of_Microsoft",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:30.014+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2418,
+        "tokens_out": 159,
+        "cost_usd": 0.0003213,
+        "latency_ms": 2692.339333007112,
+        "cached": false,
+        "claim_id": "c6",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:30.014+00:00",
+      "data": {
+        "claim_id": "c6",
+        "step": "first_pass",
+        "verdict": "VERIFIED",
+        "confidence": 0.93,
+        "why": "Multiple sources state completion in October 2023 for $69 billion; source 1 gives 13 October 2023 completion and $68.7B announced price.",
+        "evidence_rank": 4,
+        "source_url": "https://www.bloomberg.com/news/articles/2023-10-13/microsoft-completes-69-billion-activision-purchase",
+        "note": null
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:31.250+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2364,
+        "tokens_out": 109,
+        "cost_usd": 0.00029089999999999997,
+        "latency_ms": 1605.5399999022484,
+        "cached": false,
+        "claim_id": "c8",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:31.250+00:00",
+      "data": {
+        "claim_id": "c8",
+        "step": "first_pass",
+        "verdict": "INSUFFICIENT",
+        "confidence": 0.8,
+        "why": "Source 1 mentions Gates's love of Tang orange drink mix, not a vending machine stocked only with orange soda at the first office. No source states the vending machine claim.",
+        "evidence_rank": null,
+        "source_url": null,
+        "note": null
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:31.784+00:00",
+      "data": {
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "goal": "a source describing Microsoft's first Albuquerque office vending machine stocked with orange soda",
+        "engines": [
+          "perplexity"
+        ],
+        "n_results": 5,
+        "latency_ms": 234.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "published_after": null,
+        "session": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "status": "ok",
+        "first_engine": "perplexity",
+        "question_type": "fact"
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:32.107+00:00",
+      "data": {
+        "role": "checker",
+        "model": "gpt-6-luna",
+        "tokens_in": 2023,
+        "tokens_out": 0,
+        "cost_usd": 0.0002023,
+        "latency_ms": 321.3736660545692,
+        "cached": false
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:32.108+00:00",
+      "data": {
+        "verdict": "DEAD",
+        "confidence": 0.72,
+        "why": "Results do not contain relevant evidence.",
+        "evidence_rank": null,
+        "best_url": null,
+        "rewrite": null
+      }
+    },
+    {
+      "type": "rescue",
+      "ts": "2026-11-14T21:42:32.108+00:00",
+      "data": {
+        "action": "RETRY_ENGINE",
+        "engine": "exa",
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "reason": "Results do not contain relevant evidence.",
+        "counted": true,
+        "estimated_cost_usd": 0.005202
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:32.720+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 2299,
+        "tokens_out": 135,
+        "cost_usd": 0.00029739999999999996,
+        "latency_ms": 3221.814832999371,
+        "cached": false,
+        "claim_id": "c7",
+        "step": "first_pass"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:32.721+00:00",
+      "data": {
+        "claim_id": "c7",
+        "step": "first_pass",
+        "verdict": "CONTRADICTED",
+        "confidence": 0.95,
+        "why": "Memo says \"$15 billion\", sources say the deal was valued at $7.5 billion; year 2018 matches.",
+        "evidence_rank": 2,
+        "source_url": "https://news.microsoft.com/source/2018/06/04/microsoft-to-acquire-github-for-7-5-billion",
+        "note": null
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:34.956+00:00",
+      "data": {
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "goal": "a source describing Microsoft's first Albuquerque office vending machine stocked with orange soda",
+        "engines": [
+          "exa"
+        ],
+        "n_results": 5,
+        "latency_ms": 2556.0,
+        "cost_usd": 0.005,
+        "cached": false,
+        "published_after": null,
+        "session": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "status": "ok"
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:35.207+00:00",
+      "data": {
+        "role": "checker",
+        "model": "gpt-6-luna",
+        "tokens_in": 2279,
+        "tokens_out": 0,
+        "cost_usd": 0.0002279,
+        "latency_ms": 249.3967500049621,
+        "cached": false
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:35.207+00:00",
+      "data": {
+        "verdict": "DEAD",
+        "confidence": 0.92,
+        "why": "Results do not contain relevant evidence.",
+        "evidence_rank": null,
+        "best_url": null,
+        "rewrite": null
+      }
+    },
+    {
+      "type": "rescue",
+      "ts": "2026-11-14T21:42:35.207+00:00",
+      "data": {
+        "action": "RETRY_ENGINE",
+        "engine": "parallel",
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "reason": "Results do not contain relevant evidence.",
+        "counted": true,
+        "estimated_cost_usd": 0.001215
+      }
+    },
+    {
+      "type": "search",
+      "ts": "2026-11-14T21:42:35.839+00:00",
+      "data": {
+        "query": "Microsoft first office Albuquerque vending machine orange soda",
+        "goal": "a source describing Microsoft's first Albuquerque office vending machine stocked with orange soda",
+        "engines": [
+          "parallel"
+        ],
+        "n_results": 5,
+        "latency_ms": 288.0,
+        "cost_usd": 0.001,
+        "cached": false,
+        "published_after": null,
+        "session": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "status": "ok"
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:36.096+00:00",
+      "data": {
+        "role": "checker",
+        "model": "gpt-6-luna",
+        "tokens_in": 2185,
+        "tokens_out": 0,
+        "cost_usd": 0.0002185,
+        "latency_ms": 255.92999998480082,
+        "cached": false
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:36.096+00:00",
+      "data": {
+        "verdict": "DEAD",
+        "confidence": 0.85,
+        "why": "Results do not contain relevant evidence.",
+        "evidence_rank": null,
+        "best_url": null,
+        "rewrite": null
+      }
+    },
+    {
+      "type": "search_done",
+      "ts": "2026-11-14T21:42:36.097+00:00",
+      "data": {
+        "status": "NOT_FOUND",
+        "note": "No engine surfaced this after 3 tries. If you cannot answer from other evidence, answer NOT FOUND.",
+        "calls": 3,
+        "fetches": 0,
+        "cost_usd": 0.0116487,
+        "latency_ms": 4846.004582941532,
+        "ranking": [
+          {
+            "url": "https://www.historylink.org/File/21161",
+            "rank": 1,
+            "rank_reason": "agreement: 2 engines",
+            "engines": [
+              "exa",
+              "perplexity"
+            ]
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/shows/history/history-of-microsoft-1976",
+            "rank": 2,
+            "rank_reason": "agreement: 2 engines",
+            "engines": [
+              "exa",
+              "perplexity"
+            ]
+          },
+          {
+            "url": "https://www.firstonline.info/en/it-happened-today-april-4-1975-microsoft-turns-50-from-ms-dos-allia-the-story-of-a-technological-revolution/",
+            "rank": 3,
+            "rank_reason": "engine rank 1",
+            "engines": [
+              "exa"
+            ]
+          },
+          {
+            "url": "https://constructionreporter.com/10-story-modern-albuquerque-building-once-the-site-of-bill-gates-first-office-set-for-mid-month-auction",
+            "rank": 4,
+            "rank_reason": "engine rank 1",
+            "engines": [
+              "parallel"
+            ]
+          },
+          {
+            "url": "https://us.cnn.com/TRANSCRIPTS/0001/01/lklw.00.html",
+            "rank": 5,
+            "rank_reason": "engine rank 2",
+            "engines": [
+              "exa"
+            ]
+          },
+          {
+            "url": "https://www.manta.com/c/mm5b47m/desert-vending",
+            "rank": 6,
+            "rank_reason": "engine rank 2",
+            "engines": [
+              "parallel"
+            ]
+          },
+          {
+            "url": "https://mohai.org/collections-and-research/theme/history-of-microsoft/",
+            "rank": 7,
+            "rank_reason": "engine rank 3",
+            "engines": [
+              "perplexity"
+            ]
+          },
+          {
+            "url": "https://vendingsnacksonthefly.com/",
+            "rank": 8,
+            "rank_reason": "engine rank 3",
+            "engines": [
+              "parallel"
+            ]
+          },
+          {
+            "url": "https://www.reddit.com/r/Albuquerque/comments/1jrokpy/50_years_ago_microsoft_was_founded_in_albuquerque/",
+            "rank": 9,
+            "rank_reason": "engine rank 4",
+            "engines": [
+              "perplexity"
+            ]
+          },
+          {
+            "url": "https://www.microsoftalumnivoices.com/timeline",
+            "rank": 10,
+            "rank_reason": "engine rank 4",
+            "engines": [
+              "exa"
+            ]
+          },
+          {
+            "url": "https://albuquerque.vendvuevending.com/",
+            "rank": 11,
+            "rank_reason": "engine rank 4",
+            "engines": [
+              "parallel"
+            ]
+          },
+          {
+            "url": "https://www.linkedin.com/posts/williamrlawyer_the-history-of-microsoft-1975-activity-7355944049251414016-r4J5",
+            "rank": 12,
+            "rank_reason": "engine rank 5",
+            "engines": [
+              "perplexity"
+            ]
+          },
+          {
+            "url": "https://www.vendingtimes.com/news/albuquerque-vending-machines-benefit-meals-on-wheels",
+            "rank": 13,
+            "rank_reason": "engine rank 5",
+            "engines": [
+              "parallel"
+            ]
+          }
+        ],
+        "telem_session_id": "81fe475c-edb5-4ad4-868a-5eeb56bd12d9",
+        "rescues_used": 2,
+        "verification_failures": 0,
+        "verification_failure_counts": {},
+        "cost_usd_failed_checks": 0.0
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:37.703+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 3530,
+        "tokens_out": 90,
+        "cost_usd": 0.000398,
+        "latency_ms": 1605.0014999927953,
+        "cached": false,
+        "claim_id": "c8",
+        "step": "backstop_cascade"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:37.703+00:00",
+      "data": {
+        "claim_id": "c8",
+        "step": "backstop_cascade",
+        "verdict": "INSUFFICIENT",
+        "confidence": 0.9,
+        "why": "Sources confirm Microsoft's Albuquerque office but none mention a vending machine or orange soda at all.",
+        "evidence_rank": null,
+        "source_url": null,
+        "note": null
+      }
+    },
+    {
+      "type": "fetch",
+      "ts": "2026-11-14T21:42:38.021+00:00",
+      "data": {
+        "url": "https://www.historylink.org/File/21161",
+        "ok": true,
+        "via": "tavily",
+        "latency_ms": 317.20404198858887,
+        "cost_usd": 0.0016,
+        "cached": false,
+        "claim_id": "c8"
+      }
+    },
+    {
+      "type": "llm",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "role": "checker",
+        "model": "claude-haiku-5-5",
+        "tokens_in": 1724,
+        "tokens_out": 105,
+        "cost_usd": 0.00022490000000000002,
+        "latency_ms": 1185.920084011741,
+        "cached": false,
+        "claim_id": "c8",
+        "step": "page_read"
+      }
+    },
+    {
+      "type": "check",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c8",
+        "step": "page_read",
+        "verdict": "INSUFFICIENT",
+        "confidence": 0.85,
+        "why": "Source mentions Gates liked Tang orange drink mix in Albuquerque, but says nothing about a vending machine stocked only with orange soda at the office.",
+        "evidence_rank": null,
+        "source_url": null,
+        "note": null
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c1",
+        "final": "VERIFIED: Microsoft was founded in 1975.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://en.wikipedia.org/wiki/History_of_Microsoft"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c2",
+        "final": "VERIFIED: Microsoft was founded by Bill Gates and Paul Allen.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://en.wikipedia.org/wiki/Paul_Allen"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c3",
+        "final": "VERIFIED: Microsoft is headquartered in Redmond, Washington.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://www.microsoft.com/en-us/about/office-locations"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c4",
+        "final": "VERIFIED: Satya Nadella became CEO of Microsoft in 2014.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://www.britannica.com/money/Satya-Nadella"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c5",
+        "final": "VERIFIED: Microsoft acquired LinkedIn in 2016 for $26.2 billion.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://news.microsoft.com/source/2016/06/13/microsoft-to-acquire-linkedin"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c6",
+        "final": "VERIFIED: Microsoft completed its acquisition of Activision Blizzard in October 2023 for about $69 billion.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://www.bloomberg.com/news/articles/2023-10-13/microsoft-completes-69-billion-activision-purchase"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.208+00:00",
+      "data": {
+        "claim_id": "c7",
+        "final": "CONTRADICTED: Microsoft bought GitHub in 2018 for $15 billion.",
+        "status": "ANSWERED",
+        "citations": [
+          "https://news.microsoft.com/source/2018/06/04/microsoft-to-acquire-github-for-7-5-billion"
+        ]
+      }
+    },
+    {
+      "type": "answer",
+      "ts": "2026-11-14T21:42:39.209+00:00",
+      "data": {
+        "claim_id": "c8",
+        "final": "NOT_FOUND: Microsoft's first office in Albuquerque had a vending machine stocked only with orange soda.",
+        "status": "NOT_FOUND",
+        "citations": []
+      }
+    },
+    {
+      "type": "run_end",
+      "ts": "2026-11-14T21:42:39.209+00:00",
+      "data": {
+        "engine_calls": 11,
+        "fetches": 1,
+        "searches": 8,
+        "cost_usd_search": 0.05260000000000001,
+        "cost_usd_llm": 0.0043202,
+        "cost_usd_total": 0.056920200000000004,
+        "latency_ms": 19395.110916928388,
+        "verified": 6,
+        "contradicted": 1,
+        "not_found": 1
+      }
+    }
+  ],
+  "recorded": {
+    "memo_id": "microsoft",
+    "label": "Microsoft diligence note",
+    "source": "live run of tests/s10/live_smoke.py"
+  }
+}
