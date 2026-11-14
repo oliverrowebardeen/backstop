@@ -7,7 +7,12 @@ path. Each makes one call on CHECKER_MODEL and never sees gold answers.
 The model's JSON is validated, then hardened so a wrong HIT is unlikely:
 a HIT must point at a real result and clear HIT_MIN_CONFIDENCE, otherwise it
 becomes SHALLOW on that result so the page gets read instead of trusted.
-A failed model call degrades to DEAD (one extra search), never to HIT.
+
+Errors are explicit. A malformed reply is retried once; a second malformed
+reply is logged and returns a DEAD verdict whose `why` is MALFORMED_WHY, so a
+bad reply can cost one extra search but never produce a HIT. A model call that
+fails after the llm wrapper's own retries raises `CheckerError`, and budget
+errors propagate unchanged.
 
 Both functions return a `CheckedVerdict`: a `CheckerVerdict` that also carries
 the checker's own cost, tokens and latency. Those extra fields are excluded
@@ -17,6 +22,7 @@ Pass `ctx` to have the checker log its own `llm` event (role `checker`).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -29,19 +35,23 @@ from pydantic import Field
 from so.config import CHECKER_MODEL, BudgetExceeded
 from so.contracts import CheckerVerdict, LLMResponse, PageText, Result, RunContext
 
+logger = logging.getLogger(__name__)
+
 PROMPTS = Path(__file__).resolve().parent / "prompts"
+# Contract sizes: the checker sees the top 5 results (6.7), snippets are cut to
+# 500 characters (6.3) and page text to 6,000 characters (6.4).
 TOP_K = 5
 SNIPPET_CHARS = 500
 PAGE_CHARS = 6000
+# Bounds on free text copied from the model into verdicts and event logs.
 WHY_CHARS = 300
+REWRITE_CHARS = 300
 MAX_OUTPUT_TOKENS = 400
 # A HIT below this confidence is treated as "probably the right page" and read.
 HIT_MIN_CONFIDENCE = 0.6
+MALFORMED_WHY = "checker output malformed"
 
 VERDICTS = ("HIT", "STALE", "WRONG_ENTITY", "SHALLOW", "DEAD")
-_ALIASES = {"WRONG": "WRONG_ENTITY", "WRONGENTITY": "WRONG_ENTITY", "ENTITY": "WRONG_ENTITY",
-            "MISS": "DEAD", "NONE": "DEAD", "NOT_FOUND": "DEAD", "IRRELEVANT": "DEAD",
-            "OUTDATED": "STALE", "OLD": "STALE", "PARTIAL": "SHALLOW"}
 
 VERDICT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -56,6 +66,10 @@ VERDICT_SCHEMA: dict[str, Any] = {
     "required": ["verdict", "confidence", "why", "evidence_rank", "best_url", "rewrite"],
     "additionalProperties": False,
 }
+
+
+class CheckerError(RuntimeError):
+    """The checker model could not be reached or refused the request."""
 
 
 class CheckedVerdict(CheckerVerdict):
@@ -136,21 +150,25 @@ def extract_json(text: str) -> dict[str, Any]:
 
 
 def normalize_verdict(value: Any) -> str:
-    key = re.sub(r"[\s\-]+", "_", str(value or "").strip().upper())
-    key = _ALIASES.get(key.replace("_", ""), _ALIASES.get(key, key))
+    """Accept the five verdict names in any case, with spaces or hyphens for underscores."""
+    if not isinstance(value, str):
+        raise ValueError(f"verdict must be a string, got {value!r}")
+    key = re.sub(r"[\s\-]+", "_", value.strip().upper())
     if key not in VERDICTS:
         raise ValueError(f"unknown verdict {value!r}")
     return key
 
 
 def _confidence(value: Any) -> float:
-    try:
-        c = float(value)
-    except (TypeError, ValueError):
-        return 0.5
-    if 1 < c <= 100:
-        c /= 100
-    return min(max(c, 0.0), 1.0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        raise ValueError(f"confidence must be a number from 0 to 1, got {value!r}")
+    return float(value)
+
+
+def _why(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"why must be a string, got {value!r}")
+    return _one_line(value, WHY_CHARS)
 
 
 def _rank(value: Any, n: int) -> int | None:
@@ -190,10 +208,10 @@ def parse_verdict(text: str, results: Sequence[Result], query: str) -> CheckerVe
     raw = extract_json(text)
     verdict = normalize_verdict(raw.get("verdict"))
     confidence = _confidence(raw.get("confidence"))
-    why = _text(raw.get("why"), WHY_CHARS) or ""
+    why = _why(raw.get("why"))
     rank = _rank(raw.get("evidence_rank"), len(results))
     best_url = match_url(raw.get("best_url"), results)
-    rewrite = _text(raw.get("rewrite"), 300) or query
+    rewrite = _text(raw.get("rewrite"), REWRITE_CHARS) or query
 
     if verdict == "HIT":
         if rank is not None and confidence >= HIT_MIN_CONFIDENCE:
@@ -224,8 +242,8 @@ def parse_page_verdict(text: str, url: str, query: str) -> CheckerVerdict:
     raw = extract_json(text)
     verdict = normalize_verdict(raw.get("verdict"))
     confidence = _confidence(raw.get("confidence"))
-    why = _text(raw.get("why"), WHY_CHARS) or ""
-    rewrite = _text(raw.get("rewrite"), 300) or query
+    why = _why(raw.get("why"))
+    rewrite = _text(raw.get("rewrite"), REWRITE_CHARS) or query
     if verdict == "HIT" and confidence >= HIT_MIN_CONFIDENCE:
         return CheckerVerdict(verdict="HIT", confidence=confidence, why=why, best_url=url, rewrite=None)
     if verdict in ("HIT", "SHALLOW"):
@@ -244,50 +262,61 @@ async def _call_model(system: str, user: str) -> LLMResponse:
                               json_schema=VERDICT_SCHEMA)
 
 
-def _with_usage(verdict: CheckerVerdict, resp: LLMResponse | None) -> CheckedVerdict:
-    usage: dict[str, Any] = {}
-    if resp is not None:
-        usage = {"cost_usd": resp.cost_usd, "latency_ms": resp.latency_ms, "tokens_in": resp.tokens_in,
-                 "tokens_out": resp.tokens_out, "model": resp.model or CHECKER_MODEL,
-                 "cached": resp.cached}
-    return CheckedVerdict(**verdict.model_dump(), **usage)
+def _add_usage(total: LLMResponse, resp: LLMResponse) -> LLMResponse:
+    return total.model_copy(update={
+        "cost_usd": total.cost_usd + resp.cost_usd, "latency_ms": total.latency_ms + resp.latency_ms,
+        "tokens_in": total.tokens_in + resp.tokens_in, "tokens_out": total.tokens_out + resp.tokens_out,
+        "model": resp.model or CHECKER_MODEL, "cached": total.cached and resp.cached})
 
 
-def _log_llm(ctx: RunContext | None, out: CheckedVerdict) -> None:
-    if ctx is None or ctx.log is None or not out.model:
+def _with_usage(verdict: CheckerVerdict, usage: LLMResponse | None = None) -> CheckedVerdict:
+    extra: dict[str, Any] = {}
+    if usage is not None and usage.model:
+        extra = {"cost_usd": usage.cost_usd, "latency_ms": usage.latency_ms, "tokens_in": usage.tokens_in,
+                 "tokens_out": usage.tokens_out, "model": usage.model, "cached": usage.cached}
+    return CheckedVerdict(**verdict.model_dump(), **extra)
+
+
+def _log_usage(ctx: RunContext | None, usage: LLMResponse) -> None:
+    """Emit the checker's `llm` event so its cost lands in the run totals."""
+    if ctx is None or ctx.log is None or not usage.model:
         return
-    ctx.log.emit("llm", role="checker", model=out.model, tokens_in=out.tokens_in,
-                 tokens_out=out.tokens_out, cost_usd=out.cost_usd, latency_ms=out.latency_ms)
+    ctx.log.emit("llm", role="checker", model=usage.model, tokens_in=usage.tokens_in,
+                 tokens_out=usage.tokens_out, cost_usd=usage.cost_usd, latency_ms=usage.latency_ms)
 
 
-def _failed(query: str, err: Exception) -> CheckerVerdict:
-    why = _one_line(f"Checker error, treated as a miss: {type(err).__name__}", WHY_CHARS)
-    return CheckerVerdict(verdict="DEAD", confidence=0.0, why=why, rewrite=query)
+async def _run(system: str, user: str, parse: Callable[[str], CheckerVerdict], query: str,
+               ctx: RunContext | None) -> CheckedVerdict:
+    """Call the model and parse its reply, retrying once if the reply is malformed.
 
-
-async def _run(system: str, user: str, parse: Callable[[str], CheckerVerdict],
-               query: str) -> CheckedVerdict:
-    """Call the model, parse, retry once on a malformed reply, and degrade to DEAD on failure."""
-    resp: LLMResponse | None = None
-    spent = LLMResponse()
-    err: Exception | None = None
+    Usage from every attempt is summed onto the verdict and logged. Two malformed
+    replies return a DEAD verdict with why=MALFORMED_WHY. A failed call raises
+    CheckerError; BudgetExceeded propagates unchanged.
+    """
+    usage = LLMResponse(role="checker", cached=True)
+    error: ValueError | None = None
+    reply = ""
     for _ in range(2):
         try:
             resp = await _call_model(system, user)
         except BudgetExceeded:
+            _log_usage(ctx, usage)
             raise
-        except Exception as exc:  # noqa: BLE001 - a checker outage must not stop the search
-            err = exc
-            break
-        spent = spent.model_copy(update={
-            "cost_usd": spent.cost_usd + resp.cost_usd, "latency_ms": spent.latency_ms + resp.latency_ms,
-            "tokens_in": spent.tokens_in + resp.tokens_in, "tokens_out": spent.tokens_out + resp.tokens_out,
-            "model": resp.model or CHECKER_MODEL, "cached": resp.cached})
+        except Exception as exc:
+            _log_usage(ctx, usage)
+            raise CheckerError(f"checker model call failed: {type(exc).__name__}: {exc}") from exc
+        usage = _add_usage(usage, resp)
+        reply = resp.text
         try:
-            return _with_usage(parse(resp.text), spent)
-        except (ValueError, json.JSONDecodeError) as exc:
-            err = exc
-    return _with_usage(_failed(query, err or RuntimeError("no reply")), spent if resp else None)
+            verdict = parse(reply)
+        except ValueError as exc:
+            error = exc
+            continue
+        _log_usage(ctx, usage)
+        return _with_usage(verdict, usage)
+    logger.warning("%s after a retry: %s; last reply: %r", MALFORMED_WHY, error, reply[:300])
+    _log_usage(ctx, usage)
+    return _with_usage(CheckerVerdict(verdict="DEAD", confidence=0.0, why=MALFORMED_WHY, rewrite=query), usage)
 
 
 async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],
@@ -300,11 +329,9 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
     top = as_results(results)
     if not top:
         return _with_usage(CheckerVerdict(verdict="DEAD", confidence=1.0, why="The search returned no results.",
-                                          rewrite=query), None)
+                                          rewrite=query))
     user = render_user(query, goal, top, today)
-    out = await _run(SYSTEM_PROMPT, user, lambda text: parse_verdict(text, top, query), query)
-    _log_llm(ctx, out)
-    return out
+    return await _run(SYSTEM_PROMPT, user, lambda reply: parse_verdict(reply, top, query), query, ctx)
 
 
 async def check_page(query: str, goal: str, page_text: str | PageText, today: date | str | None = None,
@@ -321,8 +348,6 @@ async def check_page(query: str, goal: str, page_text: str | PageText, today: da
     url = url or ""
     if not text.strip():
         return _with_usage(CheckerVerdict(verdict="DEAD", confidence=1.0, why="The page could not be read.",
-                                          rewrite=query), None)
+                                          rewrite=query))
     user = render_page_user(query, goal, url, text, today)
-    out = await _run(PAGE_PROMPT, user, lambda reply: parse_page_verdict(reply, url, query), query)
-    _log_llm(ctx, out)
-    return out
+    return await _run(PAGE_PROMPT, user, lambda reply: parse_page_verdict(reply, url, query), query, ctx)

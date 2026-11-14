@@ -7,7 +7,8 @@ from datetime import date
 import pytest
 
 from so import checker
-from so.checker import CheckedVerdict, check, check_page, parse_page_verdict, parse_verdict
+from so.checker import (MALFORMED_WHY, CheckedVerdict, CheckerError, check, check_page, parse_page_verdict,
+                        parse_verdict)
 from so.config import BudgetExceeded
 from so.contracts import CheckerVerdict, PageText, Result, RunContext
 from tests.o1.examples import EXAMPLES, TODAY
@@ -65,23 +66,35 @@ def test_parses_code_fenced_and_wrapped_json():
 
 
 @pytest.mark.parametrize("raw,expected", [
-    ("hit", "HIT"), ("Wrong entity", "WRONG_ENTITY"), ("wrong-entity", "WRONG_ENTITY"),
-    ("WRONG", "WRONG_ENTITY"), ("not found", "DEAD"), ("outdated", "STALE"), (" shallow ", "SHALLOW"),
+    ("hit", "HIT"), ("Wrong entity", "WRONG_ENTITY"), ("wrong-entity", "WRONG_ENTITY"), (" shallow ", "SHALLOW"),
 ])
 def test_normalizes_verdict_spellings(raw, expected):
     assert checker.normalize_verdict(raw) == expected
 
 
-@pytest.mark.parametrize("text", ["", "no json here", "[1, 2]", reply(verdict="MAYBE")])
+@pytest.mark.parametrize("raw", ["WRONG", "not found", "outdated", "MAYBE", None, 3])
+def test_rejects_anything_but_the_five_verdicts(raw):
+    with pytest.raises(ValueError):
+        checker.normalize_verdict(raw)
+
+
+@pytest.mark.parametrize("text", ["", "no json here", "[1, 2]", reply(verdict="MAYBE"),
+                                  json.dumps({"verdict": "DEAD", "confidence": 0.8}),
+                                  json.dumps({"verdict": "DEAD", "why": "w"})])
 def test_rejects_unusable_replies(text):
     with pytest.raises(ValueError):
         parse_verdict(text, RESULTS, "q")
 
 
-@pytest.mark.parametrize("raw,expected", [(0.7, 0.7), (85, 0.85), (-1, 0.0), (3000, 1.0), ("high", 0.5)])
-def test_confidence_is_clamped_to_unit_interval(raw, expected):
-    out = parse_verdict(reply(verdict="DEAD", confidence=raw), RESULTS, "q")
-    assert out.confidence == pytest.approx(expected)
+@pytest.mark.parametrize("raw", [0, 0.7, 1])
+def test_accepts_confidence_in_unit_interval(raw):
+    assert parse_verdict(reply(confidence=raw), RESULTS, "q").confidence == raw
+
+
+@pytest.mark.parametrize("raw", [85, -0.1, 1.01, "high", None, True])
+def test_confidence_outside_unit_interval_is_malformed(raw):
+    with pytest.raises(ValueError):
+        parse_verdict(reply(confidence=raw), RESULTS, "q")
 
 
 # Rules that keep HIT trustworthy.
@@ -161,16 +174,30 @@ async def test_malformed_reply_is_retried_once(model):
     assert out.cost_usd == pytest.approx(2 * fake.cost_usd)
 
 
-async def test_two_malformed_replies_degrade_to_dead(model):
-    model("nope", "still nope")
-    out = await check("my query", "g", RESULTS, TODAY)
-    assert (out.verdict, out.confidence, out.rewrite) == ("DEAD", 0.0, "my query")
+async def test_two_malformed_replies_give_a_logged_non_hit(model, caplog):
+    fake = model("nope", reply(verdict="HIT", confidence=7))
+    log = RecordingLog()
+    ctx = RunContext(run_id="r", question_id="x", setup="second_opinion", log=log)
+    out = await check("my query", "g", RESULTS, TODAY, ctx=ctx)
+    assert (out.verdict, out.confidence, out.why, out.rewrite) == ("DEAD", 0.0, MALFORMED_WHY, "my query")
+    assert out.cost_usd == pytest.approx(2 * fake.cost_usd)
+    assert log.events[0][1]["cost_usd"] == pytest.approx(2 * fake.cost_usd)
+    assert MALFORMED_WHY in caplog.text
 
 
-async def test_model_error_degrades_to_dead(model):
+async def test_model_error_raises_a_clear_checker_error(model):
     model(RuntimeError("provider down"))
-    out = await check("q", "g", RESULTS, TODAY)
-    assert out.verdict == "DEAD" and "RuntimeError" in out.why
+    with pytest.raises(CheckerError, match="provider down"):
+        await check("q", "g", RESULTS, TODAY)
+
+
+async def test_error_after_a_malformed_reply_still_logs_spent_usage(model):
+    fake = model("nope", RuntimeError("provider down"))
+    log = RecordingLog()
+    ctx = RunContext(run_id="r", question_id="x", setup="second_opinion", log=log)
+    with pytest.raises(CheckerError):
+        await check("q", "g", RESULTS, TODAY, ctx=ctx)
+    assert [e[1]["cost_usd"] for e in log.events] == [fake.cost_usd]
 
 
 async def test_budget_errors_propagate(model):
