@@ -82,7 +82,7 @@ test('flow labels come from the rescue table, plain labels without it', () => {
 });
 
 test('no em dashes in the site files', () => {
-  for (const name of ['index.html', 'race.html', 'app.js', 'simulate.js', 'sim-view.js', 'results.js', 'flow.js', 'dots.js', 'style.css']) {
+  for (const name of ['index.html', 'race.js', 'app.js', 'simulate.js', 'sim-view.js', 'results.js', 'flow.js', 'dots.js', 'style.css']) {
     assert.ok(!readFileSync(new URL(`../../ui/${name}`, import.meta.url), 'utf8').includes('\u2014'), name);
   }
 });

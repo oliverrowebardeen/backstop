@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 
 from so import config
 
@@ -19,11 +19,12 @@ def _read_text(path: Path) -> str | None:
 
 
 def install_site(app: FastAPI, settings: Any) -> None:
-    """GET /race serves the live race view; GET /site-data serves findings, the rescue table and raw frontier flags."""
+    """GET /race redirects to the live race section at /#race; GET /site-data serves findings, the rescue table and raw frontier flags."""
 
     @app.get("/race")
-    async def race_page() -> FileResponse:
-        return FileResponse(settings.ui_dir / "race.html")
+    async def race_page() -> RedirectResponse:
+        # The live race is a section of the product page; old links land on it.
+        return RedirectResponse("/#race", status_code=307)
 
     @app.get("/site-data")
     async def site_data() -> dict[str, Any]:

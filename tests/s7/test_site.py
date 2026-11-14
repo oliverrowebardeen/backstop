@@ -27,8 +27,11 @@ def _client(tmp_path: Path, frontier: bool = True) -> TestClient:
 def test_home_race_and_site_data(tmp_path):
     with _client(tmp_path) as client:
         home = client.get("/").text
-        for anchor in ('id="simulate"', 'id="how"', 'id="results"', 'id="developers"', 'href="/race"'):
+        for anchor in ('id="simulate"', 'id="race"', 'id="how"', 'id="results"', 'id="developers"', 'href="#race"'):
             assert anchor in home
+        assert 'id="race-form"' in home and 'src="/ui/race.js"' in home
+        moved = client.get("/race", follow_redirects=False)
+        assert moved.status_code == 307 and moved.headers["location"] == "/#race"
         assert 'id="race-form"' in client.get("/race").text
         data = client.get("/site-data").json()
         assert data["rescue_table"]["built_on_split"] == "learn"
