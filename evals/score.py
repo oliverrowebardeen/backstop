@@ -305,6 +305,12 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
     }
     if manifest.get("note"):
         results["note"] = manifest["note"]
+    try:  # the section 6.12 shape, as frozen in so.contracts (extra keys are allowed)
+        from so.contracts import Results
+    except ImportError:
+        pass
+    else:
+        Results.model_validate(results)
     if missing_answer:
         results["warnings"] = [f"{len(missing_answer)} finished logs had no answer event and were graded "
                                f"declined: {', '.join(missing_answer[:10])}"]

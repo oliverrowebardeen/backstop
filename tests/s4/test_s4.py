@@ -16,7 +16,7 @@ from tests.s4 import fake_eventlog
 
 def ev(type_, qid="sqa-0001", setup="single", **data):
     return {"ts": "2026-11-14T19:00:00.000Z", "run_id": "x", "question_id": qid, "setup": setup,
-            "seq": 0, "type": type_, "data": data}
+            "seq": 1, "type": type_, "data": data}
 
 
 def write_log(path, events, torn_tail=False):
@@ -138,7 +138,13 @@ def test_fake_agent_log_totals_are_consistent(tmp_path):
         search = sum(e["data"]["cost_usd"] for e in events if e["type"] in ("search", "fetch"))
         assert end["cost_usd_total"] == pytest.approx(llm + search, abs=1e-5)
         assert end["engine_calls"] == sum(len(e["data"]["engines"]) for e in events if e["type"] == "search")
-        assert [e["seq"] for e in events] == list(range(len(events)))
+        assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+        try:
+            from so.contracts import Event
+        except ImportError:
+            continue
+        for e in events:
+            Event.model_validate(e)
 
 
 # ---------------------------------------------------------------- paired flips

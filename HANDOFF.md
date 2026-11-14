@@ -7,3 +7,8 @@
 ## S3: Rescue table, frontier, heatmap
 - Built: analysis/{rescue_table,frontier,heatmap,findings}.py (run `python -m analysis.<name>`, order: rescue_table, frontier, heatmap, findings). Rescue table is learn-only and raises on test or trap rows. Second Opinion point is simulated (perfect checker, 2 rescues, CHECKER_COST_USD 0.0006) until out/results.json exists.
 - Tested on fake data only (SO_FAKE=1, outputs in out/fake/); the real-data rerun is pending the real out/matrix.jsonl, then rerun all four and commit out/rescue_table.json, frontier and heatmap files. analysis/findings.md currently carries a FAKE DATA banner and must be regenerated.
+
+## S4: Eval runner and scoring
+- Built: evals/run_eval.py (230 x 3 runs, resumable on run_end, LLM_MAX_CONCURRENCY, --limit/--setups/--traps-only/--max-test, writes out/eval_manifest.json) and evals/score.py (out/results.json in the 6.12 shape, validated against so.contracts.Results, plus out/results.md with counts, traps, checker join, paired flips; judge cost excluded). Fake agent and eventlog in tests/s4/, used only with SO_FAKE=1.
+- Run: python -m evals.run_eval --limit 20 && python -m evals.score (full: drop --limit; at 2:30 if short on time: --max-test 120). Fake check: SO_FAKE=1 python -m evals.matrix, then the same two commands. Tests: python -m pytest tests/s4.
+- Not done: real run pending so.agent.run_question and so.eventlog (not on main yet); evals.deps also needs so.llm. After the real run, re-run python -m analysis.frontier so the measured Second Opinion point replaces the simulated one.

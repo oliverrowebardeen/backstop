@@ -56,7 +56,7 @@ class _Log:
     def __init__(self, log_dir: Path, run_id: str, question_id: str, setup: str):
         self.path = log_dir / f"{run_id}.jsonl"
         self.run_id, self.question_id, self.setup = run_id, question_id, setup
-        self.seq = 0
+        self.seq = 1  # section 6.11 / so.contracts.Event: seq starts at 1
         self.f = self.path.open("a")
 
     def emit(self, type_: str, **data) -> None:
