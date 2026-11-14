@@ -228,7 +228,7 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                                  "content": json.dumps(result)})
         if answer is None:
             raise RuntimeError("Agent exhausted its turn limit without a final answer")
-        log.emit("answer", **answer.model_dump())
+        log.emit("answer", **answer.model_dump(), telem_session_id=ctx.session)
         return answer
     except BaseException as exc:
         error = type(exc).__name__

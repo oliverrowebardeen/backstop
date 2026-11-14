@@ -2,6 +2,11 @@
 
 The first live call creates a session. Copy its EngineRun.session_id into
 RunContext.session and pass that session to subsequent searches and fetches.
+
+Ledger fields: every search and fetch may carry Telem's `context` string and a
+`metadata` dict naming the Backstop step (see so.ledger). They label the call in
+Telem's session console only: they never enter the cache key, and if Telem
+rejects them the call is retried once without them (so.ledger.call_with_ledger).
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ from telem import AsyncTelem
 
 from so import config
 from so.contracts import EngineRun, PageText, Result
+from so.ledger import call_with_ledger
 
 _SUCCESS = {"ok", "success", "succeeded"}
 
@@ -70,7 +76,8 @@ def _normalize(raw: dict[str, Any], elapsed_ms: float, engines: list[str] | None
 
 async def _search(query: str, engines: list[str] | None, *, num_results: int,
                   goal: str | None, published_after: str | None,
-                  session: str | None) -> dict[str, EngineRun]:
+                  session: str | None, context: str | None = None,
+                  metadata: dict[str, Any] | None = None) -> dict[str, EngineRun]:
     if not query.strip() or not 1 <= num_results <= 20:
         raise ValueError("Search needs a nonempty query and 1 to 20 results")
     request: dict[str, Any] = dict(query=query, num_results=num_results,
@@ -97,7 +104,9 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
             try:
                 async with AsyncTelem(api_key=config.api_key("telem"), base_url=config.TELEM_BASE_URL,
                                       timeout=config.TELEM_TIMEOUT_S) as client:
-                    response = await config.retry(lambda: client.search(**request, session=session))
+                    response = await call_with_ledger(
+                        lambda extra: config.retry(lambda: client.search(**request, session=session, **extra)),
+                        {"context": context, "metadata": metadata})
                 raw = response.model_dump(mode="json")
             except BaseException:
                 config.SEARCH_BUDGET.settle(estimate, 0)
@@ -112,25 +121,33 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
 
 async def search_engines(query: str, engines: list[str], *, num_results: int = config.TELEM_NUM_RESULTS,
                          goal: str | None = None, published_after: str | None = None,
-                         session: str | None = None) -> dict[str, EngineRun]:
-    """Search only the named engines; keep failed engines in the returned mapping."""
+                         session: str | None = None, context: str | None = None,
+                         metadata: dict[str, Any] | None = None) -> dict[str, EngineRun]:
+    """Search only the named engines; keep failed engines in the returned mapping.
+
+    context and metadata are ledger labels for Telem's console (see so.ledger).
+    """
     if not engines:
         raise ValueError("At least one engine is required")
     return await _search(query, list(dict.fromkeys(engines)), num_results=num_results,
-                         goal=goal, published_after=published_after, session=session)
+                         goal=goal, published_after=published_after, session=session,
+                         context=context, metadata=metadata)
 
 
-async def search_default(query: str, *, goal: str | None = None,
-                         session: str | None = None) -> dict[str, EngineRun]:
+async def search_default(query: str, *, goal: str | None = None, session: str | None = None,
+                         context: str | None = None,
+                         metadata: dict[str, Any] | None = None) -> dict[str, EngineRun]:
     """Ask Telem to choose engines using accuracy routing."""
     return await _search(query, None, num_results=config.TELEM_NUM_RESULTS, goal=goal,
-                         published_after=None, session=session)
+                         published_after=None, session=session, context=context, metadata=metadata)
 
 
-async def fetch_page(url: str, *, session: str | None = None, goal: str | None = None) -> PageText:
+async def fetch_page(url: str, *, session: str | None = None, goal: str | None = None,
+                     metadata: dict[str, Any] | None = None) -> PageText:
     """Read a page in the caller's session. Telem fetch has no goal parameter.
 
     goal is accepted for caller compatibility and ignored, including in cache keys.
+    metadata is a ledger label for Telem's console and is not part of the cache key.
     """
     request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
                    inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
@@ -147,7 +164,9 @@ async def fetch_page(url: str, *, session: str | None = None, goal: str | None =
             try:
                 async with AsyncTelem(api_key=config.api_key("telem"), base_url=config.TELEM_BASE_URL,
                                       timeout=config.TELEM_TIMEOUT_S) as client:
-                    response = await config.retry(lambda: client.fetch(**request, session=session))
+                    response = await call_with_ledger(
+                        lambda extra: config.retry(lambda: client.fetch(**request, session=session, **extra)),
+                        {"metadata": metadata})
                 raw = response.model_dump(mode="json")
             except BaseException:
                 config.SEARCH_BUDGET.settle(estimate, 0)

@@ -10,6 +10,7 @@ import pytest
 from so import agent, config, setups
 from so.contracts import EngineRun, LLMResponse, PageText, Question, Result, RunContext, SearchOutcome, ToolCall
 from so.eventlog import read_log, summarize
+from so.ledger import ledger
 
 URL = "https://example.com/founder"
 
@@ -79,7 +80,8 @@ async def test_run_session_evidence_and_totals(question, wrappers, tmp_path, set
     answer = await agent.run_question(question, setup, log_dir=tmp_path)
     assert answer.status == "ANSWERED" and answer.citations == [URL] and answer.searches == 1
     wrapper = wrappers.pinned if setup == "single" else wrappers.default
-    assert wrapper.await_args.kwargs == {"goal": "Find current CEO", "session": None}
+    label = ledger("initial", "UNCHECKED", config.FIRST_ENGINE if setup == "single" else "auto")
+    assert wrapper.await_args.kwargs == {"goal": "Find current CEO", "session": None, **label}
     log = events(tmp_path)
     assert log[0]["type"] == "run_start"
     assert [entry["seq"] for entry in log] == list(range(1, len(log) + 1))

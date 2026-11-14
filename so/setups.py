@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from so import config, telem_client
 from so.contracts import EngineRun, Result, RunContext, SearchOutcome
+from so.ledger import ledger
 
 SearchTool = Callable[[str, str, RunContext], Awaitable[SearchOutcome]]
 
@@ -48,13 +49,15 @@ async def single(query: str, goal: str, ctx: RunContext) -> SearchOutcome:
     """Search Tavily through Telem without checking its results."""
     runs = await telem_client.search_engines(
         query, [config.FIRST_ENGINE], goal=goal, session=ctx.session,
+        **ledger("initial", "UNCHECKED", config.FIRST_ENGINE),
     )
     return _unchecked(query, goal, ctx, runs)
 
 
 async def telem_default(query: str, goal: str, ctx: RunContext) -> SearchOutcome:
     """Use Telem's accuracy routing without checking its results."""
-    runs = await telem_client.search_default(query, goal=goal, session=ctx.session)
+    runs = await telem_client.search_default(query, goal=goal, session=ctx.session,
+                                             **ledger("initial", "UNCHECKED", "auto"))
     return _unchecked(query, goal, ctx, runs)
 
 

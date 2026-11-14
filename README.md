@@ -62,6 +62,13 @@ page-read fallback. The rescue order (which engine to try after a given engine m
 comes from a hit matrix: every question asked on six engines through the same API, in
 one result format. That matrix is the part that is hard to build without Telem.
 
+**Session ledger.** Each Telem search also carries `context` and `metadata` naming the
+Backstop step (`initial`, `rescue_1`, `rescue_2`, `engine_retry`, `extract_recheck`),
+the verdict that triggered it, the engine and `backstop_version`. Telem's session
+console then shows the verification trajectory itself, not just a list of queries, and
+the session id is recorded on every answer (`telem_session_id`). The labels stay out of
+cache keys, and if Telem ever rejects them the call is retried once without them.
+
 **Ranking.** Results from every engine called are merged and deduplicated by URL,
 then ranked: the result the checker cited as evidence first, then results that more
 than one engine returned (more engines first), then the best original engine rank.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import math
 from collections.abc import Awaitable, Callable, Sequence
@@ -21,6 +22,7 @@ from pydantic import Field
 
 from so import config
 from so.contracts import CheckerVerdict, EngineRun, PageText, Result, RunContext, SearchOutcome
+from so.ledger import ledger
 from so.memory import RunMemory
 from so.policy import Action, freshness_cutoff, load_rescue_table, next_action
 
@@ -225,10 +227,12 @@ def _record_check(trace: _Trace, verdict: CheckerVerdict) -> None:
     trace.emit("check", **verdict.model_dump())
 
 
-async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace) -> PageText:
+async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: str = "SHALLOW") -> PageText:
     from so.config import BudgetExceeded
     from so.tavily_client import tavily_extract
     from so.telem_client import fetch_page
+
+    fields = {"metadata": ledger("extract_recheck", trigger, config.TELEM_FETCH_PROVIDER)["metadata"]}
 
     for via in ("tavily", "telem"):
         started = perf_counter()
@@ -237,7 +241,8 @@ async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace) -> PageTex
             if via == "tavily":
                 page = await tavily_extract(url, goal=goal)
             else:
-                page = await fetch_page(url, goal=goal, session=ctx.session)
+                page = await fetch_page(url, goal=goal, session=ctx.session,
+                                        **_ledger_kwargs(fetch_page, fields))
         except BudgetExceeded:
             raise
         except Exception as exc:
@@ -262,6 +267,20 @@ def _next_engine(tried: Sequence[str], table: Any) -> str | None:
     previous = tried[-1] if tried else ""
     candidates = [*table.order_after.get(previous, []), *table.fallback_order]
     return next((item for item in candidates if item not in tried), None)
+
+
+def _ledger_kwargs(call: Callable[..., Any], fields: dict[str, Any]) -> dict[str, Any]:
+    """The subset of Telem ledger fields (context, metadata) that `call` accepts.
+
+    Injected engine_search and page reader callables predating the ledger keep working unchanged.
+    """
+    try:
+        params = inspect.signature(call).parameters
+    except (TypeError, ValueError):
+        return {}
+    if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()):
+        return fields
+    return {key: value for key, value in fields.items() if key in params}
 
 
 def _error_text(exc: BaseException) -> str:
@@ -303,6 +322,8 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     engine = config.FIRST_ENGINE
     current_results: list[Result] = []
     step_seconds: list[float] = []
+    # Ledger label for the next Telem search: which Backstop step it is and the verdict behind it.
+    step_name, trigger = "initial", None
 
     def finish(status: str, note: str, evidence_url: str | None = None, **extra: Any) -> SearchOutcome:
         outcome = SearchOutcome(
@@ -318,7 +339,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
         ]
         trace.emit(
             "search_done", **outcome.model_dump(exclude={"results", "trace", "engines_called"}),
-            ranking=ranking, **extra,
+            ranking=ranking, telem_session_id=ctx.session, **extra,
         )
         outcome.trace = trace.events.copy()
         return outcome
@@ -362,6 +383,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             runs = await search_engines(
                 current_query, [engine], num_results=config.TELEM_NUM_RESULTS, goal=goal,
                 published_after=published_after, session=ctx.session,
+                **_ledger_kwargs(search_engines, ledger(step_name, trigger, engine)),
             )
             run = runs.get(engine) or EngineRun(engine=engine, status="error")
         except config.BudgetExceeded:
@@ -418,6 +440,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                     reason=f"Engine {engine} failed: {error}", counted=False, engine_error=error,
                 )
                 engine = successor
+                step_name, trigger = "engine_retry", "ENGINE_ERROR"
                 break
 
             if verdict.verdict != "HIT" and rescues_used >= limits.max_rescues:
@@ -456,6 +479,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             )
             if action.kind == "RETRY_ENGINE":
                 engine = action.engine
+                step_name, trigger = f"rescue_{rescues_used}", verdict.verdict
                 current_query = action.query or current_query
                 if action.fresh:
                     published_after = freshness_cutoff(goal, ctx.today)
@@ -464,7 +488,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             assert action.url is not None
             step_started = perf_counter()
             memory.record_fetch(action.url)
-            page = await _fetch(action.url, goal, ctx, trace)
+            page = await _fetch(action.url, goal, ctx, trace, verdict.verdict)
             if page.ok and page.text.strip():
                 original = merged.get(action.url)
                 evidence = Result(

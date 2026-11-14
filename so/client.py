@@ -201,10 +201,12 @@ class BackstopTelem:
         async def engine_search(
             search_query: str, engines: list[str], *, num_results: int = config.TELEM_NUM_RESULTS,
             goal: str | None = None, published_after: str | None = None, session: str | None = None,
+            context: str | None = None, metadata: dict[str, Any] | None = None,
         ) -> dict[str, EngineRun]:
             return await self._engine_search(
                 search_query, engines, num_results=num_results, goal=goal,
                 published_after=published_after, session=session, forwarded=forwarded, calls=calls,
+                context=context, metadata=metadata,
             )
 
         question_id = uuid4().hex[:12]
@@ -223,10 +225,19 @@ class BackstopTelem:
     async def _engine_search(
         self, query: str, engines: list[str], *, num_results: int, goal: str | None,
         published_after: str | None, session: str | None, forwarded: dict[str, Any],
-        calls: list[BackstopProviderRun],
+        calls: list[BackstopProviderRun], context: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, EngineRun]:
-        """One pinned-engine Telem call, normalized to EngineRun and recorded for by_provider."""
+        """One pinned-engine Telem call, normalized to EngineRun and recorded for by_provider.
+
+        context and metadata are Telem ledger labels; a caller's own forwarded values win,
+        and a rejected label is dropped on one retry (so.ledger.call_with_ledger).
+        """
+        from so.ledger import call_with_ledger
         from so.telem_client import _normalize
+
+        ledger_fields = {key: value for key, value in (("context", context), ("metadata", metadata))
+                         if key not in forwarded}
 
         request: dict[str, Any] = {
             **forwarded, "providers_include": engines, "num_results": num_results, "goal": goal or query,
@@ -237,7 +248,10 @@ class BackstopTelem:
         config.SEARCH_BUDGET.reserve(estimate)
         started = time.perf_counter()
         try:
-            response = await config.retry(lambda: self._telem.search(query, session=session, **request))
+            response = await call_with_ledger(
+                lambda extra: config.retry(lambda: self._telem.search(query, session=session, **request, **extra)),
+                ledger_fields,
+            )
         except BaseException:
             config.SEARCH_BUDGET.settle(estimate, 0)
             raise

@@ -2,8 +2,10 @@ from datetime import date
 
 import pytest
 
+from so import config
 from so.config import BudgetExceeded
 from so.contracts import EngineRun, PageText, RescueTable, RunContext
+from so.ledger import ledger
 from so.second_opinion import search
 from tests.o2.fakes import FakeLog, Fakes, source, verdict
 
@@ -121,7 +123,8 @@ async def test_shallow_falls_back_to_telem_with_session_and_goal(failure, ctx, m
     fake.install(monkeypatch)
     outcome = await search("query", "goal", ctx)
     assert outcome.status == "HIT" and outcome.fetches == 2
-    assert fake.fetches[1] == {"url": url, "via": "telem", "goal": "goal", "session": "session-unit"}
+    assert fake.fetches[1] == {"url": url, "via": "telem", "goal": "goal", "session": "session-unit",
+                               "metadata": ledger("extract_recheck", "SHALLOW", config.TELEM_FETCH_PROVIDER)["metadata"]}
     assert [item["data"]["via"] for item in outcome.trace if item["type"] == "fetch"] == ["tavily", "telem"]
     assert all(item["data"]["goal"] == "goal" for item in outcome.trace if item["type"] == "fetch")
     assert sum(item["type"] == "rescue" for item in outcome.trace) == 1
