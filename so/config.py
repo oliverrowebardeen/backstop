@@ -405,8 +405,8 @@ DECISION_TARGET_LATENCY_MS = float(os.getenv("DECISION_TARGET_LATENCY_MS", "500"
 DECISION_PRICE_USD = json.loads(os.getenv("DECISION_PRICE_USD_JSON", json.dumps({
     "gpt-6-luna": {"input": 0.10, "cache_read": 0.01, "cache_write": 0.125, "cache_write_12h": 0.25},
 })))
-if CHECKER_BACKEND not in {"llm", "decision"}:
-    raise ValueError("CHECKER_BACKEND must be llm or decision")
+if CHECKER_BACKEND not in {"llm", "decision", "cascade"}:
+    raise ValueError("CHECKER_BACKEND must be llm, decision or cascade")
 if CHECKER_PROVIDER not in {"anthropic", "openai"}:
     raise ValueError("CHECKER_PROVIDER must be anthropic or openai")
 for _decision_setting in ("DECISION_TIMEOUT_S", "DECISION_TARGET_LATENCY_MS"):
@@ -423,3 +423,17 @@ if not DECISION_EVAL_THRESHOLDS or any(not 0 <= value <= 1 for value in DECISION
 if not 0 <= DECISION_EVAL_BUDGET_USD <= 3 or not 0 <= DECISION_BUDGET_USD <= 3:
     raise ValueError("Decisions budgets must be between 0 and the $3 evaluation cap")
 DECISION_BUDGET = Budget(DECISION_BUDGET_USD)
+
+# Cascade: threshold selected on the first learn half; the default backend stays llm.
+CHECKER_CASCADE_THRESHOLD = _unit_interval("CHECKER_CASCADE_THRESHOLD", "0.7")
+CASCADE_EVAL_THRESHOLDS = [float(value) for value in _csv("CASCADE_EVAL_THRESHOLDS", "0.6,0.7,0.8,0.9")]
+CASCADE_EVAL_SEED = int(os.getenv("CASCADE_EVAL_SEED", "14"))
+CASCADE_EVAL_BUDGET_USD = float(os.getenv("CASCADE_EVAL_BUDGET_USD", "2"))
+CASCADE_EVAL_ENGINES = _csv("CASCADE_EVAL_ENGINES", ",".join(
+    engine for engine in ENGINES if engine not in DECISION_EVAL_SKIP_ENGINES))
+CASCADE_EVAL_REPORT_PATH = Path(os.getenv("CASCADE_EVAL_REPORT_PATH", str(CACHE_DIR / "cascade-eval.json")))
+CASCADE_CALIBRATION_PATH = Path(os.getenv("CASCADE_CALIBRATION_PATH", str(CACHE_DIR / "cascade-calibration.json")))
+if not CASCADE_EVAL_THRESHOLDS or any(not 0 <= value <= 1 for value in CASCADE_EVAL_THRESHOLDS):
+    raise ValueError("CASCADE_EVAL_THRESHOLDS must contain numbers between 0 and 1")
+if not 0 <= CASCADE_EVAL_BUDGET_USD <= 2:
+    raise ValueError("CASCADE_EVAL_BUDGET_USD must be between 0 and the $2 evaluation cap")

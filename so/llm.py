@@ -291,6 +291,14 @@ class DecisionCallError(RuntimeError):
         self.kind = kind
 
 
+class DecisionStorageError(OSError):
+    """A failed cache write after a decision incurred known or reserved usage."""
+
+    def __init__(self, message: str, *, usage: LLMResponse) -> None:
+        super().__init__(message)
+        self.usage = usage
+
+
 class _DecisionCacheUsage(BaseModel):
     model_config = ConfigDict(strict=True)
     cached_tokens: int = Field(ge=0)
@@ -423,6 +431,8 @@ async def decide(instructions: str, evidence: str, choices: Sequence[DecisionCho
                             record.update(failure=kind, failure_usage=usage.model_dump(mode="json"))
                         else:
                             record["normalized"] = result.model_dump(mode="json")
+                except OSError as exc:
+                    raise DecisionStorageError(f"Could not cache Decisions response: {exc}", usage=usage) from exc
                 finally:
                     config.DECISION_BUDGET.settle(estimate, usage.cost_usd)
                 if failure is not None:
@@ -432,11 +442,21 @@ async def decide(instructions: str, evidence: str, choices: Sequence[DecisionCho
             try:
                 async with asyncio.timeout(config.DECISION_TIMEOUT_S):
                     return await config.retry(send)
+            except asyncio.CancelledError:
+                sink = _cancelled_sink.get()
+                if uncertain_cost and sink is not None:
+                    sink.append(LLMResponse(role="checker", model=config.DECISION_MODEL,
+                        tokens_in=size, cost_usd=uncertain_cost, stop_reason="cancelled",
+                        latency_ms=(time.perf_counter() - start) * 1000))
+                raise
             except (TimeoutError, httpx.TimeoutException) as exc:
                 usage = LLMResponse(role="checker", model=config.DECISION_MODEL, cost_usd=uncertain_cost,
                                     latency_ms=(time.perf_counter() - start) * 1000)
-                config.write_cache(key, {"request": request, "failure": "timeout",
-                                         "failure_usage": usage.model_dump(mode="json")})
+                try:
+                    config.write_cache(key, {"request": request, "failure": "timeout",
+                                             "failure_usage": usage.model_dump(mode="json")})
+                except OSError as cache_error:
+                    raise DecisionStorageError(f"Could not cache Decisions timeout: {cache_error}", usage=usage) from cache_error
                 raise DecisionCallError("Decisions request timed out", usage=usage, kind="timeout") from exc
             except httpx.HTTPError as exc:
                 usage = LLMResponse(role="checker", model=config.DECISION_MODEL,

@@ -8,13 +8,19 @@ into CHECKER_BACKEND, or ``check`` to explicitly use Decisions.
 All settings are environment-backed in so.config. Comparisons share its
 $3 process budget, require disk caching, and exclude ceramic by default.
 Latency uses original recorded call timings, including cached calls.
+
+``--cascade-eval --split learn`` collects the five configured engines under
+a $2 cap, splits by question ID with seed 14, and freezes the selected
+threshold before scoring the heldout half. Reports stay in the cache directory.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import math
+import random
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -40,6 +46,13 @@ class DecisionVerdict(checker.CheckedVerdict):
     failure: str | None = Field(default=None, exclude=True)
     fallback: bool = Field(default=False, exclude=True)
     decision_calls: int = Field(default=0, ge=0, exclude=True)
+
+
+class CascadeVerdict(DecisionVerdict):
+    """Final verdict with separate escalation and recovered decision-failure metadata."""
+
+    escalated: bool = Field(default=False, exclude=True)
+    decision_failure: str | None = Field(default=None, exclude=True)
 
 
 def _instructions() -> tuple[str, dict[str, str]]:
@@ -116,10 +129,12 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
         calls += 1
         try:
             response = await llm.decide(prompt, evidence, options)
-        except llm.DecisionCallError as exc:
+        except (llm.DecisionCallError, llm.DecisionStorageError) as exc:
             total = _sum_usage(total, exc.usage)
+            checker._log_usage(ctx, exc.usage)
             raise
         total = _sum_usage(total, response)
+        checker._log_usage(ctx, response)
         return response
 
     try:
@@ -138,7 +153,6 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
                 confidence = min(confidence, rank.confidence)
         verdict = map_choice(choice, confidence, top)
     except llm.DecisionCallError as exc:
-        checker._log_usage(ctx, total)
         if exc.kind != "timeout":
             raise llm.DecisionCallError(str(exc), usage=total, kind=exc.kind) from exc
         logger.warning("Decisions timed out; using the LLM checker with its configured provider")
@@ -148,18 +162,82 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
             raise
         except checker.CheckerError as fallback_error:
             raise llm.DecisionCallError("Decisions timed out and the LLM fallback failed",
-                                       usage=total, kind="fallback_failed") from fallback_error
+                usage=_sum_usage(total, fallback_error.usage), kind="fallback_failed") from fallback_error
         return _with_usage(fallback, _sum_usage(total, _usage(fallback)),
                            failure="timeout", fallback=True, decision_calls=calls)
-    checker._log_usage(ctx, total)
+    except llm.DecisionStorageError as exc:
+        raise llm.DecisionStorageError(str(exc), usage=total) from exc
     return _with_usage(verdict, total, decision_calls=calls)
 
 
 async def configured_check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],
                            today: date | str | None = None, *, ctx: RunContext | None = None) -> checker.CheckedVerdict:
     """Opt-in dispatcher; the existing checker module and default search are unchanged."""
+    if config.CHECKER_BACKEND == "cascade":
+        return await cascade_check(query, goal, results, today, ctx=ctx)
     backend = check if config.CHECKER_BACKEND == "decision" else checker.check
     return await backend(query, goal, results, today, ctx=ctx)
+
+
+def _needs_escalation(verdict: CheckerVerdict, threshold: float) -> bool:
+    return verdict.verdict == "HIT" and verdict.confidence < threshold
+
+
+def _cascade_result(decision: DecisionVerdict | None, final: checker.CheckedVerdict,
+                    usage: LLMResponse, *, escalated: bool, failure: str | None = None) -> CascadeVerdict:
+    """Keep evidence pointers exclusively from a successful Decisions response."""
+    fields = final.model_dump()
+    fields.update(evidence_rank=decision.evidence_rank if decision else None,
+                  best_url=decision.best_url if decision else None)
+    return CascadeVerdict(**fields, **{name: getattr(usage, name) for name in (
+        "model", "tokens_in", "tokens_out", "cost_usd", "latency_ms", "cached")},
+        escalated=escalated, fallback=failure is not None, decision_failure=failure,
+        decision_calls=decision.decision_calls if decision else 1)
+
+
+async def cascade_check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],
+                        today: date | str | None = None, *, ctx: RunContext | None = None) -> CascadeVerdict:
+    """Escalate uncertain HITs and operational failures to the LLM checker.
+
+    Decisions non-HITs are final. At the threshold, a HIT is accepted. An
+    escalated response keeps Decisions' evidence pointers even when the LLM
+    picks another result. If Decisions failed, both pointers are null.
+    Budget exhaustion and cancellation always propagate without a fallback.
+    """
+    top = checker.as_results(results)[:config.DECISION_TOP_K]
+    decision = None
+    failure = None
+    usage = LLMResponse(role="checker", cached=True)
+    try:
+        decision = await check(query, goal, top, today, ctx=ctx)
+    except config.BudgetExceeded:
+        raise
+    except llm.DecisionCallError as exc:
+        if exc.kind == "fallback_failed":
+            raise checker.CheckerError(str(exc), kind=exc.kind, usage=exc.usage) from exc
+        failure, usage = exc.kind, exc.usage
+    except (ValueError, OSError) as exc:
+        # Invalid provider configuration or unreadable cache must not become a verdict.
+        failure = type(exc).__name__
+        usage = LLMResponse(role="checker")
+        if isinstance(exc, llm.DecisionStorageError):
+            usage = exc.usage
+    if decision is not None:
+        usage = _usage(decision)
+        if decision.fallback:
+            # check() already made the timeout fallback; do not call the LLM twice.
+            return _cascade_result(None, decision, usage, escalated=True, failure=decision.failure)
+        if not _needs_escalation(decision, config.CHECKER_CASCADE_THRESHOLD):
+            return _cascade_result(decision, decision, usage, escalated=False)
+    if failure:
+        logger.warning("Decisions failed (%s); using the LLM checker", failure)
+    try:
+        final = await checker.check(query, goal, top, today, ctx=ctx)
+    except checker.CheckerError as exc:
+        raise checker.CheckerError("Cascade LLM escalation failed", kind=exc.kind,
+                                   usage=_sum_usage(usage, exc.usage)) from exc
+    return _cascade_result(decision, final, _sum_usage(usage, _usage(final)),
+                           escalated=True, failure=failure)
 
 
 @dataclass
@@ -170,6 +248,14 @@ class Observation:
     usage: LLMResponse
     original_positions: tuple[int, ...]
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class CheckerPair:
+    """Both checker outputs for one identical, filtered learn search."""
+
+    baseline: Observation
+    decision: Observation
 
 
 def summarize(rows: Sequence[Observation], *, threshold: float | None = None) -> dict[str, Any]:
@@ -326,11 +412,218 @@ def report(comparison: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def simulate_cascade(pair: CheckerPair, threshold: float) -> Observation:
+    """Replay the cascade from independent outputs with sequential call costs."""
+    if pair.baseline.error or pair.decision.error:
+        raise ValueError("Cascade calibration requires complete independent checker responses")
+    decision, baseline = pair.decision.verdict, pair.baseline.verdict
+    if not isinstance(decision, DecisionVerdict) or baseline is None or decision.fallback:
+        raise ValueError("Cascade calibration requires a successful Decisions response")
+    escalated = _needs_escalation(decision, threshold)
+    final = baseline if escalated else decision
+    usage = _sum_usage(pair.decision.usage, pair.baseline.usage) if escalated else pair.decision.usage
+    verdict = _cascade_result(decision, final, usage, escalated=escalated)
+    row = pair.decision
+    return Observation(row.case, row.truth, verdict, usage, row.original_positions)
+
+
+def cascade_metrics(rows: Sequence[Observation]) -> dict[str, Any]:
+    """Checker metrics plus exact selection counts and sequential-check latency."""
+    result = summarize(rows)
+    n = len(rows)
+    latencies = sorted(row.usage.latency_ms for row in rows)
+    escalated = sum(bool(getattr(row.verdict, "escalated", False)) for row in rows)
+    result.update(n_questions=len({row.case.question.id for row in rows}),
+        no_model_calls=sum(not row.usage.model for row in rows),
+        misses_flagged=result["true_misses"] - result["confusion"]["miss"]["HIT"],
+        hits_flagged=result["true_hits"] - result["confusion"]["hit"]["HIT"],
+        escalated=escalated, share_escalated=round(escalated / n, 6) if n else None,
+        latency_mean_ms=round(statistics.mean(latencies), 2) if n else None,
+        latency_p90_ms=round(latencies[math.ceil(n * .9) - 1], 2) if n else None,
+        latency_count=n)
+    return result
+
+
+def split_pairs(pairs: Sequence[CheckerPair], seed: int) -> tuple[list[CheckerPair], list[CheckerPair]]:
+    """Shuffle sorted question IDs, keeping every engine for a question together."""
+    if any(p.baseline.case.question.split != ALLOWED_SPLIT or p.baseline.case.question.is_trap for p in pairs):
+        raise SplitRefused("Cascade calibration and holdout must both come from learn questions")
+    ids = sorted({p.baseline.case.question.id for p in pairs})
+    if len(ids) < 2:
+        raise ValueError("Cascade evaluation needs at least two learn questions")
+    random.Random(seed).shuffle(ids)
+    calibration_ids = set(ids[:len(ids) // 2])
+    return ([p for p in pairs if p.baseline.case.question.id in calibration_ids],
+            [p for p in pairs if p.baseline.case.question.id not in calibration_ids])
+
+
+def select_threshold(calibration: Sequence[CheckerPair], thresholds: Sequence[float]) -> dict[str, Any]:
+    """Maximize recall under the LLM false-alarm count, using calibration only.
+
+    Counts avoid selection artifacts from rounded rates. Ties favor fewer
+    escalations, then the lower threshold. No feasible candidate means no switch.
+    """
+    baseline = cascade_metrics([p.baseline for p in calibration])
+    if not baseline["true_misses"] or not baseline["true_hits"]:
+        raise ValueError("Calibration needs both true misses and true hits")
+    candidates = {}
+    for threshold in thresholds:
+        if not 0 <= threshold <= 1:
+            raise ValueError("Cascade thresholds must be between 0 and 1")
+        candidates[threshold] = cascade_metrics([simulate_cascade(p, threshold) for p in calibration])
+    eligible = [t for t, result in candidates.items() if result["hits_flagged"] <= baseline["hits_flagged"]]
+    selected = max(eligible, key=lambda t: (candidates[t]["misses_flagged"],
+                                          -candidates[t]["escalated"], -t)) if eligible else None
+    return {"threshold": selected, "baseline": baseline, "candidates": candidates,
+            "question_ids": sorted({p.baseline.case.question.id for p in calibration}),
+            "selection_rule": "maximize miss recall with false alarms no higher than LLM; ties: fewer escalations, then lower threshold"}
+
+
+def cascade_groups(pairs: Sequence[CheckerPair], threshold: float | None) -> dict[str, Any]:
+    """Report overall, category and engine results for exactly the same rows."""
+    groups = {"overall": list(pairs)}
+    for category in sorted({p.baseline.case.question.category for p in pairs}):
+        groups[f"category/{category}"] = [p for p in pairs if p.baseline.case.question.category == category]
+    for engine in sorted({p.baseline.case.engine for p in pairs}):
+        groups[f"engine/{engine}"] = [p for p in pairs if p.baseline.case.engine == engine]
+    result = {}
+    for group, subset in groups.items():
+        result[group] = {"llm": cascade_metrics([p.baseline for p in subset]),
+                         "decision": cascade_metrics([p.decision for p in subset])}
+        if threshold is not None:
+            result[group]["cascade"] = cascade_metrics([simulate_cascade(p, threshold) for p in subset])
+    return result
+
+
+def recommend_cascade(heldout: dict[str, Any]) -> dict[str, Any]:
+    """Apply the phase 2 switching rule only to the frozen threshold's heldout half."""
+    overall = heldout["overall"]
+    reasons = []
+    if "cascade" not in overall:
+        return {"switch": False, "recommendation": "stay with LLM", "reasons": ["No feasible calibration threshold"]}
+    baseline, cascade = overall["llm"], overall["cascade"]
+    if not baseline["true_misses"] or not baseline["true_hits"]:
+        reasons.append("Heldout half needs both true misses and true hits")
+    if any(baseline[key] != cascade[key] for key in ("attempted", "true_hits", "true_misses")):
+        reasons.append("Heldout checker rows are not paired")
+    if cascade["misses_flagged"] < baseline["misses_flagged"]:
+        reasons.append(f"Heldout miss recall fell: {cascade['misses_flagged']}/{cascade['true_misses']} "
+                       f"versus LLM {baseline['misses_flagged']}/{baseline['true_misses']}")
+    if cascade["hits_flagged"] > baseline["hits_flagged"]:
+        reasons.append(f"Heldout false alarms rose: {cascade['hits_flagged']}/{cascade['true_hits']} "
+                       f"versus LLM {baseline['hits_flagged']}/{baseline['true_hits']}")
+    if baseline["failed"] or cascade["failed"]:
+        reasons.append("Heldout checks have operational failures")
+    return {"switch": not reasons, "recommendation": "cascade" if not reasons else "stay with LLM", "reasons": reasons}
+
+
+async def collect_pairs(split: str, *, engines: Sequence[str], today: date | str,
+                        matrix: Path, results_path: Path) -> list[CheckerPair]:
+    """Collect independent outputs under the combined $2 cap, never search or judge."""
+    if split != ALLOWED_SPLIT:
+        raise SplitRefused("Cascade evaluation reads the learn split only, never test or traps")
+    if config.SO_CACHE != "readwrite" or not contamination.enabled():
+        raise ValueError("Cascade evaluation requires caching and the contamination filter")
+    selected = list(dict.fromkeys(engines))
+    if not selected or set(selected) - (set(config.ENGINES) - set(config.DECISION_EVAL_SKIP_ENGINES)):
+        raise ValueError("Cascade engines must be configured engines excluding skipped engines")
+    questions = learn_questions()
+    ids = {q.id for q in questions}
+    truth = load_truth(matrix, ids)
+    results = load_results(results_path, ids)
+    cases, missing = build_cases(questions, truth, results, selected)
+    if missing or len(cases) != len(questions) * len(selected):
+        raise ValueError("Cascade evaluation requires complete stored learn results and matrix truth for every engine")
+    config.LLM_BUDGET.limit = min(config.LLM_BUDGET.limit, config.CASCADE_EVAL_BUDGET_USD)
+    config.DECISION_BUDGET.limit = min(config.DECISION_BUDGET.limit, config.CASCADE_EVAL_BUDGET_USD)
+
+    async def one(case: Case) -> CheckerPair:
+        baseline = await checker.check(case.question.question, case.question.question, case.results, today)
+        decision = await check(case.question.question, case.question.question, case.results, today)
+        if decision.failure or decision.fallback:
+            raise ValueError("Independent Decisions check failed; calibration refuses fallback-contaminated outputs")
+        original = {id(r): i for i, r in enumerate(results[(case.question.id, case.engine)], 1)}
+        positions = tuple(original[id(r)] for r in case.results)
+        row = truth[(case.question.id, case.engine)]
+        return CheckerPair(Observation(case, row, baseline, _usage(baseline), positions),
+                           Observation(case, row, decision, _usage(decision), positions))
+
+    pairs = []
+    concurrency = min(config.LLM_MAX_CONCURRENCY, config.DECISION_MAX_CONCURRENCY)
+    for start in range(0, len(cases), concurrency):
+        pairs.extend(await asyncio.gather(*(one(c) for c in cases[start:start + concurrency])))
+    return pairs
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+
+
+async def evaluate_cascade(split: str, *, engines: Sequence[str], today: date | str,
+                           matrix: Path, results_path: Path) -> dict[str, Any]:
+    """Freeze calibration before computing heldout metrics; never change the runtime backend."""
+    spent = config.LLM_BUDGET.spent
+    pairs = await collect_pairs(split, engines=engines, today=today, matrix=matrix, results_path=results_path)
+    calibration, heldout = split_pairs(pairs, config.CASCADE_EVAL_SEED)
+    selection = select_threshold(calibration, config.CASCADE_EVAL_THRESHOLDS)
+    selection.update(seed=config.CASCADE_EVAL_SEED, split=ALLOWED_SPLIT, engines=list(engines), today=str(today))
+    # Persist the choice before heldout metrics are calculated, including its question partition.
+    _write_report(config.CASCADE_CALIBRATION_PATH, selection)
+    threshold = selection["threshold"]
+    calibration_report = cascade_groups(calibration, threshold)
+    heldout_report = cascade_groups(heldout, threshold)
+    first_engine = [p for p in pairs if p.baseline.case.engine == config.FIRST_ENGINE]
+    sweep = {"llm": cascade_metrics([p.baseline for p in first_engine]),
+             "decision": cascade_metrics([p.decision for p in first_engine])}
+    for t in config.CASCADE_EVAL_THRESHOLDS:
+        sweep[f"cascade_{t:g}"] = cascade_metrics([simulate_cascade(p, t) for p in first_engine])
+    result = {"split": ALLOWED_SPLIT, "seed": config.CASCADE_EVAL_SEED, "engines": list(engines),
+        "threshold": threshold, "selection": selection, "first_engine_sweep": sweep, "sweep_engine": config.FIRST_ENGINE,
+        "calibration": calibration_report, "heldout": heldout_report,
+        "all_learn_llm_by_engine": {engine: cascade_metrics([p.baseline for p in pairs
+            if p.baseline.case.engine == engine]) for engine in engines},
+        "recommendation": recommend_cascade(heldout_report),
+        "live_spend_usd": round(config.LLM_BUDGET.spent - spent, 8),
+        "spend_cap_usd": config.LLM_BUDGET.limit,
+        "caveat": "Heldout means half of learn, not test. Tavily exploratory results used all learn questions before this split."}
+    _write_report(config.CASCADE_EVAL_REPORT_PATH, result)
+    return result
+
+
+def cascade_report(result: dict[str, Any]) -> str:
+    def line(backend: str, group: str, m: dict[str, Any]) -> str:
+        return (f"{backend} {group} {m['n_questions']} {m['attempted']} "
+                f"{m['true_misses']}/{m['true_hits']} {m['miss_recall']:.4f} {m['false_alarm_rate']:.4f} "
+                f"{m['escalated']}/{m['attempted']} {m['latency_mean_ms']} {m['latency_p90_ms']} "
+                f"{m['cost_per_check']} {m['failed']}/{m['unparseable']}")
+
+    header = "backend group questions rows misses/hits recall false_alarm escalated mean_ms p90_ms USD/check failed/unparseable"
+    lines = [f"Cached {result['sweep_engine']} cascade sweep", header]
+    lines += [line(backend, "overall", m) for backend, m in result["first_engine_sweep"].items()]
+    lines += [f"\nQuestion split seed: {result['seed']}; frozen threshold: {result['threshold']}",
+              "Calibration candidates", header]
+    lines += [line(f"cascade_{float(t):g}", "overall", m) for t, m in result["selection"]["candidates"].items()]
+    for half in ("calibration", "heldout"):
+        lines += [f"\n{half}", header]
+        for group, backends in result[half].items():
+            lines += [line(backend, group, m) for backend, m in backends.items()]
+    lines += ["\nLLM alone across all learn questions", header]
+    lines += [line("llm", engine, m) for engine, m in result["all_learn_llm_by_engine"].items()]
+    lines += ["", result["caveat"], "Escalations sum the original latency and cost of both calls in sequence.",
+              f"Live spend ${result['live_spend_usd']:.8f}; cap ${result['spend_cap_usd']:.2f}.",
+              f"Recommendation: {result['recommendation']['recommendation']}."]
+    lines.extend(result["recommendation"]["reasons"])
+    return "\n".join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--compare", action="store_true", required=True)
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--compare", action="store_true")
+    modes.add_argument("--cascade-eval", action="store_true", help="collect five-engine learn rows and calibrate a question-level cascade")
     parser.add_argument("--split", required=True)
-    parser.add_argument("--engines", nargs="+", default=config.DECISION_EVAL_ENGINES)
+    parser.add_argument("--engines", nargs="+")
     parser.add_argument("--today", default=date.today().isoformat())
     parser.add_argument("--matrix", type=Path, default=config.DECISION_EVAL_MATRIX_PATH)
     parser.add_argument("--results", type=Path, default=config.DECISION_EVAL_RESULTS_PATH)
@@ -339,8 +632,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.split != ALLOWED_SPLIT:
         parser.exit(2, f"refused: checker_eval runs on the learn split only, not {args.split!r}. "
                        "Reported numbers come from the test split, so it is never tuned on.\n")
+    if args.cascade_eval:
+        if args.limit is not None:
+            parser.error("--cascade-eval requires complete question groups; --limit is not supported")
+        try:
+            result = asyncio.run(evaluate_cascade(args.split, engines=args.engines or config.CASCADE_EVAL_ENGINES,
+                today=args.today, matrix=args.matrix, results_path=args.results))
+        except (ValueError, OSError, config.BudgetExceeded, checker.CheckerError, llm.DecisionCallError) as exc:
+            parser.exit(1, f"Cascade evaluation failed: {exc}\n")
+        print(cascade_report(result))
+        return
     try:
-        result = asyncio.run(compare(args.split, engines=args.engines, today=args.today,
+        result = asyncio.run(compare(args.split, engines=args.engines or config.DECISION_EVAL_ENGINES, today=args.today,
                                     matrix=args.matrix, results_path=args.results, limit=args.limit))
     except (ValueError, OSError, config.BudgetExceeded) as exc:
         parser.exit(1, f"Comparison failed: {exc}\n")
