@@ -72,8 +72,8 @@ def test_page_reader_contracts_accept_goal_metadata():
     signature(telem_client.fetch_page).bind("https://example.com", goal="find evidence", session="unit-session")
 
 
-async def test_malformed_checker_retry_is_costed_before_engine_rescue(monkeypatch, tmp_path, caplog):
-    replies = iter(['{"verdict": "HIT"', '{"verdict": "HIT"', model_reply("HIT", rank=1)])
+async def test_malformed_checker_retry_is_costed_without_semantic_rescue(monkeypatch, tmp_path, caplog):
+    replies = iter(['{"verdict": "HIT"', '{"verdict": "HIT"'])
 
     async def complete(role, system, messages, **kwargs):
         return LLMResponse(
@@ -99,16 +99,21 @@ async def test_malformed_checker_retry_is_costed_before_engine_rescue(monkeypatc
 
     outcome = await search("query", "goal", ctx)
 
-    assert outcome.status == "HIT" and outcome.calls == 2 and outcome.fetches == 0
-    assert outcome.engines_called == ["tavily", "exa"]
-    assert outcome.cost_usd == pytest.approx(0.013)
-    assert outcome.latency_ms >= 275
+    assert outcome.status == "UNCHECKED" and outcome.calls == 1 and outcome.fetches == 0
+    assert outcome.engines_called == ["tavily"]
+    assert outcome.cost_usd == pytest.approx(0.007)
+    assert outcome.latency_ms >= 150
     checks = [event["data"] for event in outcome.trace if event["type"] == "check"]
-    assert [check["verdict"] for check in checks] == ["DEAD", "HIT"]
-    assert checks[0]["why"] == "checker output malformed"
+    assert checks == []
+    assert not any(event["type"] == "rescue" for event in outcome.trace)
+    done = outcome.trace[-1]["data"]
+    assert done["verification_failures"] == 1
+    assert done["verification_failure_counts"] == {"malformed": 1}
+    assert done["cost_usd_failed_checks"] == pytest.approx(0.002)
+    assert done["rescues_used"] == 0
     usage = [event["data"] for event in outcome.trace if event["type"] == "llm"]
     assert len(usage) == 2
-    assert usage[0]["cost_usd"] == pytest.approx(0.002)
-    assert usage[0]["tokens_out"] == 60
+    assert sum(event["cost_usd"] for event in usage) == pytest.approx(0.002)
+    assert sum(event["tokens_out"] for event in usage) == 60
     assert summarize(log.path)["cost_usd_total"] == pytest.approx(outcome.cost_usd)
     assert "malformed after a retry" in caplog.text

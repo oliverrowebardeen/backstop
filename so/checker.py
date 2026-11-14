@@ -11,8 +11,7 @@ otherwise it becomes SHALLOW on that result so the page gets read instead of
 trusted.
 
 Errors are explicit. A malformed or truncated reply is retried once; a second
-bad reply is logged and returns a DEAD verdict whose `why` is MALFORMED_WHY or
-TRUNCATED_WHY, so a bad reply can cost one extra search but never produce a HIT.
+bad reply raises CheckerError with an operational failure kind and known usage.
 A reply cut off at the output cap is never parsed, even if it looks complete. A model call that
 fails after the llm wrapper's own retries raises `CheckerError`, and budget
 errors propagate unchanged.
@@ -94,7 +93,12 @@ PAGE_VERDICT_SCHEMA: dict[str, Any] = {
 
 
 class CheckerError(RuntimeError):
-    """The checker model could not be reached or refused the request."""
+    """Verification failed operationally; this says nothing about the evidence."""
+
+    def __init__(self, message: str, *, kind: str = "error", usage: LLMResponse | None = None) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.usage = usage or LLMResponse(role="checker")
 
 
 class CheckedVerdict(CheckerVerdict):
@@ -283,20 +287,21 @@ def _with_usage(verdict: CheckerVerdict, usage: LLMResponse | None = None) -> Ch
 
 
 def _log_usage(ctx: RunContext | None, usage: LLMResponse) -> None:
-    """Emit the checker's `llm` event so its cost lands in the run totals."""
-    if ctx is None or ctx.log is None or not usage.model:
+    """Persist one completed response before parsing it or awaiting another."""
+    if ctx is None or ctx.log is None:
         return
-    ctx.log.emit("llm", role="checker", model=usage.model, tokens_in=usage.tokens_in,
-                 tokens_out=usage.tokens_out, cost_usd=usage.cost_usd, latency_ms=usage.latency_ms)
+    ctx.log.emit("llm", role="checker", model=usage.model or CHECKER_MODEL, tokens_in=usage.tokens_in,
+                 tokens_out=usage.tokens_out, cost_usd=usage.cost_usd, latency_ms=usage.latency_ms,
+                 cached=usage.cached)
 
 
 async def _run(system: str, schema: dict[str, Any], user: str, parse: Callable[[str], CheckerVerdict],
                query: str, ctx: RunContext | None) -> CheckedVerdict:
     """Call the model and parse its reply, retrying once if the reply is malformed or truncated.
 
-    Usage from every attempt is summed onto the verdict and logged. Two bad
-    replies return a DEAD verdict with why=MALFORMED_WHY or TRUNCATED_WHY. A
-    failed call raises CheckerError; BudgetExceeded propagates unchanged.
+    Each completed response is logged immediately and included in aggregate
+    usage. Invalid replies and transport failures raise CheckerError, while
+    cancellation and BudgetExceeded propagate unchanged.
     """
     usage = LLMResponse(role="checker", cached=True)
     failure, detail, reply = MALFORMED_WHY, "", ""
@@ -304,11 +309,12 @@ async def _run(system: str, schema: dict[str, Any], user: str, parse: Callable[[
         try:
             resp = await _call_model(system, user if attempt == 0 else user + RETRY_NOTE, schema)
         except BudgetExceeded:
-            _log_usage(ctx, usage)
             raise
         except Exception as exc:
-            _log_usage(ctx, usage)
-            raise CheckerError(f"checker model call failed: {type(exc).__name__}: {exc}") from exc
+            kind = "timeout" if isinstance(exc, TimeoutError) else "error"
+            raise CheckerError(f"checker model call failed: {type(exc).__name__}: {exc}",
+                               kind=kind, usage=usage) from exc
+        _log_usage(ctx, resp)
         usage = _add_usage(usage, resp)
         reply = resp.text
         if resp.stop_reason in TRUNCATED_STOPS:
@@ -319,11 +325,9 @@ async def _run(system: str, schema: dict[str, Any], user: str, parse: Callable[[
         except ValueError as exc:
             failure, detail = MALFORMED_WHY, str(exc)
             continue
-        _log_usage(ctx, usage)
         return _with_usage(verdict, usage)
     logger.warning("%s after a retry: %s; last reply: %r", failure, detail, reply[:300])
-    _log_usage(ctx, usage)
-    return _with_usage(CheckerVerdict(verdict="DEAD", confidence=0.0, why=failure, rewrite=query), usage)
+    raise CheckerError(failure, kind="truncated" if failure == TRUNCATED_WHY else "malformed", usage=usage)
 
 
 async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],

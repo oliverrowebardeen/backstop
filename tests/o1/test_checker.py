@@ -208,14 +208,15 @@ async def test_malformed_reply_is_retried_once(model):
     assert out.cost_usd == pytest.approx(2 * fake.cost_usd)
 
 
-async def test_two_malformed_replies_give_a_logged_non_hit(model, caplog):
+async def test_two_malformed_replies_raise_an_operational_error(model, caplog):
     fake = model("nope", reply(verdict="HIT", confidence=7))
     log = RecordingLog()
     ctx = RunContext(run_id="r", question_id="x", setup="second_opinion", log=log)
-    out = await check("my query", "g", RESULTS, TODAY, ctx=ctx)
-    assert (out.verdict, out.confidence, out.why, out.rewrite) == ("DEAD", 0.0, MALFORMED_WHY, "my query")
-    assert out.cost_usd == pytest.approx(2 * fake.cost_usd)
-    assert log.events[0][1]["cost_usd"] == pytest.approx(2 * fake.cost_usd)
+    with pytest.raises(CheckerError, match=MALFORMED_WHY) as error:
+        await check("my query", "g", RESULTS, TODAY, ctx=ctx)
+    assert error.value.kind == "malformed"
+    assert error.value.usage.cost_usd == pytest.approx(2 * fake.cost_usd)
+    assert [event[1]["cost_usd"] for event in log.events] == [fake.cost_usd, fake.cost_usd]
     assert MALFORMED_WHY in caplog.text
 
 
@@ -228,14 +229,17 @@ async def test_truncated_reply_is_retried_once_with_a_different_request(model):
 
 
 @pytest.mark.parametrize("stop", ["max_tokens", "length"])
-async def test_two_truncated_replies_give_a_logged_non_hit(model, caplog, stop):
+async def test_two_truncated_replies_raise_an_operational_error(model, caplog, stop):
     complete_looking = reply(verdict="HIT", confidence=0.9, rank=1)
     fake = model(("", stop), (complete_looking, stop))
     log = RecordingLog()
     ctx = RunContext(run_id="r", question_id="x", setup="second_opinion", log=log)
-    out = await check("my query", "g", RESULTS, TODAY, ctx=ctx)
-    assert (out.verdict, out.why, out.rewrite) == ("DEAD", TRUNCATED_WHY, "my query")
-    assert len(fake.calls) == 2 and log.events[0][1]["cost_usd"] == pytest.approx(2 * fake.cost_usd)
+    with pytest.raises(CheckerError, match=TRUNCATED_WHY) as error:
+        await check("my query", "g", RESULTS, TODAY, ctx=ctx)
+    assert error.value.kind == "truncated"
+    assert error.value.usage.cost_usd == pytest.approx(2 * fake.cost_usd)
+    assert len(fake.calls) == 2
+    assert [event[1]["cost_usd"] for event in log.events] == [fake.cost_usd, fake.cost_usd]
     assert TRUNCATED_WHY in caplog.text
 
 
@@ -275,7 +279,8 @@ async def test_logs_checker_llm_event_when_given_ctx(model):
     ctx = RunContext(run_id="second_opinion-x-1", question_id="x", setup="second_opinion", log=log)
     await check("q", "g", RESULTS, TODAY, ctx=ctx)
     assert log.events == [("llm", {"role": "checker", "model": "fake-checker", "tokens_in": 900,
-                                   "tokens_out": 60, "cost_usd": 0.0002, "latency_ms": 420})]
+                                   "tokens_out": 60, "cost_usd": 0.0002, "latency_ms": 420,
+                                   "cached": False})]
 
 
 async def test_no_results_skips_the_model(model):

@@ -94,6 +94,9 @@ class _Trace:
 
     log: Any
     events: list[dict[str, Any]] = field(default_factory=list)
+    verification_failure_counts: dict[str, int] = field(default_factory=dict)
+    failed_checker_cost_usd: float = 0.0
+    checker_call_costs: list[float] = field(default_factory=list)
 
     def emit(self, event_type: str, **data: Any) -> Any:
         self.events.append({"type": event_type, "data": data})
@@ -109,11 +112,14 @@ class _Trace:
         )
 
     def checker_costs(self) -> list[float]:
-        return [
-            float(event["data"].get("cost_usd", 0))
-            for event in self.events
-            if event["type"] == "llm" and event["data"].get("role") == "checker"
-        ]
+        return self.checker_call_costs
+
+    def verification_totals(self) -> dict[str, Any]:
+        return {
+            "verification_failures": sum(self.verification_failure_counts.values()),
+            "verification_failure_counts": dict(self.verification_failure_counts),
+            "cost_usd_failed_checks": self.failed_checker_cost_usd,
+        }
 
 
 def _merge(merged: dict[str, Result], results: list[Result]) -> None:
@@ -191,31 +197,55 @@ def ranked_results(outcome: SearchOutcome) -> list[RankedResult]:
 async def _check(query: str, goal: str, results: list[Result], ctx: RunContext) -> CheckerVerdict:
     from so.checker import check
 
-    return await check(query, goal, results, ctx.today)
+    return await check(query, goal, results, ctx.today, **_supported_kwargs(check, {"ctx": ctx}))
 
 
 async def _check_page(query: str, goal: str, page: PageText, ctx: RunContext) -> CheckerVerdict:
     from so.checker import check_page
 
-    return await check_page(query, goal, page, ctx.today)
+    return await check_page(query, goal, page, ctx.today, **_supported_kwargs(check_page, {"ctx": ctx}))
 
 
-async def _guarded_check(call: Awaitable[CheckerVerdict], timeout_s: float) -> tuple[CheckerVerdict | None, str | None]:
+async def _guarded_check(
+    call: Awaitable[CheckerVerdict], timeout_s: float, trace: _Trace,
+) -> tuple[CheckerVerdict | None, str | None]:
     """Run a checker call, converting failures and timeouts into a skip reason.
 
     BudgetExceeded is an operator stop, not a checker failure, and propagates.
     """
+    start = len(trace.events)
+    failure: str | None = None
     try:
-        return await asyncio.wait_for(call, timeout_s), None
+        verdict = await asyncio.wait_for(call, timeout_s)
+        # Older checker adapters return aggregate usage without emitting events.
+        # Use that only when no per-response usage was already recorded.
+        if not any(event["type"] == "llm" for event in trace.events[start:]):
+            _record_usage(trace, verdict)
+        return verdict, None
     except config.BudgetExceeded:
+        failure = "budget"
+        raise
+    except asyncio.CancelledError:
+        failure = "cancelled"
         raise
     except TimeoutError:
+        failure = "timeout"
         return None, f"the checker did not answer within {timeout_s:g}s"
     except Exception as exc:
+        failure = getattr(exc, "kind", "error")
+        if failure in {"malformed", "truncated"}:
+            return None, f"the checker output was {failure} after a retry"
         return None, f"the checker failed ({type(exc).__name__})"
+    finally:
+        cost = sum(float(event["data"].get("cost_usd", 0)) for event in trace.events[start:]
+                   if event["type"] == "llm" and event["data"].get("role") == "checker")
+        trace.checker_call_costs.append(cost)
+        if failure:
+            trace.verification_failure_counts[failure] = trace.verification_failure_counts.get(failure, 0) + 1
+            trace.failed_checker_cost_usd += cost
 
 
-def _record_check(trace: _Trace, verdict: CheckerVerdict) -> None:
+def _record_usage(trace: _Trace, verdict: CheckerVerdict) -> None:
     """Checker usage is attached separately from serialized verdict fields."""
     model = getattr(verdict, "model", "")
     if model:
@@ -224,7 +254,6 @@ def _record_check(trace: _Trace, verdict: CheckerVerdict) -> None:
             **{key: getattr(verdict, key, 0) for key in ("tokens_in", "tokens_out", "cost_usd", "latency_ms")},
             cached=getattr(verdict, "cached", False),
         )
-    trace.emit("check", **verdict.model_dump())
 
 
 @dataclass(frozen=True)
@@ -300,7 +329,7 @@ async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: s
                 page = await tavily_extract(url, goal=goal)
             else:
                 page = await fetch_page(url, goal=goal, session=ctx.session,
-                                        **_ledger_kwargs(fetch_page, fields))
+                                        **_supported_kwargs(fetch_page, fields))
         except BudgetExceeded:
             raise
         except Exception as exc:
@@ -327,11 +356,8 @@ def _next_engine(tried: Sequence[str], table: Any) -> str | None:
     return next((item for item in candidates if item not in tried), None)
 
 
-def _ledger_kwargs(call: Callable[..., Any], fields: dict[str, Any]) -> dict[str, Any]:
-    """The subset of Telem ledger fields (context, metadata) that `call` accepts.
-
-    Injected engine_search and page reader callables predating the ledger keep working unchanged.
-    """
+def _supported_kwargs(call: Callable[..., Any], fields: dict[str, Any]) -> dict[str, Any]:
+    """Forward optional context to adapters that accept it."""
     try:
         params = inspect.signature(call).parameters
     except (TypeError, ValueError):
@@ -356,7 +382,21 @@ async def search(query: str, goal: str, ctx: RunContext, *, limits: SearchLimits
     TelemUnavailable only when Telem returns nothing usable at all.
     """
     trace = _Trace(ctx.log)
-    return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config(), engine_search)
+    started = perf_counter()
+    try:
+        return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config(), engine_search)
+    except BaseException as exc:
+        if not any(event["type"] == "search_done" for event in trace.events):
+            trace.emit(
+                "search_done", status="UNCHECKED", note="Search interrupted before verification completed.",
+                calls=sum(len(event["data"].get("engines", [])) for event in trace.events
+                          if event["type"] == "search"),
+                fetches=sum(event["type"] == "fetch" for event in trace.events),
+                cost_usd=trace.total("cost_usd"),
+                latency_ms=max((perf_counter() - started) * 1000, trace.total("latency_ms")),
+                error=type(exc).__name__, usage_incomplete=True, **trace.verification_totals(),
+            )
+        raise
 
 
 async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits: SearchLimits,
@@ -382,6 +422,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     published_after: str | None = None
     engine = config.FIRST_ENGINE
     current_results: list[Result] = []
+    checker_ctx = ctx.model_copy(update={"log": trace})
     step_seconds: list[float] = []
     # Ledger label for the next Telem search: which Backstop step it is and the verdict behind it.
     step_name, trigger = "initial", None
@@ -400,7 +441,8 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
         ]
         trace.emit(
             "search_done", **outcome.model_dump(exclude={"results", "trace", "engines_called"}),
-            ranking=ranking, telem_session_id=ctx.session, **extra,
+            ranking=ranking, telem_session_id=ctx.session, rescues_used=rescues_used,
+            **trace.verification_totals(), **extra,
         )
         outcome.trace = trace.events.copy()
         return outcome
@@ -444,7 +486,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             runs = await search_engines(
                 current_query, [engine], num_results=config.TELEM_NUM_RESULTS, goal=goal,
                 published_after=published_after, session=ctx.session,
-                **_ledger_kwargs(search_engines, ledger(step_name, trigger, engine)),
+                **_supported_kwargs(search_engines, ledger(step_name, trigger, engine)),
             )
             run = runs.get(engine) or EngineRun(engine=engine, status="error")
         except config.BudgetExceeded:
@@ -456,7 +498,15 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             run = EngineRun(engine=engine, status="error", latency_ms=(perf_counter() - step_started) * 1000)
         if ctx.session is None and run.session_id:
             ctx.session = run.session_id
+        checker_ctx.session = ctx.session
         engine_failed = run.status != "ok"
+        trace.emit(
+            "search", query=current_query, goal=goal, engines=[engine],
+            n_results=min(len(run.results), config.TELEM_NUM_RESULTS) if not engine_failed else 0,
+            latency_ms=run.latency_ms, cost_usd=run.cost_usd, cached=run.cached,
+            published_after=published_after, session=ctx.session, status=run.status,
+            **({"error": error or "Engine returned an unsuccessful response."} if engine_failed else {}),
+        )
         if engine_failed:
             error = error or "Engine returned an unsuccessful response."
             current_results = []
@@ -467,15 +517,8 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             per_engine.setdefault(engine, []).extend(current_results)
         memory.urls_seen.update(result.url for result in current_results)
         _merge(merged, current_results)
-        trace.emit(
-            "search", query=current_query, goal=goal, engines=[engine],
-            n_results=len(current_results), latency_ms=run.latency_ms,
-            cost_usd=run.cost_usd, cached=run.cached, published_after=published_after,
-            session=ctx.session, status=run.status,
-            **({"error": error} if engine_failed else {}),
-        )
         checked, skipped = await _guarded_check(
-            _check(current_query, goal, current_results, ctx), limits.checker_timeout_s,
+            _check(current_query, goal, current_results, checker_ctx), limits.checker_timeout_s, trace,
         )
         step_seconds.append(perf_counter() - step_started)
         if checked is None:
@@ -483,7 +526,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
         verdict: CheckerVerdict = checked
 
         while True:
-            _record_check(trace, verdict)
+            trace.emit("check", **verdict.model_dump())
             if engine_failed:
                 # An engine error is not a miss: move on without spending a rescue.
                 engine_failed = False
@@ -568,8 +611,8 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                 _merge(merged, [evidence])
                 current_results = [evidence]
                 checked, skipped = await _guarded_check(
-                    _check_page(current_query, goal, page.model_copy(update={"text": evidence.snippet}), ctx),
-                    limits.checker_timeout_s,
+                    _check_page(current_query, goal, page.model_copy(update={"text": evidence.snippet}), checker_ctx),
+                    limits.checker_timeout_s, trace,
                 )
                 step_seconds.append(perf_counter() - step_started)
                 if checked is None:

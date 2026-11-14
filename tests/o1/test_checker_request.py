@@ -70,11 +70,13 @@ async def test_thinking_mode_is_configurable(monkeypatch):
     assert "thinking" not in requests[0]
 
 
-async def test_thinking_only_truncated_reply_is_retried_then_a_non_hit(monkeypatch):
+async def test_thinking_only_truncated_reply_is_retried_then_an_operational_error(monkeypatch):
     requests = mock_api(monkeypatch, THINKING_ONLY, dict(THINKING_ONLY))
-    out = await checker.check(CASE["query"], CASE["goal"], CASE["results"], TODAY)
+    with pytest.raises(checker.CheckerError, match=checker.TRUNCATED_WHY) as error:
+        await checker.check(CASE["query"], CASE["goal"], CASE["results"], TODAY)
     assert len(requests) == 2
-    assert (out.verdict, out.why, out.tokens_out) == ("DEAD", checker.TRUNCATED_WHY, 798)
+    assert error.value.kind == "truncated"
+    assert error.value.usage.tokens_out == 798
 
 
 async def test_truncated_reply_then_valid_reply_recovers(monkeypatch):
