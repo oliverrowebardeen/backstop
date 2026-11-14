@@ -7,20 +7,26 @@ from so.contracts import LLMResponse
 
 
 class ScriptedModel:
-    """Replaces so.checker._call_model. Replies are returned in order; an Exception is raised."""
+    """Replaces so.checker._call_model. Replies are returned in order.
 
-    def __init__(self, *replies: str | Exception, cost_usd: float = 0.0002) -> None:
+    A reply is text, a (text, stop_reason) pair, or an Exception to raise.
+    """
+
+    def __init__(self, *replies: str | tuple[str, str] | Exception, cost_usd: float = 0.0002) -> None:
         self.replies = list(replies)
         self.cost_usd = cost_usd
         self.calls: list[tuple[str, str]] = []
+        self.schemas: list[dict[str, Any] | None] = []
 
-    async def __call__(self, system: str, user: str) -> LLMResponse:
+    async def __call__(self, system: str, user: str, schema: dict[str, Any] | None = None) -> LLMResponse:
         self.calls.append((system, user))
+        self.schemas.append(schema)
         reply = self.replies.pop(0) if self.replies else ""
         if isinstance(reply, Exception):
             raise reply
-        return LLMResponse(text=reply, tokens_in=900, tokens_out=60, cost_usd=self.cost_usd,
-                           latency_ms=420, model="fake-checker", role="checker")
+        text, stop = reply if isinstance(reply, tuple) else (reply, "end_turn")
+        return LLMResponse(text=text, tokens_in=900, tokens_out=60, cost_usd=self.cost_usd, latency_ms=420,
+                           model="fake-checker", role="checker", stop_reason=stop)
 
 
 class RecordingLog:

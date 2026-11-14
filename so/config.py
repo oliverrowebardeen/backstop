@@ -106,6 +106,10 @@ AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "24"))
 AGENT_PROMPT_PATH = Path(os.getenv("AGENT_PROMPT_PATH", str(ROOT / "so" / "prompts" / "agent.md")))
 SO_ENABLE_SECOND_OPINION = _bool("SO_ENABLE_SECOND_OPINION", True)
 MAX_RESCUES = int(os.getenv("MAX_RESCUES", "2"))
+# Per search call limits; callers may override each one per call (SearchLimits).
+SEARCH_MAX_COST_USD = float(os.getenv("SEARCH_MAX_COST_USD", "0.03"))
+SEARCH_TIMEOUT_S = float(os.getenv("SEARCH_TIMEOUT_S", "12"))
+CHECKER_TIMEOUT_S = float(os.getenv("CHECKER_TIMEOUT_S", "4"))
 FRESHNESS_DAYS = int(os.getenv("FRESHNESS_DAYS", "90"))
 RESCUE_TABLE_PATH = Path(os.getenv("RESCUE_TABLE_PATH", str(OUT_DIR / "rescue_table.json")))
 TELEM_MAX_CONCURRENCY = int(os.getenv("TELEM_MAX_CONCURRENCY", "16"))
@@ -118,8 +122,18 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 ANTHROPIC_MESSAGES_URL = os.getenv("ANTHROPIC_MESSAGES_URL", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages")
 OPENAI_CHAT_URL = os.getenv("OPENAI_CHAT_URL", OPENAI_BASE_URL.rstrip("/") + "/chat/completions")
 ANTHROPIC_API_VERSION = os.getenv("ANTHROPIC_API_VERSION", "2023-06-01")
-LLM_MAX_TOKENS = {"checker": 399, "agent": 2048, "judge": 1024}
+# The checker's verdict is about 100 tokens of JSON; the cap stays under 400.
+CHECKER_MAX_TOKENS = int(os.getenv("CHECKER_MAX_TOKENS", "399"))
+LLM_MAX_TOKENS = {"checker": CHECKER_MAX_TOKENS, "agent": 2048, "judge": 1024}
 LLM_MAX_TOKENS.update(json.loads(os.getenv("LLM_MAX_TOKENS_JSON", "{}")))
+# Anthropic thinking mode per role: "disabled", "adaptive", or "" for the model default.
+# Haiku 5.5 thinks adaptively by default, and that hidden thinking counts against
+# max_tokens: it used the checker's whole budget and left an empty reply.
+CHECKER_THINKING = os.getenv("CHECKER_THINKING", "disabled")
+LLM_THINKING = {"checker": CHECKER_THINKING}
+LLM_THINKING.update(json.loads(os.getenv("LLM_THINKING_JSON", "{}")))
+if set(LLM_THINKING.values()) - {"disabled", "adaptive", ""}:
+    raise ValueError("thinking modes must be disabled, adaptive or empty")
 LLM_TOKEN_RESERVE_OVERHEAD = int(os.getenv("LLM_TOKEN_RESERVE_OVERHEAD", "1024"))
 API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "3"))
 API_RETRY_BACKOFF_S = float(os.getenv("API_RETRY_BACKOFF_S", "0.5"))

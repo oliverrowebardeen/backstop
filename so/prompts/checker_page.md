@@ -13,6 +13,6 @@ When you are unsure whether it is a HIT, it is not a HIT. A wrong HIT loses the 
 
 ## Output
 
-Reply with one JSON object and nothing else:
+Reply with one JSON object and nothing else: no text before or after it, no markdown.
 
-{"verdict": "HIT" | "STALE" | "WRONG_ENTITY" | "DEAD", "confidence": <0 to 1, your probability that the verdict is right>, "why": "<one short sentence, under 25 words; for HIT, quote the few words that state the answer>", "evidence_rank": null, "best_url": null, "rewrite": <for any verdict except HIT, a better query for a retry; for HIT, null>}
+{"verdict": "HIT" | "STALE" | "WRONG_ENTITY" | "DEAD", "confidence": <0 to 1, your probability that the verdict is right>, "why": "<at most 15 words; for HIT, quote the few words that state the answer>", "rewrite": <for any verdict except HIT, one search query of at most 10 words; for HIT, null>}

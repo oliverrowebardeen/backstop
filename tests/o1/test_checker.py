@@ -7,8 +7,8 @@ from datetime import date
 import pytest
 
 from so import checker
-from so.checker import (MALFORMED_WHY, CheckedVerdict, CheckerError, check, check_page, parse_page_verdict,
-                        parse_verdict)
+from so.checker import (MALFORMED_WHY, TRUNCATED_WHY, CheckedVerdict, CheckerError, check, check_page,
+                        parse_page_verdict, parse_verdict)
 from so.config import BudgetExceeded
 from so.contracts import CheckerVerdict, PageText, Result, RunContext
 from tests.o1.examples import EXAMPLES, TODAY
@@ -19,8 +19,7 @@ RESULTS = [Result(rank=i, title=f"Title {i}", url=f"https://site{i}.example/page
 
 
 def reply(**fields) -> str:
-    base = {"verdict": "DEAD", "confidence": 0.8, "why": "w", "evidence_rank": None, "best_url": None,
-            "rewrite": None}
+    base = {"verdict": "DEAD", "confidence": 0.8, "why": "w", "rank": None, "rewrite": None}
     return json.dumps({**base, **fields})
 
 
@@ -108,12 +107,12 @@ def test_hit_threshold_setting_is_validated(monkeypatch):
 # Rules that keep HIT trustworthy.
 
 def test_confident_hit_points_at_its_evidence():
-    out = parse_verdict(reply(verdict="HIT", confidence=0.9, evidence_rank=3, rewrite="ignored"), RESULTS, "q")
+    out = parse_verdict(reply(verdict="HIT", confidence=0.9, rank=3, rewrite="ignored"), RESULTS, "q")
     assert (out.verdict, out.evidence_rank, out.best_url, out.rewrite) == ("HIT", 3, RESULTS[2].url, None)
 
 
 def test_unsure_hit_becomes_shallow_on_its_evidence_page():
-    out = parse_verdict(reply(verdict="HIT", confidence=0.4, evidence_rank=2), RESULTS, "orig query")
+    out = parse_verdict(reply(verdict="HIT", confidence=0.4, rank=2), RESULTS, "orig query")
     assert (out.verdict, out.best_url, out.evidence_rank, out.rewrite) == ("SHALLOW", RESULTS[1].url, None,
                                                                           "orig query")
     assert out.why.startswith("Unsure hit")
@@ -121,32 +120,24 @@ def test_unsure_hit_becomes_shallow_on_its_evidence_page():
 
 @pytest.mark.parametrize("rank", [None, 0, 6, "two"])
 def test_hit_without_a_valid_evidence_rank_is_not_a_hit(rank):
-    out = parse_verdict(reply(verdict="HIT", confidence=0.95, evidence_rank=rank), RESULTS, "q")
-    assert out.verdict == "DEAD"
+    out = parse_verdict(reply(verdict="HIT", confidence=0.95, rank=rank), RESULTS, "q")
+    assert out.verdict == "DEAD" and out.why.startswith("Unsure hit (no valid result number)")
 
 
-def test_hit_without_rank_but_with_a_real_url_is_read():
-    out = parse_verdict(reply(verdict="HIT", confidence=0.95, best_url=RESULTS[4].url), RESULTS, "q")
-    assert (out.verdict, out.best_url) == ("SHALLOW", RESULTS[4].url)
-
-
-def test_shallow_url_must_come_from_results():
-    near = "http://www.site2.example/page/"
-    out = parse_verdict(reply(verdict="SHALLOW", best_url=near), RESULTS, "q")
-    assert (out.verdict, out.best_url) == ("SHALLOW", RESULTS[1].url)
-    invented = parse_verdict(reply(verdict="SHALLOW", best_url="https://made-up.example/x"), RESULTS, "q")
-    assert invented.verdict == "DEAD" and invented.best_url is None
-
-
-def test_shallow_falls_back_to_evidence_rank_url():
-    out = parse_verdict(reply(verdict="SHALLOW", evidence_rank=4), RESULTS, "q")
+def test_shallow_maps_its_result_number_to_that_url():
+    out = parse_verdict(reply(verdict="SHALLOW", rank=4), RESULTS, "q")
     assert (out.verdict, out.best_url, out.evidence_rank) == ("SHALLOW", RESULTS[3].url, None)
+
+
+@pytest.mark.parametrize("rank", [None, 0, 6])
+def test_shallow_without_a_valid_result_number_is_dead(rank):
+    out = parse_verdict(reply(verdict="SHALLOW", rank=rank), RESULTS, "q")
+    assert out.verdict == "DEAD" and out.best_url is None
 
 
 @pytest.mark.parametrize("verdict", ["STALE", "WRONG_ENTITY", "DEAD"])
 def test_misses_always_carry_a_rewrite_and_no_evidence(verdict):
-    out = parse_verdict(reply(verdict=verdict, evidence_rank=1, best_url=RESULTS[0].url, rewrite=None),
-                        RESULTS, "fallback query")
+    out = parse_verdict(reply(verdict=verdict, rank=1, rewrite=None), RESULTS, "fallback query")
     assert (out.evidence_rank, out.best_url, out.rewrite) == (None, None, "fallback query")
     kept = parse_verdict(reply(verdict=verdict, rewrite="  better   query "), RESULTS, "q")
     assert kept.rewrite == "better query"
@@ -164,13 +155,13 @@ async def test_prompt_has_query_goal_date_and_top_five_only(model):
     many = RESULTS + [Result(rank=6, title="Sixth", url="https://six.example", engine="exa")]
     await check("the query", "the goal", many, date(2026, 11, 14))
     system, user = fake.calls[0]
-    assert system == checker.SYSTEM_PROMPT
+    assert system == checker.SYSTEM_PROMPT and fake.schemas[0] == checker.VERDICT_SCHEMA
     assert "TODAY: 2026-11-14" in user and "QUERY: the query" in user and "GOAL: the goal" in user
     assert "[5] Title 5" in user and "Sixth" not in user
 
 
 async def test_accepts_dict_results(model):
-    model(reply(verdict="HIT", confidence=0.9, evidence_rank=1))
+    model(reply(verdict="HIT", confidence=0.9, rank=1))
     out = await check("q", "g", [r.model_dump() for r in RESULTS], TODAY)
     assert out.verdict == "HIT"
 
@@ -191,6 +182,26 @@ async def test_two_malformed_replies_give_a_logged_non_hit(model, caplog):
     assert out.cost_usd == pytest.approx(2 * fake.cost_usd)
     assert log.events[0][1]["cost_usd"] == pytest.approx(2 * fake.cost_usd)
     assert MALFORMED_WHY in caplog.text
+
+
+async def test_truncated_reply_is_retried_once_with_a_different_request(model):
+    fake = model(("", "max_tokens"), reply(verdict="HIT", confidence=0.9, rank=1))
+    out = await check("q", "g", RESULTS, TODAY)
+    assert out.verdict == "HIT" and len(fake.calls) == 2
+    first, second = fake.calls
+    assert second[1] == first[1] + checker.RETRY_NOTE
+
+
+@pytest.mark.parametrize("stop", ["max_tokens", "length"])
+async def test_two_truncated_replies_give_a_logged_non_hit(model, caplog, stop):
+    complete_looking = reply(verdict="HIT", confidence=0.9, rank=1)
+    fake = model(("", stop), (complete_looking, stop))
+    log = RecordingLog()
+    ctx = RunContext(run_id="r", question_id="x", setup="second_opinion", log=log)
+    out = await check("my query", "g", RESULTS, TODAY, ctx=ctx)
+    assert (out.verdict, out.why, out.rewrite) == ("DEAD", TRUNCATED_WHY, "my query")
+    assert len(fake.calls) == 2 and log.events[0][1]["cost_usd"] == pytest.approx(2 * fake.cost_usd)
+    assert TRUNCATED_WHY in caplog.text
 
 
 async def test_model_error_raises_a_clear_checker_error(model):
@@ -258,7 +269,8 @@ async def test_check_page_accepts_pagetext_and_truncates(model):
     page = PageText(url="https://p.example", ok=True, text="answer " * 5000)
     out = await check_page("q", "g", page, TODAY)
     system, user = fake.calls[0]
-    assert system == checker.PAGE_PROMPT and "PAGE URL: https://p.example" in user
+    assert system == checker.PAGE_PROMPT and fake.schemas[0] == checker.PAGE_VERDICT_SCHEMA
+    assert "PAGE URL: https://p.example" in user
     assert user.count("answer") <= checker.PAGE_CHARS // len("answer ") + 1
     assert out.verdict == "HIT" and out.best_url == "https://p.example"
 

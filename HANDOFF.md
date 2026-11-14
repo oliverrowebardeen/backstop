@@ -47,3 +47,8 @@
 - O4 built: FastAPI race/replay streams and results API, race/results UI with Telem provenance, source links, light/dark themes, JSON audit exports, and environment-backed server settings; fixture loading is disabled by default.
 - O4 run: `.venv/bin/pytest tests/ -q` passes 261 tests; `node --test tests/o4/test_ui.mjs` passes 9 tests. `SERVER_FIXTURE_DIR=tests/o4/fixtures python -m server` serves the 25-event replay with matching totals. Live `POST /race` for "Who is the CEO of Tavily?" returned 200 and completed both runs with 7/9 events, $0.015414/$0.0171677, and 3 citations each.
 - O4 not done: none within lane scope. Run one server worker. Recordings use the manifest format in server/README.md; real evaluation artifacts are read from the configured output paths.
+
+## O1: Checker
+- Built: so/checker.py (`check`, `check_page`; returns a CheckerVerdict that also carries the call's cost, logs its own `llm` event when given `ctx`, raises CheckerError on a failed call) with prompts in so/prompts/, and so/checker_eval.py. Learn split, Tavily, 100 searches: miss recall 0.867, false alarms 0.100, HIT precision 0.940, 0 malformed or truncated replies, largest reply 121 output tokens, $0.00057 per check.
+- Run: `python -m so.checker_eval --split learn --show 5` (refuses any other split); `python -m tests.o1.live_examples` (15 hand-made cases, 15/15); `pytest tests/o1`.
+- Not done: fact-question miss recall is 0.714 (4 confident wrong HITs on 14 misses); finance false alarms are 3 of 6. Not tuned further, to avoid fitting 100 questions.

@@ -3,9 +3,11 @@
     python -m so.checker_eval --split learn
 
 Truth comes from out/matrix.jsonl: whether an engine's top 5 contained the gold
-answer, as decided by the judge. The checker sees the same top 5 the judge saw
-(out/matrix_results.jsonl), the same query and goal the matrix used (the
-question text) and today's date. It never sees gold answers.
+answer, as decided by the judge. The checker sees the same results the judge
+saw: the stored top 5 (out/matrix_results.jsonl) minus pages that copy the
+benchmark itself, removed with the matrix's own filter (evals.contamination).
+It gets the same query and goal the matrix used (the question text) and
+today's date. It never sees gold answers.
 
 Prints miss recall, false alarm rate, rescuable-vs-DEAD accuracy and a
 confusion table of verdicts. Metric definitions match evals/score.py.
@@ -30,6 +32,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from evals import contamination
 from so import checker
 from so.config import ENGINES, FIRST_ENGINE, OUT_DIR
 from so.contracts import CheckerVerdict, MatrixRow, Question, Result
@@ -55,6 +58,7 @@ class Case:
     results: list[Result]
     truth_hit: bool
     others_hit: list[bool] = field(default_factory=list)
+    n_contaminated: int = 0
 
 
 @dataclass
@@ -124,7 +128,8 @@ def build_cases(questions: Sequence[Question], truth: dict[tuple[str, str], Matr
                 missing.append((q, engine))
                 continue
             others = [truth[(q.id, e)].hit for e in ENGINES if e != engine and (q.id, e) in truth]
-            cases.append(Case(q, engine, results[(q.id, engine)], row.hit, others))
+            kept, dropped = contamination.filter_results(q.question, results[(q.id, engine)])
+            cases.append(Case(q, engine, kept, row.hit, others, dropped))
     return cases, missing
 
 
@@ -197,7 +202,10 @@ def metrics(scored: Sequence[Scored]) -> dict[str, Any]:
                             "false_alarm_rate": _rate(v["hits_flagged"], v["true_hits"]),
                             "true_hits": v["true_hits"], "true_misses": v["true_misses"]}
                         for k, v in sorted(by_category.items())},
+        "contaminated_results_dropped": sum(s.case.n_contaminated for s in scored),
         "malformed": sum(s.verdict.why == checker.MALFORMED_WHY for s in scored),
+        "truncated": sum(s.verdict.why == checker.TRUNCATED_WHY for s in scored),
+        "max_tokens_out": max((v.tokens_out for v in usage), default=0),
         "cost_usd": round(sum(v.cost_usd for v in usage), 6),
         "cost_per_check": round(sum(v.cost_usd for v in usage) / len(usage), 6) if usage else 0.0,
         "latency_p50_ms": round(statistics.median(latencies)) if latencies else None,
@@ -210,7 +218,8 @@ def report(m: dict[str, Any], target_miss_recall: float = TARGET_MISS_RECALL,
     ok = m["miss_recall"] >= target_miss_recall and m["false_alarm_rate"] <= target_false_alarm
     lines = [
         f"Checker on the {m['split']} split: {m['n_searches']} searches "
-        f"({m['true_misses']} true misses, {m['true_hits']} true hits)",
+        f"({m['true_misses']} true misses, {m['true_hits']} true hits); "
+        f"{m['contaminated_results_dropped']} benchmark-copy results dropped first",
         "",
         f"  miss recall            {m['miss_recall']:.3f}   (target >= {target_miss_recall})",
         f"  false alarm rate       {m['false_alarm_rate']:.3f}   (target <= {target_false_alarm})",
@@ -228,7 +237,9 @@ def report(m: dict[str, Any], target_miss_recall: float = TARGET_MISS_RECALL,
     latency = f"{m['latency_p50_ms']} ms" if m["latency_p50_ms"] is not None else "n/a (all cached)"
     lines += ["",
               f"  checker cost ${m['cost_usd']:.4f} (${m['cost_per_check']:.5f} per check), "
-              f"median latency {latency}, {m['cached_checks']} cached, {m['malformed']} malformed",
+              f"median latency {latency}, {m['cached_checks']} cached",
+              f"  bad replies: {m['malformed']} malformed, {m['truncated']} truncated; "
+              f"largest reply {m['max_tokens_out']} output tokens",
               f"  target {'MET' if ok else 'NOT MET'}"]
     return "\n".join(lines)
 
@@ -253,7 +264,7 @@ def disagreements(scored: Sequence[Scored], limit: int) -> str:
 async def run(split: str, *, engines: Sequence[str], today: date | str, matrix: Path = MATRIX,
               results_path: Path = RESULTS, fill: bool = False, show: int = 0,
               questions: Sequence[Question] | None = None, target_miss_recall: float = TARGET_MISS_RECALL,
-              target_false_alarm: float = TARGET_FALSE_ALARM) -> dict[str, Any]:
+              target_false_alarm: float = TARGET_FALSE_ALARM, limit: int | None = None) -> dict[str, Any]:
     if split != ALLOWED_SPLIT:
         raise SplitRefused(f"checker_eval runs on the learn split only, not {split!r}. "
                            "Reported numbers come from the test split, so it is never tuned on.")
@@ -271,6 +282,8 @@ async def run(split: str, *, engines: Sequence[str], today: date | str, matrix: 
         print(f"{len(missing)} matrix rows have no stored results and were skipped"
               f"{'' if fill else ' (pass --fill-missing to fetch them through the Telem cache)'}.",
               file=sys.stderr)
+    if limit is not None:
+        cases = cases[:limit]
     scored = await score(cases, today)
     m = metrics(scored)
     m["engines"] = list(engines)
@@ -292,6 +305,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--fill-missing", action="store_true",
                    help="fetch results absent from the results file with the matrix's Telem call")
     p.add_argument("--show", type=int, default=0, metavar="N", help="print N disagreements of each kind")
+    p.add_argument("--limit", type=int, metavar="N", help="check only the first N searches (smoke runs)")
     p.add_argument("--target-miss-recall", type=float, default=TARGET_MISS_RECALL, metavar="R",
                    help=f"pass mark for miss recall (default {TARGET_MISS_RECALL})")
     p.add_argument("--target-false-alarm", type=float, default=TARGET_FALSE_ALARM, metavar="R",
@@ -307,7 +321,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         m = asyncio.run(run(a.split, engines=a.engines, today=a.today, matrix=a.matrix,
                             results_path=a.results, fill=a.fill_missing, show=a.show,
-                            target_miss_recall=a.target_miss_recall, target_false_alarm=a.target_false_alarm))
+                            target_miss_recall=a.target_miss_recall, target_false_alarm=a.target_false_alarm,
+                            limit=a.limit))
     except (FileNotFoundError, SplitRefused, checker.CheckerError) as exc:
         p.exit(1, f"{exc}\n")
     if a.json:
