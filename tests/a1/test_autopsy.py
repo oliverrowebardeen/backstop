@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from telem.errors import APIStatusError, NotFoundError
 
 from server import api_v1
-from server.usage import RateLimiter
+from server.usage import RateLimiter, UsageStore
 from so import autopsy as autopsy_module
 from so.autopsy import (MAX_STEPS, Autopsy, AutopsyUnavailable, SessionNotFound, autopsy, cohens_kappa,
                         parse_history, parse_results)
@@ -237,12 +237,12 @@ KEY = "bk_test_autopsy"
 
 
 @pytest.fixture
-def api(monkeypatch):
+def api(monkeypatch, tmp_path):
     monkeypatch.setenv("BACKSTOP_API_KEYS", KEY)
     calls: list[str] = []
     outcome: dict[str, Any] = {}
 
-    async def fake_autopsy(session_id: str) -> Autopsy:
+    async def fake_autopsy(session_id: str, **kwargs: Any) -> Autopsy:
         calls.append(session_id)
         if "error" in outcome:
             raise outcome["error"]
@@ -253,6 +253,10 @@ def api(monkeypatch):
     app.include_router(api_v1.router)
     limiter = RateLimiter(limit=60)
     app.dependency_overrides[api_v1.get_rate_limiter] = lambda: limiter
+    store = UsageStore(tmp_path / "usage.db")
+    for owned in ("sess-1", "af5396f2-a3a8-45bb", "s1"):
+        store.bind_session(KEY, owned)
+    app.dependency_overrides[api_v1.get_usage_store] = lambda: store
     return TestClient(app), calls, outcome
 
 

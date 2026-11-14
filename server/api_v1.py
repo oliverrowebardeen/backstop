@@ -4,6 +4,14 @@ Authentication is `Authorization: Bearer <key>`, checked against the
 comma-separated BACKSTOP_API_KEYS. Keys and request bodies are never logged.
 Errors are JSON: {"detail": {"code": ..., "message": ...}} (422 uses FastAPI's
 standard validation detail list).
+
+Tenancy: every key has a lifetime spend cap (BACKSTOP_KEY_SPEND_CAP_USD). A
+request first reserves its worst-case cost against what the key has left, so
+concurrent requests cannot together pass the cap; past it the answer is 402.
+Per-request max_cost_usd and max_rescues are clamped to BACKSTOP_MAX_COST_USD
+and BACKSTOP_MAX_RESCUES. Telem sessions belong to the key whose search
+returned them: /v1/autopsy and a client-supplied session on /v1/search answer
+404 for any other key, the same as for a session that does not exist.
 """
 
 from __future__ import annotations
@@ -17,11 +25,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path as PathParam
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.usage import RateLimiter, UsageStore, key_id
 from so import config
-from so.autopsy import Autopsy, AutopsyUnavailable, SessionNotFound, autopsy
+from so.autopsy import MAX_STEPS, Autopsy, AutopsyUnavailable, SessionNotFound, autopsy
 from so.client import BackstopSearchResponse, BackstopTelem
 from so.second_opinion import TelemUnavailable
 
@@ -42,6 +50,27 @@ class SearchRequest(BaseModel):
     max_cost_usd: float | None = Field(default=None, gt=0, le=1)
     timeout_s: float | None = Field(default=None, gt=0, le=120)
     checker_timeout_s: float | None = Field(default=None, gt=0, le=60)
+
+    @field_validator("query")
+    @classmethod
+    def _query_has_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("query must contain non-whitespace text")
+        return value
+
+    @field_validator("goal", "session")
+    @classmethod
+    def _blank_is_none(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
+
+
+_SESSION_NOT_FOUND = "No Telem session with this id belongs to this API key."
+
+
+def _spend_cap_error() -> HTTPException:
+    return _error(402, "spend_cap_reached",
+                  f"This API key has reached its spend cap of ${config.BACKSTOP_KEY_SPEND_CAP_USD:.2f}.")
 
 
 def _error(status: int, code: str, message: str, headers: dict[str, str] | None = None) -> HTTPException:
@@ -106,20 +135,42 @@ async def search(
     client: BackstopTelem = Depends(get_client),
     usage: UsageStore = Depends(get_usage_store),
 ) -> BackstopSearchResponse:
-    """Run one verified search and meter it against the caller's key."""
+    """Run one verified search and meter it against the caller's key.
+
+    Limits are clamped to the server maxima and to what remains of the key's
+    spend cap; the first search plus one check must fit, else 402.
+    """
+    if body.session is not None and not usage.owns_session(api_key, body.session):
+        raise _error(404, "session_not_found", _SESSION_NOT_FOUND)
+    max_rescues = min(config.MAX_RESCUES if body.max_rescues is None else body.max_rescues,
+                      config.BACKSTOP_MAX_RESCUES)
+    want = min(body.max_cost_usd or config.SEARCH_MAX_COST_USD, config.BACKSTOP_MAX_COST_USD)
+    first_step = config.PRICE_USD.get(config.FIRST_ENGINE, config.DEFAULT_PRICE_USD) + config.BACKSTOP_CHECK_COST_USD
+    reserved = usage.reserve(api_key, max(want, first_step), minimum=first_step,
+                             cap=config.BACKSTOP_KEY_SPEND_CAP_USD)
+    if not reserved:
+        raise _spend_cap_error()
     try:
-        response = await client.search(
-            body.query, goal=body.goal, session=body.session, max_rescues=body.max_rescues,
-            max_cost_usd=body.max_cost_usd, timeout_s=body.timeout_s, checker_timeout_s=body.checker_timeout_s,
-        )
-    except TelemUnavailable as exc:
-        logger.warning("Telem unavailable for key %s: %s", key_id(api_key), exc)
-        raise _error(502, "telem_unavailable", "Telem returned no usable response from any engine.") from exc
-    except config.BudgetExceeded as exc:
-        logger.warning("Spend budget exhausted for key %s", key_id(api_key))
-        raise _error(503, "budget_exhausted", "This deployment's spend budget is exhausted.") from exc
-    usage.record(api_key, status=response.status, engine_calls=response.engine_calls,
-                 fetches=response.fetches, cost_usd=response.cost_usd)
+        try:
+            response = await client.search(
+                body.query, goal=body.goal, session=body.session, max_rescues=max_rescues,
+                max_cost_usd=min(want, reserved), timeout_s=body.timeout_s,
+                checker_timeout_s=body.checker_timeout_s,
+            )
+        except TelemUnavailable as exc:
+            logger.warning("Telem unavailable for key %s: %s", key_id(api_key), exc)
+            raise _error(502, "telem_unavailable", "Telem returned no usable response from any engine.") from exc
+        except config.BudgetExceeded as exc:
+            logger.warning("Spend budget exhausted for key %s", key_id(api_key))
+            raise _error(503, "budget_exhausted", "This deployment's spend budget is exhausted.") from exc
+        usage.record(api_key, status=response.status, engine_calls=response.engine_calls,
+                     fetches=response.fetches, cost_usd=response.cost_usd)
+    finally:
+        usage.release(api_key, reserved)
+    if response.session_id and not usage.bind_session(api_key, response.session_id):
+        logger.warning("Telem returned a session owned by another key to key %s; not exposing it",
+                       key_id(api_key))
+        response = response.model_copy(update={"session_id": None})
     return response
 
 
@@ -135,14 +186,39 @@ async def usage_totals(
 async def session_autopsy(
     session_id: str = PathParam(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:-]+$"),
     api_key: str = Depends(rate_limited_key),
+    usage: UsageStore = Depends(get_usage_store),
 ) -> Autopsy:
-    """Replay a Telem session through the checker: first miss, where Backstop would stop, next rescue."""
+    """Replay one of the caller's Telem sessions through the checker.
+
+    Checker spend is metered against the key; the number of steps checked is
+    limited to what the key's remaining spend cap covers.
+    """
+    if not usage.owns_session(api_key, session_id):
+        raise _error(404, "session_not_found", _SESSION_NOT_FOUND)
+    per_check = config.BACKSTOP_CHECK_COST_USD
+    reserved = usage.reserve(api_key, MAX_STEPS * per_check, minimum=per_check,
+                             cap=config.BACKSTOP_KEY_SPEND_CAP_USD)
+    if not reserved:
+        raise _spend_cap_error()
+    spent: list[float] = []
+
+    async def metered_check(query: str, goal: str, results: Any, today: Any) -> Any:
+        from so.checker import check
+
+        verdict = await check(query, goal, results, today)
+        spent.append(float(getattr(verdict, "cost_usd", 0) or 0))
+        return verdict
+
     try:
-        return await autopsy(session_id)
+        return await autopsy(session_id, checker=metered_check,
+                             max_steps=max(1, min(MAX_STEPS, int(reserved / per_check + 1e-9))))
     except SessionNotFound as exc:
-        raise _error(404, "session_not_found", str(exc)) from exc
+        raise _error(404, "session_not_found", _SESSION_NOT_FOUND) from exc
     except AutopsyUnavailable as exc:
         logger.warning("Autopsy unavailable for key %s: %s", key_id(api_key), exc)
         raise _error(502, "telem_unavailable", "Telem's Sessions API did not return this session.") from exc
     except config.BudgetExceeded as exc:
         raise _error(503, "budget_exhausted", "This deployment's spend budget is exhausted.") from exc
+    finally:
+        usage.record_autopsy(api_key, cost_usd=sum(spent))
+        usage.release(api_key, reserved)

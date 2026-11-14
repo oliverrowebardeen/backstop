@@ -1,6 +1,8 @@
-"""Per-key usage metering in SQLite and a per-key sliding-window rate limit.
+"""Per-key usage metering, spend caps and session ownership in SQLite, plus a per-key rate limit.
 
 Keys are never stored: rows are keyed by `key_id`, a SHA-256 prefix of the key.
+Spend reservations (`reserve`/`release`) are held in memory per process, so
+concurrent requests from one key cannot together run past its cap.
 """
 
 from __future__ import annotations
@@ -31,12 +33,24 @@ CREATE TABLE IF NOT EXISTS usage (
 )
 """
 
+_SESSIONS = """
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    key_id TEXT NOT NULL,
+    first_seen TEXT NOT NULL
+)
+"""
+
 _STATUS_COLUMN = {"HIT": "hits", "NOT_FOUND": "not_found", "UNCHECKED": "unchecked"}
 
 
 def key_id(api_key: str) -> str:
     """Stable, non-reversible identifier for an API key, safe to store and log."""
     return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class UsageStore:
@@ -46,8 +60,13 @@ class UsageStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._reserved: dict[str, float] = {}
         with self._connect() as db:
             db.execute(_SCHEMA)
+            db.execute(_SESSIONS)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(usage)")}
+            if "autopsies" not in columns:
+                db.execute("ALTER TABLE usage ADD COLUMN autopsies INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -63,7 +82,7 @@ class UsageStore:
         column = _STATUS_COLUMN.get(status)
         if column is None:
             raise ValueError(f"Unknown search status {status!r}")
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        now = _now()
         with self._lock, self._connect() as db:
             db.execute(
                 f"""INSERT INTO usage (key_id, verified_searches, {column}, engine_calls, fetches, cost_usd,
@@ -79,6 +98,65 @@ class UsageStore:
                 (key_id(key), engine_calls, fetches, cost_usd, now, now),
             )
 
+    def record_autopsy(self, key: str, *, cost_usd: float) -> None:
+        """Add one autopsy (its checker spend) to the caller's totals."""
+        now = _now()
+        with self._lock, self._connect() as db:
+            db.execute(
+                """INSERT INTO usage (key_id, autopsies, cost_usd, first_seen, last_seen)
+                   VALUES (?, 1, ?, ?, ?)
+                   ON CONFLICT(key_id) DO UPDATE SET
+                       autopsies = autopsies + 1,
+                       cost_usd = cost_usd + excluded.cost_usd,
+                       last_seen = excluded.last_seen""",
+                (key_id(key), cost_usd, now, now),
+            )
+
+    def spent(self, key: str) -> float:
+        """The caller's total metered spend in USD."""
+        with self._connect() as db:
+            row = db.execute("SELECT cost_usd FROM usage WHERE key_id = ?", (key_id(key),)).fetchone()
+        return float(row[0]) if row else 0.0
+
+    def reserve(self, key: str, want: float, *, minimum: float, cap: float) -> float:
+        """Reserve up to `want` USD of the caller's remaining cap; 0.0 (nothing reserved) if under `minimum`.
+
+        Remaining is cap minus metered spend minus amounts other in-flight
+        requests from this key already hold. Pair every nonzero result with `release`.
+        """
+        ident = key_id(key)
+        with self._lock:
+            remaining = cap - self.spent(key) - self._reserved.get(ident, 0.0)
+            if remaining + 1e-12 < minimum or remaining <= 0:
+                return 0.0
+            granted = min(want, remaining)
+            self._reserved[ident] = self._reserved.get(ident, 0.0) + granted
+            return granted
+
+    def release(self, key: str, amount: float) -> None:
+        """Return a reservation once the request's actual cost has been recorded."""
+        ident = key_id(key)
+        with self._lock:
+            left = self._reserved.get(ident, 0.0) - amount
+            if left > 1e-12:
+                self._reserved[ident] = left
+            else:
+                self._reserved.pop(ident, None)
+
+    def bind_session(self, key: str, session_id: str) -> bool:
+        """Record that `session_id` belongs to the caller. False if another key already owns it."""
+        with self._lock, self._connect() as db:
+            db.execute("INSERT OR IGNORE INTO sessions (session_id, key_id, first_seen) VALUES (?, ?, ?)",
+                       (session_id, key_id(key), _now()))
+            row = db.execute("SELECT key_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return row is not None and row[0] == key_id(key)
+
+    def owns_session(self, key: str, session_id: str) -> bool:
+        """True if a search by this key returned `session_id`."""
+        with self._connect() as db:
+            row = db.execute("SELECT key_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return row is not None and row[0] == key_id(key)
+
     def totals(self, key: str) -> dict[str, Any]:
         """Return the caller's totals; zeros if the key has not searched yet."""
         with self._connect() as db:
@@ -86,7 +164,8 @@ class UsageStore:
             row = db.execute("SELECT * FROM usage WHERE key_id = ?", (key_id(key),)).fetchone()
         if row is None:
             return {"key_id": key_id(key), "verified_searches": 0, "hits": 0, "not_found": 0, "unchecked": 0,
-                    "engine_calls": 0, "fetches": 0, "cost_usd": 0.0, "first_seen": None, "last_seen": None}
+                    "engine_calls": 0, "fetches": 0, "cost_usd": 0.0, "autopsies": 0,
+                    "first_seen": None, "last_seen": None}
         totals = dict(row)
         totals["cost_usd"] = round(totals["cost_usd"], 6)
         return totals

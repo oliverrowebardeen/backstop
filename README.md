@@ -164,7 +164,8 @@ curl -s http://localhost:8000/v1/usage -H "Authorization: Bearer bk_live_one"
 curl -s http://localhost:8000/health
 ```
 
-Errors are JSON with the right status codes: 401 bad key, 422 bad body, 429 rate
+Errors are JSON with the right status codes: 401 bad key, 402 key spend cap reached,
+404 session not yours, 422 bad body, 429 rate
 limited, 502 Telem unavailable. The same server hosts the race screen at `/`, which
 plays a single-engine agent and a Backstop agent side by side from their event logs.
 

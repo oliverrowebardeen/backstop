@@ -325,6 +325,18 @@ if not SERVER_HOST.strip() or not 1 <= SERVER_PORT <= 65535:
     raise ValueError("SERVER_HOST must be nonempty and SERVER_PORT must be between 1 and 65535")
 
 
+# Hosted API per-key limits (server/api_v1.py). Every key shares this process's
+# SEARCH_BUDGET and LLM_BUDGET, so no single key may spend more than its cap,
+# and no single request may ask for more than the per-request maxima.
+BACKSTOP_KEY_SPEND_CAP_USD = float(os.getenv("BACKSTOP_KEY_SPEND_CAP_USD", "5"))
+BACKSTOP_MAX_COST_USD = float(os.getenv("BACKSTOP_MAX_COST_USD", "0.10"))
+BACKSTOP_MAX_RESCUES = int(os.getenv("BACKSTOP_MAX_RESCUES", "3"))
+BACKSTOP_CHECK_COST_USD = float(os.getenv("BACKSTOP_CHECK_COST_USD", "0.001"))
+if not (BACKSTOP_KEY_SPEND_CAP_USD > 0 and BACKSTOP_MAX_COST_USD > 0 and BACKSTOP_CHECK_COST_USD > 0):
+    raise ValueError("BACKSTOP_KEY_SPEND_CAP_USD, BACKSTOP_MAX_COST_USD and BACKSTOP_CHECK_COST_USD must be positive")
+if BACKSTOP_MAX_RESCUES < 0:
+    raise ValueError("BACKSTOP_MAX_RESCUES must be 0 or more")
+
 # Optional Decisions checker. The existing search/checker integration stays on LLM.
 CHECKER_BACKEND = os.getenv("CHECKER_BACKEND", "llm")
 CHECKER_PROVIDER = os.getenv("CHECKER_PROVIDER", LLM_PROVIDER)
