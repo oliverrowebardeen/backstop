@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shlex
 import tempfile
 import threading
@@ -120,6 +121,35 @@ OUT_DIR = Path(os.getenv("SO_OUT_DIR", str(ROOT / "out")))
 SO_OUT_DIR = OUT_DIR
 SO_LOG_DIR = Path(os.getenv("SO_LOG_DIR", str(OUT_DIR / "logs")))
 LOG_DIR = SO_LOG_DIR
+# First-engine routing uses text only at runtime. Build inputs are learn-only.
+# Defaults: enabled, artifacts under SO_OUT_DIR, questions under data/.
+FIRST_ENGINE_ROUTING = os.getenv("FIRST_ENGINE_ROUTING", "on").strip().lower()
+if FIRST_ENGINE_ROUTING not in {"on", "off"}:
+    raise ValueError("FIRST_ENGINE_ROUTING must be on or off")
+FIRST_ENGINE_TABLE_PATH = Path(os.getenv("FIRST_ENGINE_TABLE_PATH", str(OUT_DIR / "first_engine.json")))
+FIRST_ENGINE_MATRIX_PATH = Path(os.getenv("FIRST_ENGINE_MATRIX_PATH", str(OUT_DIR / "matrix.jsonl")))
+FIRST_ENGINE_QUESTIONS_PATH = Path(os.getenv("FIRST_ENGINE_QUESTIONS_PATH", str(ROOT / "data" / "questions.jsonl")))
+# Only trap IDs and split metadata are used to exclude their matrix rows.
+FIRST_ENGINE_TRAPS_PATH = Path(os.getenv("FIRST_ENGINE_TRAPS_PATH", str(ROOT / "data" / "traps.jsonl")))
+# Case-insensitive accounting, markets and filing terms. Currency amounts alone
+# are not a finance signal. Override the regex for another query vocabulary.
+FIRST_ENGINE_FINANCE_PATTERN = os.getenv(
+    "FIRST_ENGINE_FINANCE_PATTERN",
+    r"\b(?:fy\s*\d{2,4}|fiscal\s+year|10[\s-]?[kq]|20[\s-]?f|annual\s+report|"
+    r"balance\s+sheet|income\s+statements?|cash\s+flow|revenue|earnings|ebitda|"
+    r"capex|cogs|net\s+(?:income|profit)|profit\s+margin|working\s+capital|"
+    r"current\s+(?:assets|liabilities)|return\s+on\s+(?:assets|equity)|"
+    r"(?:asset|inventory)\s+turnover|accounts?\s+(?:payable|receivable)|"
+    r"credit\s+(?:agreement|facility|line)|revolving\s+credit|"
+    r"stock\s+price|share\s+price|market\s+cap(?:italization)?|dividends?|"
+    r"bond\s+yield|interest\s+rate|valuation|funding\s+round|ipo)\b",
+)
+try:
+    if not FIRST_ENGINE_FINANCE_PATTERN.strip():
+        raise ValueError("pattern cannot be empty")
+    re.compile(FIRST_ENGINE_FINANCE_PATTERN)
+except (re.error, ValueError) as exc:
+    raise ValueError("FIRST_ENGINE_FINANCE_PATTERN must be a nonempty valid regex") from exc
 AGENT_MAX_SEARCHES = int(os.getenv("AGENT_MAX_SEARCHES", "6"))
 AGENT_MAX_PAGE_READS = int(os.getenv("AGENT_MAX_PAGE_READS", "12"))
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "24"))

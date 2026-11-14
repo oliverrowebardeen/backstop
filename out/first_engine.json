@@ -1,0 +1,82 @@
+{
+  "built_on_split": "learn",
+  "n_questions": 100,
+  "routing": {
+    "fact": "perplexity",
+    "finance": "exa"
+  },
+  "counts": {
+    "fact": {
+      "tavily": {
+        "n_questions": 78,
+        "hits": 64,
+        "hit_rate": 0.8205128205128205
+      },
+      "exa": {
+        "n_questions": 78,
+        "hits": 73,
+        "hit_rate": 0.9358974358974359
+      },
+      "brave": {
+        "n_questions": 78,
+        "hits": 68,
+        "hit_rate": 0.8717948717948718
+      },
+      "perplexity": {
+        "n_questions": 78,
+        "hits": 74,
+        "hit_rate": 0.9487179487179487
+      },
+      "parallel": {
+        "n_questions": 78,
+        "hits": 69,
+        "hit_rate": 0.8846153846153846
+      },
+      "ceramic": {
+        "n_questions": 78,
+        "hits": 2,
+        "hit_rate": 0.02564102564102564
+      }
+    },
+    "finance": {
+      "tavily": {
+        "n_questions": 22,
+        "hits": 6,
+        "hit_rate": 0.2727272727272727
+      },
+      "exa": {
+        "n_questions": 22,
+        "hits": 7,
+        "hit_rate": 0.3181818181818182
+      },
+      "brave": {
+        "n_questions": 22,
+        "hits": 2,
+        "hit_rate": 0.09090909090909091
+      },
+      "perplexity": {
+        "n_questions": 22,
+        "hits": 4,
+        "hit_rate": 0.18181818181818182
+      },
+      "parallel": {
+        "n_questions": 22,
+        "hits": 5,
+        "hit_rate": 0.22727272727272727
+      },
+      "ceramic": {
+        "n_questions": 22,
+        "hits": 0,
+        "hit_rate": 0.0
+      }
+    }
+  },
+  "price_usd": {
+    "tavily": 0.005,
+    "exa": 0.005,
+    "brave": 0.005,
+    "perplexity": 0.005,
+    "parallel": 0.001,
+    "ceramic": 0.00005
+  }
+}

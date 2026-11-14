@@ -25,6 +25,7 @@ from so.contracts import CheckerVerdict, EngineRun, PageText, Result, RunContext
 from so.ledger import ledger
 from so.memory import RunMemory
 from so.policy import Action, freshness_cutoff, load_rescue_table, next_action
+from so.router import first_engine
 
 
 EngineSearch = Callable[..., Awaitable[dict[str, EngineRun]]]
@@ -445,7 +446,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     ok_runs = 0
     current_query = query
     published_after: str | None = None
-    engine = config.FIRST_ENGINE
+    engine = first_engine(query, goal)
     current_results: list[Result] = []
     checker_ctx = ctx.model_copy(update={"log": trace})
     step_seconds: list[float] = []
