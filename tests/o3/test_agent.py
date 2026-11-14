@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from so import agent, setups
+from so import agent, config, setups
 from so.contracts import EngineRun, LLMResponse, PageText, Question, Result, RunContext, SearchOutcome, ToolCall
 from so.eventlog import read_log, summarize
 
 URL = "https://example.com/founder"
+
+
+@pytest.fixture(autouse=True)
+def agent_settings(monkeypatch, tmp_path):
+    settings = {
+        "AGENT_MAX_SEARCHES": 6, "AGENT_MAX_PAGE_READS": 12, "AGENT_MAX_TURNS": 24,
+        "AGENT_PROMPT_PATH": Path(__file__).parents[2] / "so/prompts/agent.md",
+        "LOG_DIR": tmp_path, "SO_ENABLE_SECOND_OPINION": True,
+    }
+    for name, value in settings.items():
+        monkeypatch.setattr(config, name, value, raising=False)
 
 
 def result(engine="tavily", url=URL):
@@ -79,7 +91,8 @@ async def test_run_session_evidence_and_totals(question, wrappers, tmp_path, set
     assert totals["cost_usd_total"] == pytest.approx(cost + .02)
     assert totals["latency_ms"] >= 700
     for call in wrappers.complete.await_args_list:
-        assert call.args[0] == "agent" and call.args[1] == agent.SYSTEM_PROMPT
+        assert call.args[0] == "agent"
+        assert call.args[1] == Path(config.AGENT_PROMPT_PATH).read_text().replace("{{max_searches}}", "6")
         serialized = json.dumps(call.args[2])
         assert "SECRET GOLD" not in serialized and "SECRET TRAP NOTE" not in serialized
 
@@ -137,12 +150,12 @@ async def test_bad_tools_do_not_spend_search_budget(question, wrappers, tmp_path
 
 
 async def test_turn_and_read_limits(question, wrappers, tmp_path, monkeypatch):
-    monkeypatch.setattr(agent, "MAX_TURNS", 3)
-    monkeypatch.setattr(agent, "MAX_PAGE_READS", 2)
+    monkeypatch.setattr(config, "AGENT_MAX_TURNS", 3)
+    monkeypatch.setattr(config, "AGENT_MAX_PAGE_READS", 2)
     wrappers.complete.side_effect = None
     wrappers.complete.return_value = response(ToolCall(id="read", name="read_page", arguments={"url": URL}))
-    answer = await agent.run_question(question, "single", log_dir=tmp_path)
-    assert answer.status == "NOT_FOUND"
+    with pytest.raises(RuntimeError, match="final turn limit"):
+        await agent.run_question(question, "single", log_dir=tmp_path)
     assert wrappers.complete.await_count == 4 and wrappers.fetch.await_count == 2
     assert wrappers.complete.await_args.kwargs["tools"] is None
 
@@ -175,18 +188,24 @@ async def test_checker_events_are_included_once(question, wrappers, tmp_path, mo
     assert totals["cost_usd_total"] == pytest.approx(.028)
 
 
-@pytest.mark.parametrize("text,sources,status", [
-    ("NOT FOUND", {URL}, "NOT_FOUND"),
-    ("Ada is CEO.", {URL}, "NOT_FOUND"),
-    (f"Ada is CEO. [Source]({URL})", {URL}, "ANSWERED"),
-    (f"Ada is CEO. [Source]({URL})", set(), "NOT_FOUND"),
-    (f"Ada is CEO. {URL} https://invented.example", {URL}, "NOT_FOUND"),
-    (json.dumps({"final": "Ada", "citations": [URL], "status": "NOT_FOUND"}), {URL}, "NOT_FOUND"),
-    (json.dumps({"final": None, "citations": [URL]}), {URL}, "NOT_FOUND"),
-    ("Ada. [Source](https://example.com/Ada_(person))", {"https://example.com/Ada_(person)"}, "ANSWERED"),
+@pytest.mark.parametrize("text,sources", [
+    ("Ada is CEO.", {URL}),
+    (json.dumps({"final": "Ada", "citations": [URL], "status": "ANSWERED"}), set()),
+    (json.dumps({"final": f"Ada. {URL} https://invented.example", "citations": [URL], "status": "ANSWERED"}), {URL}),
+    (json.dumps({"final": "Ada", "citations": [URL], "status": "NOT_FOUND"}), {URL}),
+    (json.dumps({"final": None, "citations": [URL]}), {URL}),
+    (json.dumps({"final": "Ada", "citations": [], "status": "ANSWERED"}), {URL}),
 ])
-def test_final_answer_requires_retrieved_citation(text, sources, status):
-    assert agent._answer(text, sources, 1).status == status
+def test_malformed_or_uncited_answer_raises_clear_error(text, sources):
+    with pytest.raises(ValueError, match="Invalid agent answer"):
+        agent._answer(text, sources, 1)
+
+
+def test_explicit_decline_and_parenthesized_citations():
+    assert agent._answer("NOT FOUND", set(), 0).status == "NOT_FOUND"
+    url = "https://example.com/Ada_(person)"
+    text = json.dumps({"final": f"Ada. [Source]({url})", "citations": [url], "status": "ANSWERED"})
+    assert agent._answer(text, {url}, 1).citations == [url]
 
 
 async def test_baseline_deduplicates_urls_and_keeps_uncertainty(wrappers):
@@ -197,15 +216,14 @@ async def test_baseline_deduplicates_urls_and_keeps_uncertainty(wrappers):
     assert outcome.engines_called == ["tavily", "exa", "brave"]
 
 
-def test_second_opinion_flag_and_auto_loading(monkeypatch):
-    monkeypatch.setenv("SO_ENABLE_SECOND_OPINION", "0")
+def test_second_opinion_flag_and_loading(monkeypatch, caplog):
+    monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", False)
     assert setups.get_search_tool("second_opinion") is setups.single
-    monkeypatch.setenv("SO_ENABLE_SECOND_OPINION", "auto")
+    assert "disabled by configuration" in caplog.text
+    monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", True)
     missing = ModuleNotFoundError("missing", name="so.second_opinion")
     monkeypatch.setattr(setups.importlib, "import_module", lambda name: (_ for _ in ()).throw(missing))
-    assert setups.get_search_tool("second_opinion") is setups.single
-    monkeypatch.setenv("SO_ENABLE_SECOND_OPINION", "1")
-    with pytest.raises(ModuleNotFoundError):
+    with pytest.raises(RuntimeError, match="not installed"):
         setups.get_search_tool("second_opinion")
     checked = AsyncMock()
     monkeypatch.setattr(setups.importlib, "import_module", lambda name: SimpleNamespace(search=checked))
@@ -213,7 +231,7 @@ def test_second_opinion_flag_and_auto_loading(monkeypatch):
 
 
 def test_missing_transitive_dependency_is_not_a_silent_fallback(monkeypatch):
-    monkeypatch.setenv("SO_ENABLE_SECOND_OPINION", "auto")
+    monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", True)
     def broken(name):
         raise ModuleNotFoundError("missing", name="so.checker")
     monkeypatch.setattr(setups.importlib, "import_module", broken)
@@ -224,3 +242,28 @@ def test_missing_transitive_dependency_is_not_a_silent_fallback(monkeypatch):
 def test_invalid_setup():
     with pytest.raises(ValueError, match="Unknown setup"):
         setups.get_search_tool("typo")
+
+
+async def test_partial_engine_failure_is_visible(wrappers):
+    wrappers.default.return_value = {"tavily": run(), "exa": EngineRun(engine="exa", status="error")}
+    ctx = RunContext(run_id="r", question_id="q", setup="telem_default")
+    outcome = await setups.telem_default("query", "goal", ctx)
+    assert outcome.status == "UNCHECKED" and len(outcome.results) == 1
+    assert "These engines failed: exa" in outcome.note
+
+
+@pytest.mark.parametrize("runs", [{}, {"tavily": EngineRun(engine="tavily", status="error")}])
+async def test_total_engine_failure_is_not_an_empty_answer(question, wrappers, tmp_path, runs):
+    wrappers.pinned.return_value = runs
+    with pytest.raises(RuntimeError, match="No search engine succeeded"):
+        await agent.run_question(question, "single", log_dir=tmp_path)
+    assert events(tmp_path)[-1]["data"]["error"] == "RuntimeError"
+
+
+async def test_configured_search_limit_and_log_directory(question, wrappers, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "AGENT_MAX_SEARCHES", 2)
+    wrappers.complete.side_effect = [response(*(search_call(i) for i in range(3))), final_response()]
+    answer = await agent.run_question(question, "single")
+    assert answer.searches == wrappers.pinned.await_count == 2
+    assert "at most 2 times" in wrappers.complete.await_args.args[1]
+    assert len(list(tmp_path.glob("*.jsonl"))) == 1

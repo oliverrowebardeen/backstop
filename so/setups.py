@@ -2,19 +2,18 @@
 from __future__ import annotations
 
 import importlib
-import os
+import logging
 from collections.abc import Awaitable, Callable
 
-from so import telem_client
-from so.config import FIRST_ENGINE
-from so.contracts import EngineRun, RunContext, SearchOutcome
+from so import config, telem_client
+from so.contracts import EngineRun, Result, RunContext, SearchOutcome
 
 SearchTool = Callable[[str, str, RunContext], Awaitable[SearchOutcome]]
 
 
 def _unchecked(query: str, goal: str, ctx: RunContext,
                runs: dict[str, EngineRun]) -> SearchOutcome:
-    results = {}
+    results: dict[str, Result] = {}
     for run in runs.values():
         if ctx.session is None and run.session_id:
             ctx.session = run.session_id
@@ -24,17 +23,23 @@ def _unchecked(query: str, goal: str, ctx: RunContext,
     engines = [run.engine for run in runs.values()]
     cost = sum(run.cost_usd for run in runs.values())
     latency = max((run.latency_ms for run in runs.values()), default=0)
-    outcome = SearchOutcome(
-        status="UNCHECKED", results=list(results.values()),
-        note="Results have not been checked. Answer only from evidence and cite its URLs.",
-        engines_called=engines, calls=len(runs), cost_usd=cost, latency_ms=latency,
-    )
+    failed = [run.engine for run in runs.values() if run.status == "error"]
     if ctx.log is not None:
         ctx.log.emit("search", query=query, goal=goal, engines=engines,
                      n_results=sum(len(run.results) for run in runs.values()),
                      latency_ms=latency, cost_usd=cost,
                      cached=bool(runs) and all(run.cached for run in runs.values()),
-                     session=ctx.session)
+                     session=ctx.session, failed_engines=failed)
+    if not runs or len(failed) == len(runs):
+        raise RuntimeError(f"No search engine succeeded: {', '.join(failed) or 'no engine runs returned'}")
+    note = "Results have not been checked. Answer only from evidence and cite its URLs."
+    if failed:
+        note += f" These engines failed: {', '.join(failed)}."
+    outcome = SearchOutcome(
+        status="UNCHECKED", results=list(results.values()), note=note,
+        engines_called=engines, calls=len(runs), cost_usd=cost, latency_ms=latency,
+    )
+    if ctx.log is not None:
         ctx.log.emit("search_done", **outcome.model_dump(exclude={"results", "trace", "engines_called"}))
     return outcome
 
@@ -42,7 +47,7 @@ def _unchecked(query: str, goal: str, ctx: RunContext,
 async def single(query: str, goal: str, ctx: RunContext) -> SearchOutcome:
     """Search Tavily through Telem without checking its results."""
     runs = await telem_client.search_engines(
-        query, [FIRST_ENGINE], goal=goal, session=ctx.session,
+        query, [config.FIRST_ENGINE], goal=goal, session=ctx.session,
     )
     return _unchecked(query, goal, ctx, runs)
 
@@ -61,15 +66,13 @@ def get_search_tool(setup: str) -> SearchTool:
         return telem_default
     if setup != "second_opinion":
         raise ValueError(f"Unknown setup: {setup}")
-    enabled = os.getenv("SO_ENABLE_SECOND_OPINION", "auto").strip().lower()
-    if enabled in {"0", "false", "off"}:
+    if not config.SO_ENABLE_SECOND_OPINION:
+        logging.getLogger(__name__).warning("Second Opinion is disabled by configuration; using single.")
         return single
-    if enabled not in {"auto", "1", "true", "on"}:
-        raise ValueError("SO_ENABLE_SECOND_OPINION must be auto, 1, or 0")
     try:
         module = importlib.import_module("so.second_opinion")
     except ModuleNotFoundError as exc:
-        if enabled == "auto" and exc.name == "so.second_opinion":
-            return single
+        if exc.name == "so.second_opinion":
+            raise RuntimeError("Second Opinion is enabled but so.second_opinion is not installed") from exc
         raise
     return module.search
