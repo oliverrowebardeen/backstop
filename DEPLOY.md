@@ -34,7 +34,7 @@ Set these in the Vercel project (Production) to turn on public live races:
 | `CHECKER_BACKEND` | `cascade` (the code default; set it so the deployment is explicit) |
 | `FIRST_ENGINE_ROUTING` | `on` (the code default) |
 
-Optional: `BACKSTOP_DEMO_CODE` to require a code, and `BACKSTOP_RACE_MAX_USD` (default 0.50), `BACKSTOP_RACE_TIMEOUT_S` (default 90), `BACKSTOP_MAX_RACES` (default 2) and `BACKSTOP_RACE_RATE_PER_HOUR` (default 10). `TELEM_BUDGET_USD` and `LLM_BUDGET_USD` cap spend per running instance (default 25 each). `GET /config` reports `live_available` and, when it is false, `live_reason` names what is missing; the race section shows that line.
+Optional: `BACKSTOP_RACE_MAX_USD` (default 0.50), `BACKSTOP_RACE_TIMEOUT_S` (default 90), `BACKSTOP_MAX_RACES` (default 2) and `BACKSTOP_RACE_RATE_PER_HOUR` (default 10). `TELEM_BUDGET_USD` and `LLM_BUDGET_USD` cap spend per running instance (default 25 each). `GET /config` reports `live_available` and, when it is false, `live_reason` names what is missing; the race section shows that line.
 
 On Vercel the per-race cost cap and time limit hold exactly, since a race lives inside one request. The concurrency and per-IP limits are kept in memory, so each instance enforces its own; the client IP comes from `x-vercel-forwarded-for`, which Vercel sets.
 

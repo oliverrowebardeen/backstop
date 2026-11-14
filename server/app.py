@@ -69,7 +69,6 @@ class ServerSettings:
     race_timeout: float | None = None
     max_races: int = 2
     race_rate_per_hour: int = 10
-    demo_code: str | None = None
     recordings_dir: Path | None = None
     # Provider keys a live race needs that are not set; live races stay off until they are.
     missing_keys: tuple[str, ...] = ()
@@ -93,7 +92,7 @@ class ServerSettings:
             live_races=live_races, missing_keys=missing_live_keys() if live_races else (),
             race_access="demo" if public else "api_key",
             race_max_usd=live.max_usd, race_timeout=live.timeout_s, max_races=live.max_races,
-            race_rate_per_hour=live.rate_per_hour, demo_code=live.demo_code,
+            race_rate_per_hour=live.rate_per_hour,
             recordings_dir=Path(config.SERVER_UI_DIR) / "fixtures",
             cors_origins=tuple(config.SERVER_CORS_ORIGINS),
             ui_dir=Path(config.SERVER_UI_DIR), demo_dir=Path(config.SERVER_DEMO_DIR),
@@ -217,8 +216,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
     runs: dict[str, LiveRun] = {}
     manager = RaceManager(settings, runner)
     public = settings.race_access == "demo"
-    guard = DemoGuard(demo_code=settings.demo_code, max_races=settings.max_races,
-                      rate_per_hour=settings.race_rate_per_hour)
+    guard = DemoGuard(max_races=settings.max_races, rate_per_hour=settings.race_rate_per_hour)
     max_question = min(settings.max_question_chars, PUBLIC_MAX_QUESTION_CHARS) if public else settings.max_question_chars
     if not settings.live_races:
         mode = "replay only (set BACKSTOP_LIVE_RACE=true for live races)"
@@ -227,8 +225,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
     elif public:
         mode = (f"live races ON, public demo mode: max {settings.max_races} at once, {settings.race_rate_per_hour}/hour per IP, "
                 f"{f'${settings.race_max_usd:.2f}' if settings.race_max_usd else 'no cost cap'} and "
-                f"{f'{settings.race_timeout:g}s' if settings.race_timeout else 'the run timeout'} per race, "
-                f"demo code {'required' if settings.demo_code else 'off'}")
+                f"{f'{settings.race_timeout:g}s' if settings.race_timeout else 'the run timeout'} per race")
     else:
         mode = "live races ON, hosted API key required (SERVER_LIVE_RACES)"
     logging.getLogger("uvicorn.error").info("Backstop race mode: %s", mode)
@@ -243,7 +240,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         app.add_middleware(
             CORSMiddleware, allow_origins=list(settings.cors_origins),
             allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type", "Last-Event-ID", "X-Backstop-Demo-Code"],
+            allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
             expose_headers=["Retry-After", "WWW-Authenticate"],
             allow_credentials=False,
         )
@@ -263,7 +260,6 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                 "live_available": settings.live_ready, "live_reason": live_reason,
                 "race_stream": "/race/stream",
                 "race_access": settings.race_access if settings.live_ready else "replay",
-                "demo_code_required": bool(public and settings.demo_code),
                 "race_max_usd": settings.race_max_usd if public else None,
                 "race_timeout_s": settings.race_timeout if public else None,
                 "examples": golden_examples(settings.demo_dir)}
@@ -306,11 +302,11 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
     def live_key(request: Request, _enabled: None = Depends(require_live_races),
                  authorization: str | None = Header(default=None),
-                 demo_code: str | None = Header(default=None, alias="X-Backstop-Demo-Code"),
                  limiter: RateLimiter = Depends(api_v1.get_rate_limiter)) -> str:
         if public:
-            # Public demo: no key in the browser; demo code, capacity and per-IP limits instead.
-            return guard.admit(request, demo_code, manager.active_runs())
+            # Public races: no key or code in the browser; capacity and per-IP limits instead,
+            # then the per-race cost cap and time limit while it runs.
+            return guard.admit(request, manager.active_runs())
         return api_v1.rate_limited_key(api_v1.require_key(authorization), limiter)
 
     def race_question(body: RaceRequest) -> Question:
@@ -458,12 +454,9 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         return stream_response(events())
 
     def recording_access(_enabled: None = Depends(require_live_races),
-                         authorization: str | None = Header(default=None),
-                         demo_code: str | None = Header(default=None, alias="X-Backstop-Demo-Code")) -> None:
-        if public:
-            guard.check_code(demo_code)
-        else:
-            api_v1.require_key(authorization)
+                         authorization: str | None = Header(default=None)) -> None:
+        # Saving writes files on the server, so it needs the hosted API key in every mode.
+        api_v1.require_key(authorization)
 
     @app.post("/recordings")
     async def save_live_recording(body: RecordingRequest, _: None = Depends(recording_access)) -> dict[str, str]:

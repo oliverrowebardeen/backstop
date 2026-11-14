@@ -1,8 +1,8 @@
-"""Public live-race mode: explicit opt-in, demo code, per-IP and server-wide limits, cost cap and recordings.
+"""Public live-race mode: explicit opt-in, per-IP and server-wide limits, cost cap and recordings.
 
-BACKSTOP_LIVE_RACE=true turns on live races for anyone who can open the page (no API key in the
-browser). Each race is guarded: an optional BACKSTOP_DEMO_CODE, at most BACKSTOP_MAX_RACES races at
-once, BACKSTOP_RACE_RATE_PER_HOUR races per IP, BACKSTOP_RACE_TIMEOUT_S seconds and
+BACKSTOP_LIVE_RACE=true turns on live races for anyone who can open the page (no API key or code in
+the browser). Each race is guarded: at most BACKSTOP_MAX_RACES races at once,
+BACKSTOP_RACE_RATE_PER_HOUR races per IP, BACKSTOP_RACE_TIMEOUT_S seconds and
 BACKSTOP_RACE_MAX_USD of recorded spend per race. When the variable is unset, the older
 SERVER_LIVE_RACES switch applies with hosted API key authentication, exactly as before.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hmac
 import json
 import math
 import os
@@ -37,7 +36,6 @@ class LiveRaceEnv:
     timeout_s: float
     max_races: int
     rate_per_hour: int
-    demo_code: str | None
 
     @classmethod
     def read(cls) -> LiveRaceEnv:
@@ -47,8 +45,7 @@ class LiveRaceEnv:
                      max_usd=float(os.getenv("BACKSTOP_RACE_MAX_USD", "0.50")),
                      timeout_s=float(os.getenv("BACKSTOP_RACE_TIMEOUT_S", "90")),
                      max_races=int(os.getenv("BACKSTOP_MAX_RACES", "2")),
-                     rate_per_hour=int(os.getenv("BACKSTOP_RACE_RATE_PER_HOUR", "10")),
-                     demo_code=os.getenv("BACKSTOP_DEMO_CODE", "").strip() or None)
+                     rate_per_hour=int(os.getenv("BACKSTOP_RACE_RATE_PER_HOUR", "10")))
         if not (values.max_usd > 0 and values.timeout_s > 0 and values.max_races >= 1 and values.rate_per_hour >= 1):
             raise ValueError("BACKSTOP_RACE_MAX_USD, BACKSTOP_RACE_TIMEOUT_S, BACKSTOP_MAX_RACES and "
                              "BACKSTOP_RACE_RATE_PER_HOUR must be positive")
@@ -80,17 +77,11 @@ def _http(status: int, code: str, message: str, headers: dict[str, str] | None =
 class DemoGuard:
     """Admission for public live races. Checks run cheapest first; a busy server does not use quota."""
 
-    def __init__(self, *, demo_code: str | None, max_races: int, rate_per_hour: int) -> None:
-        self.demo_code = demo_code
+    def __init__(self, *, max_races: int, rate_per_hour: int) -> None:
         self.max_races = max_races
         self.limiter = RateLimiter(limit=rate_per_hour, window_s=3600.0)
 
-    def check_code(self, supplied: str | None) -> None:
-        if self.demo_code and not hmac.compare_digest((supplied or "").strip().encode(), self.demo_code.encode()):
-            raise _http(401, "demo_code_required", "Enter the demo code to run a live race.")
-
-    def admit(self, request: Request, supplied_code: str | None, active_runs: int) -> str:
-        self.check_code(supplied_code)
+    def admit(self, request: Request, active_runs: int) -> str:
         if active_runs + 2 > 2 * self.max_races:
             raise _http(429, "busy", "Busy, try again in a moment.", {"Retry-After": "15"})
         address = client_address(request)

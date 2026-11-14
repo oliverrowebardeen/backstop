@@ -9,7 +9,7 @@ const elements = {}, states = {};
 let firstEngine = null, active = false, replayPair = null, replaySource = null, controller = null;
 let replayMode = false, autoplayDone = false, raceVisible = false, ready = false, liveAvailable = false;
 let auditQuestion = '', pairs = [], streamPath = '/race/stream';
-let mode = 'replay', raceAccess = 'replay', demoRequired = false, maxQuestion = 300;
+let mode = 'replay', raceAccess = 'replay', maxQuestion = 300;
 const setups = {left: 'telem_default', right: 'second_opinion'};
 const origins = {};
 const names = {single: 'Single engine', second_opinion: 'Backstop', telem_default: 'Telem default'};
@@ -45,9 +45,8 @@ function setActive(value) {
   const controls = raceControls({liveAvailable: live && liveAvailable, active: value,
     hasKey: needsKey ? Boolean($('#api-key').value.trim()) : true, replayAvailable: Boolean(replayPair)});
   $('#run-button').hidden = !live;
-  $('#run-button').disabled = controls.disableRun || (live && demoRequired && !$('#demo-code').value.trim());
+  $('#run-button').disabled = controls.disableRun;
   $('#credentials').hidden = !(live && needsKey);
-  $('#demo-code-box').hidden = !(live && demoRequired);
   $('#question').disabled = value;
   $('#question').readOnly = !live;
   $('#api-key').disabled = value;
@@ -271,8 +270,6 @@ $('#stop-button').addEventListener('click', () => {
 });
 
 $('#api-key').addEventListener('input', () => setActive(active));
-$('#demo-code').value = store.get('backstop.demoCode') || '';
-$('#demo-code').addEventListener('input', event => { store.set('backstop.demoCode', event.target.value.trim()); setActive(active); });
 $('#question').addEventListener('input', () => { $('#question-error').hidden = true; });
 
 function validQuestion() {
@@ -284,10 +281,7 @@ function validQuestion() {
 }
 function raceHeaders() {
   if (raceAccess === 'api_key') return liveHeaders($('#api-key').value);
-  const headers = {'Content-Type': 'application/json'};
-  const code = $('#demo-code').value.trim();
-  if (code) headers['X-Backstop-Demo-Code'] = code;
-  return headers;
+  return {'Content-Type': 'application/json'};
 }
 async function errorMessage(response, fallback) {
   try { const error = await response.json(); return typeof error.detail === 'string' ? error.detail : error.detail?.message || fallback; }
@@ -335,7 +329,6 @@ async function loadConfiguration() {
   liveAvailable = data.live_available === true;
   streamPath = typeof data.race_stream === 'string' ? data.race_stream : '/race/stream';
   raceAccess = data.race_access || (liveAvailable ? 'api_key' : 'replay');
-  demoRequired = data.demo_code_required === true;
   maxQuestion = Math.min(Number(data.max_question_chars) || 300, 300);
   $('#question').maxLength = maxQuestion;
   const reason = liveAvailable ? '' : (typeof data.live_reason === 'string' && data.live_reason) || 'Live races are off on this server, so this section plays recorded races.';

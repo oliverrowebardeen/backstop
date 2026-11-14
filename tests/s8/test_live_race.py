@@ -1,4 +1,4 @@
-"""public live races: opt-in, demo code, capacity, per-IP limit, cost cap, recordings."""
+"""public live races: opt-in, no code, capacity, per-IP limit, cost cap, recordings."""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from server.app import ServerSettings, create_app, replay_catalog
 from so.contracts import AgentAnswer, Question
 from so.eventlog import EventLog
+from tests.o4.access import AUTH, KEY
 from tests.o4.fakes import run_question
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,14 +45,11 @@ def test_public_race_needs_no_key_and_validates(tmp_path):
         assert response.status_code == 200 and set(response.json()) == {"left_run_id", "right_run_id"}
 
 
-def test_demo_code_and_per_ip_limit(tmp_path):
-    app = create_app(settings=settings(tmp_path, demo_code="open-sesame", race_rate_per_hour=1), runner=run_question)
+def test_per_ip_limit(tmp_path):
+    app = create_app(settings=settings(tmp_path, race_rate_per_hour=1), runner=run_question)
     with TestClient(app) as client:
-        denied = client.post("/race", json={"question": "Q?"})
-        assert denied.status_code == 401 and denied.json()["detail"]["code"] == "demo_code_required"
-        headers = {"X-Backstop-Demo-Code": "open-sesame"}
-        assert client.post("/race", json={"question": "Q?"}, headers=headers).status_code == 200
-        limited = client.post("/race", json={"question": "Again?"}, headers=headers)
+        assert client.post("/race", json={"question": "Q?"}).status_code == 200
+        limited = client.post("/race", json={"question": "Again?"})
         assert limited.status_code == 429 and limited.json()["detail"]["code"] == "rate_limited"
 
 
@@ -79,12 +77,15 @@ async def test_busy_server_and_cost_cap(tmp_path):
         release.set()
 
 
-def test_save_recording_and_shipped_recordings(tmp_path):
+def test_save_recording_and_shipped_recordings(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKSTOP_API_KEYS", KEY)
     with TestClient(create_app(settings=settings(tmp_path), runner=run_question)) as client:
         runs = client.post("/race", json={"question": "Save me?"}).json()
         for run_id in runs.values():
             assert "complete" in client.get(f"/stream/{run_id}").text
-        saved = client.post("/recordings", json=runs)
+        # Saving writes on the server, so public races still need the hosted key for it.
+        assert client.post("/recordings", json=runs).status_code == 401
+        saved = client.post("/recordings", json=runs, headers=AUTH)
         assert saved.status_code == 200
         assert saved.json()["name"] in [p["name"] for p in client.get("/replays").json()]
     shipped = replay_catalog(tmp_path / "none", None, ROOT / "ui" / "fixtures")

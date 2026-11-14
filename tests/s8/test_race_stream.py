@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,15 +57,12 @@ def test_one_request_streams_both_sides_to_the_end(tmp_path):
 
 
 def test_validation_and_guards_match_the_two_step_race(tmp_path):
-    app = create_app(settings=settings(tmp_path, demo_code="open-sesame", race_rate_per_hour=1), runner=run_question)
-    code = {"X-Backstop-Demo-Code": "open-sesame"}
+    app = create_app(settings=settings(tmp_path, race_rate_per_hour=1), runner=run_question)
     with TestClient(app) as client:
-        assert client.post("/race/stream", json={"question": "Q?"}).json()["detail"]["code"] == "demo_code_required"
-        assert client.post("/race/stream", json={"question": "Q?", "left": "single", "right": "single"},
-                           headers=code).status_code == 422
-        assert client.post("/race/stream", json={"question": "x" * 301}, headers=code).status_code == 422
-        assert client.post("/race/stream", json={"question": "Q?"}, headers=code).status_code == 200
-        limited = client.post("/race/stream", json={"question": "Again?"}, headers=code)
+        assert client.post("/race/stream", json={"question": "Q?", "left": "single", "right": "single"}).status_code == 422
+        assert client.post("/race/stream", json={"question": "x" * 301}).status_code == 422
+        assert client.post("/race/stream", json={"question": "Q?"}).status_code == 200
+        limited = client.post("/race/stream", json={"question": "Again?"})
         assert limited.status_code == 429 and limited.json()["detail"]["code"] == "rate_limited"
 
 
@@ -155,6 +153,30 @@ def test_live_is_off_with_a_plain_reason_until_keys_are_set(tmp_path, monkeypatc
     assert "BACKSTOP_LIVE_RACE" in live_off_reason(False, ())
     with TestClient(create_app(settings=settings(tmp_path, live_races=False), runner=run_question)) as client:
         assert "BACKSTOP_LIVE_RACE" in client.get("/config").json()["live_reason"]
+
+
+def test_a_leftover_demo_code_variable_changes_nothing(tmp_path, monkeypatch):
+    """The demo code is gone: with BACKSTOP_DEMO_CODE still set (as on Vercel), races run with no code."""
+    monkeypatch.setenv("BACKSTOP_LIVE_RACE", "true")
+    monkeypatch.setenv("BACKSTOP_DEMO_CODE", "open-sesame")
+    for key in KEYS:
+        monkeypatch.setenv(key, "set")
+    monkeypatch.setattr(config, "CHECKER_BACKEND", "cascade")
+    monkeypatch.setattr(config, "LLM_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "CHECKER_PROVIDER", "anthropic")
+    configured = ServerSettings.from_config()
+    assert configured.live_ready and configured.race_access == "demo"
+    local = replace(configured, demo_dir=tmp_path / "demo", fixture_dir=None, recordings_dir=None,
+                    log_dir=tmp_path / "logs", start_timeout=2, run_timeout=5, poll_seconds=.005, keepalive_seconds=.1)
+    with TestClient(create_app(settings=local, runner=run_question)) as client:
+        data = client.get("/config").json()
+        assert data["live_available"] is True and data["race_access"] == "demo" and "demo_code_required" not in data
+        rows = frames(client.post("/race/stream", json={"question": "Q?"}).text)
+        assert [kind for kind, _ in rows if kind in {"complete", "stream_error"}] == ["complete", "complete"]
+        assert rows[-1] == ("done", {})
+        assert client.post("/race", json={"question": "Q?"}).status_code == 200
+        ignored = client.post("/race/stream", json={"question": "Q?"}, headers={"X-Backstop-Demo-Code": "wrong"})
+        assert ignored.status_code == 200
 
 
 def test_vercel_uses_the_platform_client_ip_and_tmp_logs(monkeypatch):
