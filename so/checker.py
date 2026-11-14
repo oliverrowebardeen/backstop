@@ -1,8 +1,9 @@
 """Search result checker: decides whether a result list already answers the goal.
 
-`check` labels the top 5 results of one search with a verdict from
-SHARED_CONTEXT section 6.7. `check_page` re-checks a page read on the SHALLOW
-path. Each makes one call on CHECKER_MODEL and never sees gold answers.
+`check` labels the top 5 results of one search with a `CheckerVerdict`
+(HIT, STALE, WRONG_ENTITY, SHALLOW or DEAD; see so/prompts/checker.md for the
+definitions). `check_page` re-checks a page read on the SHALLOW path. Each
+makes one call on CHECKER_MODEL and never sees gold answers.
 
 The model's JSON is validated, then hardened so a wrong HIT is unlikely:
 a HIT must point at a real result and clear HIT_MIN_CONFIDENCE, otherwise it
@@ -42,8 +43,8 @@ from so.contracts import CheckerVerdict, LLMResponse, PageText, Result, RunConte
 logger = logging.getLogger(__name__)
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
-# Contract sizes: the checker sees the top 5 results (6.7), snippets are cut to
-# 500 characters (6.3) and page text to 6,000 characters (6.4).
+# Shared contract sizes: the checker sees the top 5 results, result snippets are
+# at most 500 characters and fetched page text at most 6,000.
 TOP_K = 5
 SNIPPET_CHARS = 500
 PAGE_CHARS = 6000
