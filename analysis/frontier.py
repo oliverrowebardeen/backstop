@@ -87,7 +87,9 @@ def read_results_json() -> dict | None:
 
 def checker_costs(ids: set[str], tokens_out: int, chars_per_token: float) -> tuple[dict, float]:
     """(question_id, engine) -> derived USD cost of one checker call; plus the mean."""
-    p_in, p_out = LLM_PRICE_USD[CHECKER_MODEL]
+    rates = LLM_PRICE_USD[CHECKER_MODEL]
+    # so.config stores {"input": .., "output": ..} per model (USD per million tokens).
+    p_in, p_out = (rates["input"], rates["output"]) if isinstance(rates, dict) else rates
     system = load_prompt("checker")
     text = {q.id: q.question for q in load_all() if q.id in ids}
     costs: dict[tuple[str, str], float] = {}

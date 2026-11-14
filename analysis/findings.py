@@ -23,18 +23,26 @@ DEFAULT_BOOT = 10_000
 DEFAULT_MIN_MISSES = 5
 DEFAULT_SEED = 14  # the repo-wide seed (section 6.1)
 DEFAULT_CI = 95.0
+DEFAULT_MIN_BASE = 0.25
 
 
 def covered(h: dict[str, bool], order: list[str], max_rescues: int) -> bool:
     return any(h.get(e) for e in [FIRST_ENGINE] + order[:max_rescues])
 
 
-def surprising_pair(t: dict, base: dict[str, float], min_misses: int):
-    """Largest lift = rescue rate minus the rescuing engine's overall hit rate (learn)."""
+def surprising_pair(t: dict, base: dict[str, float], min_misses: int, min_base: float = 0.0):
+    """Largest lift = rescue rate minus the rescuing engine's overall hit rate (learn).
+
+    Engines whose own hit rate is below `min_base` are skipped on both sides: an
+    engine that misses almost everything makes any conditional rate trivially equal
+    to the other engine's base rate, which says nothing about complementarity.
+    """
     best = None
     for a, row in t["rescue"].items():
+        if base.get(a, 0.0) < min_base:
+            continue
         for b, c in row.items():
-            if c["misses"] < min_misses:
+            if c["misses"] < min_misses or base.get(b, 0.0) < min_base:
                 continue
             lift = c["rate"] - base[b]
             if best is None or lift > best[0]:
@@ -46,6 +54,8 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--boot", type=int, default=DEFAULT_BOOT)
     ap.add_argument("--min-misses", type=int, default=DEFAULT_MIN_MISSES)
+    ap.add_argument("--min-base", type=float, default=DEFAULT_MIN_BASE,
+                    help="skip engines below this learn hit rate when picking the surprising pair")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--ci", type=float, default=DEFAULT_CI, help="interval width in percent")
     ap.add_argument("--max-rescues", type=int, default=DEFAULT_MAX_RESCUES)
@@ -55,7 +65,7 @@ def main(argv=None) -> None:
     t = load_rescue_table()
     learn = hits_by_question(rows, split_ids("learn"))
     base = {e: float(np.mean([h[e] for h in learn.values() if e in h])) for e in t["rescue"]}
-    lift, a, b, c = surprising_pair(t, base, args.min_misses)
+    lift, a, b, c = surprising_pair(t, base, args.min_misses, args.min_base)
 
     test = hits_by_question(rows, split_ids("test"))
     test = {q: h for q, h in test.items() if all(e in h for e in t["rescue"])}
@@ -75,13 +85,18 @@ def main(argv=None) -> None:
     s1 = (f"On the learn split ({t['n_questions']} questions) {FIRST_ENGINE} missed {t['miss_counts'][FIRST_ENGINE]}, "
           f"and the best single rescue was {t['order_after'][FIRST_ENGINE][0]}, which found the answer in "
           f"{t['rescue'][FIRST_ENGINE][t['order_after'][FIRST_ENGINE][0]]['rescued']} of them.")
-    s2 = (f"The most surprising pair is {a} then {b}: {b} found the answer in {c['rescued']} of {c['misses']} "
-          f"{a} misses ({c['rate']:.0%}) against a {base[b]:.0%} hit rate overall, "
-          f"{'above' if lift > 0 else 'below'} its average by {abs(lift) * 100:.0f} points.")
+    pair = (f"{b} found the answer in {c['rescued']} of {c['misses']} {a} misses ({c['rate']:.0%}) "
+            f"against its {base[b]:.0%} hit rate overall")
+    if lift > 0:
+        s2 = f"The most surprising pair is {a} then {b}: {pair}, {lift * 100:.0f} points above its average."
+    else:
+        s2 = (f"No engine rescues above its own average: the closest pair is {a} then {b}, where {pair}, "
+              f"{abs(lift) * 100:.0f} points below. Misses are correlated, so a question one engine misses "
+              f"is harder for every engine, which is why the rescue order has to be measured, not assumed.")
     s3 = (f"On the test split ({len(qs)} non-trap questions) the learned order ({', '.join(learned[:mr])}) "
           f"covers {yl.mean():.1%} against {yf.mean():.1%} for the fixed order ({', '.join(FIXED_ORDER[:mr])}), "
           f"a gap of {(yl.mean() - yf.mean()) * 100:+.1f} points (paired bootstrap {args.ci:g}% interval "
-          f"{lo * 100:+.1f} to {hi * 100:+.1f}; {n_l} questions favour learned, {n_f} favour fixed), "
+          f"{lo * 100:+.1f} to {hi * 100:+.1f}; {n_l} question{'s' if n_l != 1 else ''} favour{'s' if n_l == 1 else ''} learned, {n_f} favour{'s' if n_f == 1 else ''} fixed), "
           f"so the learned order {verdict}.")
     head = ("> GENERATED FROM FAKE DATA (SO_FAKE=1). Numbers are placeholders, regenerate on the real matrix "
             "with `python -m analysis.findings`.\n\n" if FAKE else
