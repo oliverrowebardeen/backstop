@@ -1,4 +1,4 @@
-"""Eval runner (lane S4): run the agent on every test question and trap in each setup.
+"""Eval runner: run the agent on every test question and trap in each setup.
 
   python -m evals.run_eval                          # all test questions + traps, x every setup
   python -m evals.run_eval --limit 20               # dry run (see below)

@@ -1,4 +1,4 @@
-"""Benchmark contamination filter (lane S2).
+"""Benchmark contamination filter.
 
 SimpleQA and FinanceBench are public, so web search returns pages that copy the
 benchmark itself (dataset viewers, published answer sheets). A hit on such a

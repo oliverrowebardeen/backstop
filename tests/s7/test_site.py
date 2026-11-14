@@ -1,4 +1,4 @@
-"""S7 product site: routes, fixtures and honesty labels."""
+"""product site: routes, fixtures and honesty labels."""
 from __future__ import annotations
 
 import json

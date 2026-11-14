@@ -1,4 +1,4 @@
-"""Isolate A1 tests from deployment settings, generated tables, caches and real keys."""
+"""Isolate tests from deployment settings, generated tables, caches and real keys."""
 
 import pytest
 

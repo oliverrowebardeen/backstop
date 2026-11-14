@@ -1,4 +1,4 @@
-"""R8/R10: judge replies are validated, malformed output never becomes a label, cache keys carry provenance."""
+"""judge replies are validated, malformed output never becomes a label, cache keys carry provenance."""
 import asyncio
 import json
 from types import SimpleNamespace

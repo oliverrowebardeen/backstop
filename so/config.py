@@ -104,7 +104,6 @@ PAGE_CONTENT_FORMAT = os.getenv("PAGE_CONTENT_FORMAT", "text")
 TAVILY_CREDIT_USD = float(os.getenv("TAVILY_CREDIT_USD", "0.008"))
 TAVILY_EXTRACT_PRICE_USD = float(os.getenv("TAVILY_EXTRACT_PRICE_USD", str(TAVILY_CREDIT_USD / 5)))
 TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com")
-TAVILY_TIMEOUT_S = float(os.getenv("TAVILY_TIMEOUT_S", "30"))
 TAVILY_EXTRACT_DEPTH = os.getenv("TAVILY_EXTRACT_DEPTH", "basic")
 # SHALLOW page reads ask Extract for goal-ranked chunks (at most 500 characters each,
 # 1 to 5 per source, only when a query is sent) under a tighter timeout than search.

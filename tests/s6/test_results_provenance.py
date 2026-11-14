@@ -1,4 +1,4 @@
-"""R15: GET /results keeps provenance that the frozen contracts do not name."""
+"""GET /results keeps provenance that the frozen contracts do not name."""
 
 from __future__ import annotations
 

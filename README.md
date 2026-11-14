@@ -107,27 +107,6 @@ agent can cite its URL. A miss that survives two rescues becomes `NOT_FOUND`, wi
 note telling the agent to answer NOT FOUND unless it has other evidence. The checker's
 cost is always counted in `cost_usd`.
 
-### Miss autopsy
-
-Backstop catches a bad search at call time. The autopsy does the same after the fact,
-for any Telem session, including ones Backstop never touched:
-
-```sh
-curl -s http://localhost:8000/v1/autopsy/<telem_session_id> -H "Authorization: Bearer bk_live_one"
-```
-
-It reads the session back with Telem's Sessions API (`sessions.history(id, full=True)`
-and `sessions.results(id)`), rebuilds the ordered searches (query, goal, engines,
-results), and runs the checker on each against the recorded goal (or the first query).
-The answer names the first search that missed (`first_failure_index`), where Backstop
-would have stopped (`stop_index`, the first `HIT`), the rescue it would have tried next
-(`next_rescue`, from the learned rescue table), and how many searches the agent spent
-after the first miss. It checks at most 25 searches and returns within 30 seconds,
-marking any step it did not reach. Telem's session payloads carry no judge or quality
-score today, so `telem_judge` is `null` and the note says so; if one appears, each step
-shows it along with the checker's agreement (Cohen's kappa). In Python:
-`await so.autopsy.autopsy(session_id)`.
-
 ### Verdicts and rescue actions
 
 | Verdict | Meaning | Action |
@@ -200,42 +179,6 @@ Errors are JSON with the right status codes: 401 bad key, 402 key spend cap reac
 404 session not yours, 422 bad body, 429 rate
 limited, 502 Telem unavailable. The same server hosts the race screen at `/`, which
 plays a single-engine agent and a Backstop agent side by side from their event logs.
-
-## Staying verified
-
-A diligence fact is only verified until the company changes it. `server/monitors` builds a
-fact sheet with Backstop and keeps it honest with Telem Monitors ("only what is new, on a
-schedule").
-
-```sh
-python -m server.monitors build --company "Tavily"   # one verified search per field, one monitor per field
-python -m server.monitors poll                       # read every monitor, check what is new
-python -m server.monitors show --company "Tavily"    # add --json for machine output
-python -m server.monitors teardown                   # delete the monitors; the sheet stays
-```
-
-`build` runs one Backstop search per field (CEO, HQ city, latest fiscal year revenue, latest
-funding round, latest 10-K filing date), each with an explicit goal and all in one Telem
-session. Each field is stored in `out/factsheets.db` (git-ignored) with its value, verdict
-(`VERIFIED` on a `HIT`, otherwise `NOT_FOUND`), evidence snippet, source URL, engines tried,
-cost and Telem session id. Each field then gets a daily Telem Monitor whose query is one
-sentence naming the change that would invalidate it, such as "Tavily files a new annual
-report on Form 10-K with the SEC.", with `include_domains=["sec.gov"]` for filings.
-
-`poll` stores every item each monitor returns (Telem returns each item once) and runs the
-Backstop checker on each new item against the field's query, goal and stored value. When an
-item states a different or newer value, the field turns `STALE` and keeps the old value next
-to the new evidence, URL, the checker's reason and a timestamp. A field that was `NOT_FOUND`
-turns `STALE` when an item answers its goal. Telem returns an item only once, so an item whose check fails
-(a checker outage or a budget stop) is kept and checked again on each later poll or
-delivery, up to three attempts, each recorded on the item.
-
-For push delivery, pass `--webhook-base https://your-host` to `build` and serve the receiver
-with `uvicorn server.monitors.webhook:app`. Each delivery must carry a `Telem-Signature` that
-verifies with the SDK's `verify_webhook` against that monitor's secret, or it is rejected with
-401. `pause` and `resume` PATCH every monitor. A rebuild deletes the old monitors first and stops,
-keeping the old sheet, if any of them cannot be deleted. Every Monitors failure is logged with its HTTP
-status and body and the run continues, so the sheet always renders.
 
 ## Race screen
 
@@ -340,7 +283,7 @@ python -m evals.score --so-log-dir out/logs_cascade   # out/results.json and out
 ## Development
 
 ```sh
-uv venv -p 3.13 .venv && uv pip install -p .venv -e ".[dev]"
+uv venv --python 3.11 && uv pip install -e '.[dev]'
 .venv/bin/pytest -q
 python -m so.second_opinion "What was Stripe's valuation in its 2023 round?" --goal "find the valuation figure" --format text
 ```
@@ -358,4 +301,4 @@ Every search writes a replayable JSONL event log through `so/eventlog.py`; see
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+MIT. See [LICENSE](LICENSE).

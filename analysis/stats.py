@@ -1,4 +1,4 @@
-"""Small exact and resampling statistics for lane A4 (no scipy dependency).
+"""Small exact and resampling statistics for analysis (no scipy dependency).
 
 - `clopper_pearson`: exact binomial confidence interval, by bisection on the
   binomial tail computed in log space.

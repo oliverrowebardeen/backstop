@@ -1,4 +1,4 @@
-"""Isolate S6 tests from deployment settings, generated tables and real keys."""
+"""Isolate tests from deployment settings, generated tables and real keys."""
 
 import pytest
 

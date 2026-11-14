@@ -64,9 +64,6 @@ class UsageStore:
         with self._connect() as db:
             db.execute(_SCHEMA)
             db.execute(_SESSIONS)
-            columns = {row[1] for row in db.execute("PRAGMA table_info(usage)")}
-            if "autopsies" not in columns:
-                db.execute("ALTER TABLE usage ADD COLUMN autopsies INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -98,19 +95,6 @@ class UsageStore:
                 (key_id(key), engine_calls, fetches, cost_usd, now, now),
             )
 
-    def record_autopsy(self, key: str, *, cost_usd: float) -> None:
-        """Add one autopsy (its checker spend) to the caller's totals."""
-        now = _now()
-        with self._lock, self._connect() as db:
-            db.execute(
-                """INSERT INTO usage (key_id, autopsies, cost_usd, first_seen, last_seen)
-                   VALUES (?, 1, ?, ?, ?)
-                   ON CONFLICT(key_id) DO UPDATE SET
-                       autopsies = autopsies + 1,
-                       cost_usd = cost_usd + excluded.cost_usd,
-                       last_seen = excluded.last_seen""",
-                (key_id(key), cost_usd, now, now),
-            )
 
     def spent(self, key: str) -> float:
         """The caller's total metered spend in USD."""
@@ -161,10 +145,11 @@ class UsageStore:
         """Return the caller's totals; zeros if the key has not searched yet."""
         with self._connect() as db:
             db.row_factory = sqlite3.Row
-            row = db.execute("SELECT * FROM usage WHERE key_id = ?", (key_id(key),)).fetchone()
+            row = db.execute("""SELECT key_id, verified_searches, hits, not_found, unchecked, engine_calls,
+                                fetches, cost_usd, first_seen, last_seen FROM usage WHERE key_id = ?""", (key_id(key),)).fetchone()
         if row is None:
             return {"key_id": key_id(key), "verified_searches": 0, "hits": 0, "not_found": 0, "unchecked": 0,
-                    "engine_calls": 0, "fetches": 0, "cost_usd": 0.0, "autopsies": 0,
+                    "engine_calls": 0, "fetches": 0, "cost_usd": 0.0,
                     "first_seen": None, "last_seen": None}
         totals = dict(row)
         totals["cost_usd"] = round(totals["cost_usd"], 6)

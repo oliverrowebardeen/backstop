@@ -1,4 +1,4 @@
-"""Scripted stand-ins for so.llm and so.eventlog used by the O1 tests."""
+"""Scripted stand-ins for so.llm and so.eventlog used by the checker tests."""
 from __future__ import annotations
 
 from typing import Any

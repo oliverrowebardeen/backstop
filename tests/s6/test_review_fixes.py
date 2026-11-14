@@ -1,5 +1,5 @@
-"""Review fixes: hard timeout (#1), injected page reader (#7), billed cancelled checks (#8),
-no checker verdict on a failed engine (#9). Each test fails on the code before its fix."""
+"""Hard timeouts, injected page readers, billed cancelled checks,
+and no checker verdict on a failed engine."""
 
 from __future__ import annotations
 

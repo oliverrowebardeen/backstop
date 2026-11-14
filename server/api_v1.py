@@ -1,4 +1,4 @@
-"""Hosted verified-search API: POST /v1/search, POST /v1/memo-check, GET /v1/usage, GET /v1/autopsy/{id}, GET /health.
+"""Hosted verified-search API: POST /v1/search, GET /v1/usage, GET /health.
 
 Authentication is `Authorization: Bearer <key>`, checked against the
 comma-separated BACKSTOP_API_KEYS. Keys and request bodies are never logged.
@@ -10,8 +10,8 @@ request first reserves its worst-case cost against what the key has left, so
 concurrent requests cannot together pass the cap; past it the answer is 402.
 Per-request max_cost_usd and max_rescues are clamped to BACKSTOP_MAX_COST_USD
 and BACKSTOP_MAX_RESCUES. Telem sessions belong to the key whose search
-returned them: /v1/autopsy and a client-supplied session on /v1/search answer
-404 for any other key, the same as for a session that does not exist.
+returned them: a client-supplied session on /v1/search answers 404 for any
+other key, the same as for a session that does not exist.
 """
 
 from __future__ import annotations
@@ -24,12 +24,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path as PathParam
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.usage import RateLimiter, UsageStore, key_id
-from so import claims, config
-from so.autopsy import MAX_STEPS, Autopsy, AutopsyUnavailable, SessionNotFound, autopsy
+from so import config
 from so.client import BackstopSearchResponse, BackstopTelem
 from so.second_opinion import TelemUnavailable
 
@@ -180,94 +179,3 @@ async def usage_totals(
 ) -> dict[str, Any]:
     """The caller's metered totals: verified searches by status, engine calls, fetches, cost."""
     return usage.totals(api_key)
-
-
-@router.get("/v1/autopsy/{session_id}", response_model=Autopsy)
-async def session_autopsy(
-    session_id: str = PathParam(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:-]+$"),
-    api_key: str = Depends(rate_limited_key),
-    usage: UsageStore = Depends(get_usage_store),
-) -> Autopsy:
-    """Replay one of the caller's Telem sessions through the checker.
-
-    Checker spend is metered against the key; the number of steps checked is
-    limited to what the key's remaining spend cap covers.
-    """
-    if not usage.owns_session(api_key, session_id):
-        raise _error(404, "session_not_found", _SESSION_NOT_FOUND)
-    per_check = config.BACKSTOP_CHECK_COST_USD
-    reserved = usage.reserve(api_key, MAX_STEPS * per_check, minimum=per_check,
-                             cap=config.BACKSTOP_KEY_SPEND_CAP_USD)
-    if not reserved:
-        raise _spend_cap_error()
-    spent: list[float] = []
-
-    async def metered_check(query: str, goal: str, results: Any, today: Any) -> Any:
-        from so.checker import check
-
-        verdict = await check(query, goal, results, today)
-        spent.append(float(getattr(verdict, "cost_usd", 0) or 0))
-        return verdict
-
-    try:
-        return await autopsy(session_id, checker=metered_check,
-                             max_steps=max(1, min(MAX_STEPS, int(reserved / per_check + 1e-9))))
-    except SessionNotFound as exc:
-        raise _error(404, "session_not_found", _SESSION_NOT_FOUND) from exc
-    except AutopsyUnavailable as exc:
-        logger.warning("Autopsy unavailable for key %s: %s", key_id(api_key), exc)
-        raise _error(502, "telem_unavailable", "Telem's Sessions API did not return this session.") from exc
-    except config.BudgetExceeded as exc:
-        raise _error(503, "budget_exhausted", "This deployment's spend budget is exhausted.") from exc
-    finally:
-        usage.record_autopsy(api_key, cost_usd=sum(spent))
-        usage.release(api_key, reserved)
-
-
-class MemoCheckRequest(BaseModel):
-    """Body of POST /v1/memo-check: the memo to split into claims and verify."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    text: str = Field(min_length=1, max_length=claims.MAX_MEMO_CHARS)
-
-    @field_validator("text")
-    @classmethod
-    def _text_has_content(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("text must contain non-whitespace text")
-        return value
-
-
-async def metered_memo_check(api_key: str, text: str, usage: UsageStore) -> claims.MemoReport:
-    """Run one memo check against the key's spend cap and meter it as one verified request."""
-    minimum = config.BACKSTOP_CHECK_COST_USD * 2
-    reserved = usage.reserve(api_key, claims.MAX_COST_USD, minimum=minimum, cap=config.BACKSTOP_KEY_SPEND_CAP_USD)
-    if not reserved:
-        raise _spend_cap_error()
-    try:
-        report = await claims.check_memo(text, max_cost_usd=min(claims.MAX_COST_USD, reserved))
-        decided = report.totals.verified + report.totals.contradicted
-        usage.record(api_key, status="HIT" if decided else "NOT_FOUND", engine_calls=report.engine_calls,
-                     fetches=report.fetches, cost_usd=report.cost_usd)
-    finally:
-        usage.release(api_key, reserved)
-    if report.telem_session_id and not usage.bind_session(api_key, report.telem_session_id):
-        report = report.model_copy(update={"telem_session_id": None})
-    return report
-
-
-@router.post("/v1/memo-check", response_model=claims.MemoReport)
-async def memo_check(
-    body: MemoCheckRequest,
-    api_key: str = Depends(rate_limited_key),
-    usage: UsageStore = Depends(get_usage_store),
-) -> claims.MemoReport:
-    """Split a memo into at most 12 claims and verify each through Backstop on Telem.
-
-    Each claim comes back VERIFIED, CONTRADICTED or NOT_FOUND with its evidence
-    snippet and source URL. At most $0.40 and 90 seconds per memo, clamped to
-    what remains of the key's spend cap.
-    """
-    return await metered_memo_check(api_key, body.text, usage)

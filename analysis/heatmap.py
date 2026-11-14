@@ -1,4 +1,4 @@
-"""Rescue heatmap (lane S3): engine-by-engine rescue rates, learn split.
+"""Rescue heatmap: engine-by-engine rescue rates, learn split.
 
   python -m analysis.heatmap
 """

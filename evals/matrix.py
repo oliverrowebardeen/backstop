@@ -1,4 +1,4 @@
-"""Hit matrix (lane S2): which engine finds the gold answer for which question.
+"""Hit matrix: which engine finds the gold answer for which question.
 
 For all 330 questions (300 + 30 traps): search_engines(question, ENGINES) with the
 question text as query and goal, judge each engine's top 5, write
@@ -39,7 +39,7 @@ def results_path():
     return deps.OUT / "matrix_results.jsonl"
 
 
-TOP_K = 5  # section 6.5 hit rule: top 5 results per engine (--top-k overrides)
+TOP_K = 5  # Top 5 results per engine (--top-k overrides)
 
 SPEND = {"search_usd": 0.0, "search_calls": 0, "cached_calls": 0, "errors": 0}
 _lock = asyncio.Lock()

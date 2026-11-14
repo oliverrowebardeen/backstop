@@ -1,4 +1,4 @@
-"""Isolate A3 tests from deployment settings, generated rescue tables and the disk cache."""
+"""Isolate tests from deployment settings, generated rescue tables and the disk cache."""
 
 import pytest
 

@@ -44,11 +44,11 @@ Every message uses standard SSE framing: `event: <kind>`, optional `id: <cursor>
 
 For `/stream/{run_id}`:
 
-- `log`: one unmodified section 6.11 event. Its SSE ID is the event's numeric `seq`. Native EventSource reconnects with `Last-Event-ID`; the server skips events at or below that sequence. An invalid cursor returns 400.
+- `log`: one unmodified [event-log event](../docs/api.md#event-log). Its SSE ID is the event's numeric `seq`. Native EventSource reconnects with `Last-Event-ID`; the server skips events at or below that sequence. An invalid cursor returns 400.
 - `complete`: `{run_id}`. Close the EventSource.
 - `stream_error`: `{message, run_id?, error_type?}`. Close the EventSource and show a failed state with the reason.
 
-A log event has `{ts, run_id, question_id, setup, seq, type, data}`. `ts` is an ISO timestamp; `seq` increases within a run. Deduplicate using `(run_id, seq)`. The `data` fields below are the section 6.11 payloads; preserve additional fields in audit exports.
+A log event has `{ts, run_id, question_id, setup, seq, type, data}`. `ts` is an ISO timestamp; `seq` increases within a run. Deduplicate using `(run_id, seq)`. The `data` fields below are the [event-log payloads](../docs/api.md#event-log); preserve additional fields in audit exports.
 
 | Event type | Data |
 | --- | --- |
@@ -108,7 +108,7 @@ async function startRace(apiBase, apiKey, question, onEvent, onState) {
 
 ## Replay labels and fixtures
 
-Fetch `/replays`, select a pair, then open `new EventSource(new URL('/replay/' + encodeURIComponent(pair.name), apiBase))`. The stream begins with a `replay` metadata event. Each `log` payload is `{side: 'left' | 'right', event: <section 6.11 event>}`; its SSE ID is `<side>-<seq>`. `complete` contains `{replay: name}`. A replay starts at the beginning on each connection; `Last-Event-ID` resume applies only to live run streams. Replays preserve the original event timings and costs and make no provider calls.
+Fetch `/replays`, select a pair, then open `new EventSource(new URL('/replay/' + encodeURIComponent(pair.name), apiBase))`. The stream begins with a `replay` metadata event. Each `log` payload is `{side: 'left' | 'right', event: <event-log event>}`; its SSE ID is `<side>-<seq>`. `complete` contains `{replay: name}`. A replay starts at the beginning on each connection; `Last-Event-ID` resume applies only to live run streams. Replays preserve the original event timings and costs and make no provider calls.
 
 Always label actual recordings **Replay of a live run** while playing. If the catalog or metadata says `fixture: true`, label it **Synthetic fixture · not a live run**. A recording is never a fresh live run or a new measured result. Missing recordings should be shown as unavailable, without substituting a fixture as product evidence.
 

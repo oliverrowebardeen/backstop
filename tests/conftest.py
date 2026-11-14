@@ -47,7 +47,7 @@ def isolate_checker_backend(request: pytest.FixtureRequest, monkeypatch: pytest.
 
 @pytest.fixture(autouse=True)
 def isolate_first_engine_routing(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep fixed-engine fixtures stable; routing tests opt in by marker or lane."""
+    """Keep fixed-engine fixtures stable; routing tests opt in by marker or test directory."""
     if (request.node.get_closest_marker("first_engine_routing") is not None
             or request.node.path.is_relative_to(Path(__file__).parent / "o8")):
         return

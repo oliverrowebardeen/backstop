@@ -1,4 +1,4 @@
-"""Load questions and traps as Question objects (lane S1).
+"""Load questions and traps as Question objects.
 
 Run: python -m data.load --stats
 """

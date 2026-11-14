@@ -222,18 +222,9 @@ Totals for the calling key:
 
 ```json
 {"key_id": "9724786b5d45c739", "verified_searches": 1, "hits": 1, "not_found": 0,
- "unchecked": 0, "engine_calls": 1, "fetches": 0, "cost_usd": 0.00555, "autopsies": 0,
+ "unchecked": 0, "engine_calls": 1, "fetches": 0, "cost_usd": 0.00555,
  "first_seen": "2026-11-14T19:39:37+00:00", "last_seen": "2026-11-14T19:39:37+00:00"}
 ```
-
-### `GET /v1/autopsy/{session_id}`
-
-Replays one of the caller's Telem sessions through the checker and returns the first
-search that missed, where Backstop would have stopped and the rescue it would try
-next (see the README's "Miss autopsy"). Only sessions returned by this key's own
-searches are visible; any other id is 404. Checker calls are metered into the key's
-`cost_usd` and counted in `autopsies`, and the number of steps checked (at most 25)
-is limited to what the key's remaining cap covers.
 
 ### `GET /health`
 
@@ -270,7 +261,7 @@ standard validation list in `detail`.
 | `BACKSTOP_API_KEYS` | empty (all requests rejected) | Comma-separated accepted keys |
 | `BACKSTOP_USAGE_DB` | `out/usage.db` | SQLite usage database |
 | `BACKSTOP_RATE_LIMIT_PER_MIN` | 60 | Requests per key per rolling minute |
-| `BACKSTOP_KEY_SPEND_CAP_USD` | 5 | Lifetime metered spend per key (searches plus autopsies); past it, 402 |
+| `BACKSTOP_KEY_SPEND_CAP_USD` | 5 | Lifetime metered spend per key (verified searches); past it, 402 |
 | `BACKSTOP_MAX_COST_USD` | 0.10 | Ceiling for a request's `max_cost_usd` |
 | `BACKSTOP_MAX_RESCUES` | 3 | Ceiling for a request's `max_rescues` |
 | `BACKSTOP_CHECK_COST_USD` | 0.001 | Estimated cost of one checker call, used when reserving spend |
@@ -279,7 +270,7 @@ Keys are compared in constant time and never stored or logged. Usage rows and lo
 lines identify a key by `key_id`, the first 16 hex characters of its SHA-256. The rate
 limiter is in memory and per process, so run one worker or put a shared limiter in
 front of several. Before a request runs it reserves its worst-case cost (the clamped
-`max_cost_usd`, or 25 checks for an autopsy) against the key's remaining cap, so
+`max_cost_usd`) against the key's remaining cap, so
 concurrent requests from one key cannot together pass it; reservations are also per
 process. A search can overshoot its `max_cost_usd` by at most one page read, so a key
 can end slightly above its cap. Every key still shares the process-wide

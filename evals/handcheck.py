@@ -1,4 +1,4 @@
-"""Human check of the hit judge (lane S2).
+"""Human check of the hit judge.
 
 Samples 30 matrix rows (seed 14, balanced between judge hits and misses),
 shows the question, gold and the exact results the judge saw, and asks you:

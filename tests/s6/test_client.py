@@ -1,4 +1,4 @@
-"""Part C: BackstopTelem is a one-line drop-in for telem.AsyncTelem."""
+"""BackstopTelem is a one-line drop-in for telem.AsyncTelem."""
 
 from __future__ import annotations
 

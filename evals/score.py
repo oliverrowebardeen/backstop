@@ -1,4 +1,4 @@
-"""Score the eval (lane S4): out/results.json (section 6.12) and out/results.md.
+"""Score the eval: out/results.json and out/results.md.
 
   python -m evals.score
 
@@ -6,7 +6,7 @@ Reads every finished log in out/logs/ (a log with run_end) through so.eventlog,
 grades the final answer with evals.judge.grade_answer (cached on disk), and
 totals costs from the log.
 
-Definitions (sections 6.12 and 7):
+Metric definitions:
 - Setup blocks cover test, non-trap questions. Traps are reported separately.
 - accuracy = correct / n, wrong_rate = wrong / n (n = questions scored).
 - Costs come from so.eventlog.summarize (the run_end totals), minus any llm
@@ -18,8 +18,8 @@ Definitions (sections 6.12 and 7):
   call (between a search and its search_done, i.e. Second Opinion's page-read
   rescue). The agent's own read_page fetches are not search calls. Search tool
   calls = number of search_done events.
-- Extra keys beside the 6.12 fields: n, cost_per_q_checker (checker llm cost per
-  question, used by S3's frontier), searches_per_q, and the raw totals.
+- Additional metrics: n, cost_per_q_checker (checker llm cost per
+  question, used by the frontier analysis), searches_per_q, and the raw totals.
 - Checker: in second_opinion logs of test non-trap questions, the first check
   after a search on FIRST_ENGINE alone, joined with the matrix row
   (question_id, FIRST_ENGINE). A matrix hit is the truth label.
@@ -110,7 +110,7 @@ def _per(total, n, digits=6):
 
 
 def setup_block(test_recs: list[dict], trap_recs: list[dict]) -> dict:
-    """One section 6.12 setup block (plus extra keys). Each record: log_metrics(...) plus 'grade'."""
+    """One setup results block (plus extra keys). Each record: log_metrics(...) plus 'grade'."""
     n = len(test_recs)
     g = Counter(r["grade"] for r in test_recs)
     tg = Counter(r["grade"] for r in trap_recs)
@@ -325,7 +325,7 @@ async def score(log_dir: Path | None = None, out_dir: Path | None = None,
                         f"and are excluded from every metric: {', '.join(ungraded[:10])}")
     if warnings:
         results["warnings"] = warnings
-    Results.model_validate(results)  # the section 6.12 shape as frozen in so.contracts
+    Results.model_validate(results)  # the results schema in so.contracts
     return results
 
 

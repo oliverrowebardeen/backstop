@@ -1,4 +1,4 @@
-"""Turn finished eval logs into every reported artifact, in dependency order (lane S4).
+"""Turn finished eval logs into the published results, frontier and findings.
 
     python -m evals.finalize            # score, then regenerate all analysis outputs
     python -m evals.finalize --dry-run  # print the steps without running them
@@ -8,8 +8,6 @@ Steps, each a separate process so one module's state cannot leak into the next:
   2. analysis.frontier    -> out/frontier.json/.png (measured Second Opinion point
                              replaces the simulated one once results.json exists)
   3. analysis.findings    -> analysis/findings.md
-  4. analysis.conformal   -> out/conformal.json/.md (test side from the eval logs)
-  5. analysis.hn_claims   -> out/hn_claims.json/.md (oracle share from results.json)
 
 Stops at the first failing step and says which one failed. Nothing here makes a
 search call; grading uses the judge cache, so a rerun on the same logs is free.
@@ -26,9 +24,7 @@ from evals.deps import ROOT
 
 
 def steps(so_log_dir: Path | None = None, so_label: str | None = None) -> list[tuple[str, list[str]]]:
-    """The pipeline. With so_log_dir, the headline second_opinion (and the conformal test side)
-    come from that extra pass, and the main eval's second_opinion is scored as the comparison."""
-    out = deps.OUT
+    """Score the headline pass and its comparison, then regenerate the published analysis."""
     score = ["-m", "evals.score"]
     if so_log_dir is not None:
         score += ["--so-log-dir", str(so_log_dir)] + (["--so-label", so_label] if so_label else [])
@@ -36,16 +32,10 @@ def steps(so_log_dir: Path | None = None, so_label: str | None = None) -> list[t
         ("score the eval", score),
         ("frontier chart", ["-m", "analysis.frontier"]),
         ("findings", ["-m", "analysis.findings"]),
-        # The bound is calibrated on the default (LLM) checker, so it is tested on the main eval's runs,
-        # which used that checker, even when the headline pass used another checker backend.
-        ("conformal wrong-HIT bound", ["-m", "analysis.conformal", "--log-dir", str(out / "logs")]),
-        ("founder claims", ["-m", "analysis.hn_claims", "--results", str(out / "results.json")]),
     ]
 
 
-OUTPUTS = ["out/results.json", "out/results.md", "out/frontier.json", "out/frontier.png",
-           "analysis/findings.md", "out/conformal.json", "out/conformal.md",
-           "out/hn_claims.json", "out/hn_claims.md"]
+OUTPUTS = ["out/results.json", "out/results.md", "out/frontier.json", "analysis/findings.md"]
 
 
 def main(argv: list[str] | None = None) -> int:

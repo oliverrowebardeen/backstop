@@ -1,16 +1,14 @@
-"""Fake Telem client (search plus the sessions API) and a scripted checker; no paid calls."""
+"""Fake Telem search client and scripted checker; no paid calls."""
 
 from __future__ import annotations
 
-import asyncio
 import sys
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 from typing import Any
 
 from pydantic import Field
 from telem import ProviderRun, SearchResponse, SearchResult
 from telem.errors import BadRequestError
-from telem.models import SessionHistory, SessionResults
 
 from so.contracts import CheckerVerdict
 
@@ -29,44 +27,17 @@ def verdict(label: str, **kwargs: Any) -> CheckerVerdict:
     return CheckerVerdict(verdict=label, confidence=0.9, why=f"{label} assessment", **kwargs)
 
 
-class FakeSessions:
-    """Stands in for AsyncTelem.sessions with canned payloads."""
-
-    def __init__(self, history: dict[str, Any] | None = None, results: dict[str, Any] | None = None,
-                 delay_s: float = 0.0, error: Exception | None = None) -> None:
-        self.history_payload = history or {"session_id": "", "interactions": []}
-        self.results_payload = results or {}
-        self.delay_s = delay_s
-        self.error = error
-        self.calls: list[tuple[str, str, dict[str, Any]]] = []
-
-    async def history(self, session_id: str, *, full: bool = False) -> SessionHistory:
-        self.calls.append(("history", session_id, {"full": full}))
-        if self.delay_s:
-            await asyncio.sleep(self.delay_s)
-        if self.error:
-            raise self.error
-        return SessionHistory.model_validate({"session_id": session_id, **self.history_payload})
-
-    async def results(self, session_id: str) -> SessionResults:
-        self.calls.append(("results", session_id, {}))
-        if self.error:
-            raise self.error
-        return SessionResults.model_validate({"session_id": session_id, **self.results_payload})
-
-
 class FakeAsyncTelem:
-    """Mimics AsyncTelem.search (real SearchResponse objects) and AsyncTelem.sessions.
+    """Mimics AsyncTelem.search (real SearchResponse objects).
 
     reject: ledger field names that make the fake answer HTTP 400, like a strict router would.
     """
 
-    def __init__(self, *, reject: set[str] | None = None, sessions: FakeSessions | None = None,
+    def __init__(self, *, reject: set[str] | None = None,
                  reject_status: int = 400, **_: Any) -> None:
         self.calls: list[dict[str, Any]] = []
         self.reject = reject or set()
         self.reject_status = reject_status
-        self.sessions = sessions or FakeSessions()
 
     async def search(self, query: Any, **kwargs: Any) -> SearchResponse:
         self.calls.append({"query": query, **kwargs})
@@ -109,7 +80,3 @@ def install_checker(monkeypatch: Any, steps: list[Any]) -> list[dict[str, Any]]:
     module.check_page = check
     monkeypatch.setitem(sys.modules, "so.checker", module)
     return seen
-
-
-def namespace(**kwargs: Any) -> SimpleNamespace:
-    return SimpleNamespace(**kwargs)

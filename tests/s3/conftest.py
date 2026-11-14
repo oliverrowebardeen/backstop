@@ -1,4 +1,4 @@
-"""S3 tests never read or write the real out/: analysis outputs go under tmp_path."""
+"""tests never read or write the real out/: analysis outputs go under tmp_path."""
 import pytest
 
 

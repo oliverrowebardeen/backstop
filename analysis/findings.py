@@ -1,6 +1,6 @@
-"""Write analysis/findings.md (lane S3): three plain sentences, regenerable.
+"""Write analysis/findings.md: three plain sentences, regenerable.
 
-Learned order vs the spec's fixed fallback order is compared on the TEST split
+Learned order vs the fixed fallback order is compared on the TEST split
 (non-trap), with a paired bootstrap over questions (--boot resamples, default 10,000; --seed, default 14) on
 the difference in coverage. Policy for both: ask tavily first, then up to 2
 rescue engines in that order; a question is covered if any of those engines hit.
@@ -23,7 +23,7 @@ from analysis.frontier import DEFAULT_MAX_RESCUES
 FINDINGS_MD = ROOT / "analysis" / "findings.md"
 DEFAULT_BOOT = 10_000
 DEFAULT_MIN_MISSES = 5
-DEFAULT_SEED = 14  # the repo-wide seed (section 6.1)
+DEFAULT_SEED = 14  # the reproducible sampling seed
 DEFAULT_CI = 95.0
 DEFAULT_MIN_BASE = 0.25
 

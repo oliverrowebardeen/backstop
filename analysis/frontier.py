@@ -1,4 +1,4 @@
-"""Coverage vs cost frontier (lane S3), section 6.13. Test split, non-trap questions.
+"""Coverage vs cost frontier. Test split, non-trap questions.
 
 Coverage = share of questions where the answer is in the top-5 results of at
 least one engine used. It is NOT final answer accuracy.
@@ -40,7 +40,7 @@ from so.checker import load_prompt, render_user  # noqa: E402
 from so.config import CHECKER_MODEL, LLM_PRICE_USD  # noqa: E402
 from so.contracts import Frontier, Result  # noqa: E402
 
-DEFAULT_MAX_RESCUES = 2  # section 6.8: up to two rescues
+DEFAULT_MAX_RESCUES = 2  # Up to two rescues
 DEFAULT_CHECKER_TOKENS_OUT = 150  # the checker replies with one short JSON object
 DEFAULT_CHARS_PER_TOKEN = 4  # common rule of thumb for English text
 
@@ -217,7 +217,7 @@ def main(argv=None) -> None:
            "frontier_engines": [p["engines"] for p in front], "points": points,
            "measured_runs": list(measured["points"].values()) if measured else [],
            "combo_points_are": "one search per engine on the question text (hit matrix)"}
-    Frontier.model_validate(doc)  # section 6.13 contract
+    Frontier.model_validate(doc)  # frontier contract
     common.OUT.mkdir(parents=True, exist_ok=True)
     (common.OUT / "frontier.json").write_text(json.dumps(doc, indent=2))
     plot(combos, front, default, so_pt)

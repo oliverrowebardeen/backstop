@@ -1,4 +1,4 @@
-"""S2 tests run on the fake Telem and LLM (tests/s2/fakes.py), injected through
+"""tests run on the fake Telem and LLM (tests/s2/fakes.py), injected through
 evals.deps, with every eval output and the judge cache under tmp_path."""
 import pytest
 

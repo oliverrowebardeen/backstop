@@ -1,4 +1,4 @@
-"""Shared helpers for lane S3 (rescue table, frontier, heatmap, findings).
+"""Shared helpers for analysis (rescue table, frontier, heatmap, findings).
 
 OUT is where the analysis reads and writes artifacts (out/ by default). It is a
 plain module attribute, read at call time here and in the other analysis modules,
@@ -19,7 +19,7 @@ OUT = ROOT / "out"
 from so.config import (DEFAULT_PRICE_USD, ENGINES, FALLBACK_ORDER, FIRST_ENGINE,  # noqa: E402,F401
                        PRICE_USD)
 
-# The spec's fixed fallback (section 6.6/6.8), the baseline for "learned vs fixed".
+# The fixed fallback order, the baseline for "learned vs fixed".
 FIXED_ORDER = list(FALLBACK_ORDER)
 
 

@@ -1,1 +1,1 @@
-"""O4 server and UI acceptance checks."""
+"""server and UI acceptance checks."""

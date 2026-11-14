@@ -1,4 +1,4 @@
-"""Build data/questions.jsonl from public sets (lane S1).
+"""Build data/questions.jsonl from public sets.
 
 230 SimpleQA questions (category fact) and 70 FinanceBench questions
 (category finance), split 100 learn / 200 test, stratified by category,

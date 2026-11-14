@@ -1,7 +1,7 @@
-"""Judge model calls (lane S2). The judge sees gold answers; the checker never does.
+"""Judge model calls. The judge sees gold answers; the checker never does.
 
 judge_hit:    does any top-5 title or snippet contain the gold answer? (6.5)
-grade_answer: is the agent's final answer correct, wrong or declined? (section 7)
+grade_answer: is the agent's final answer correct, wrong or declined?
 
 Both go through so.llm with role "judge", which uses JUDGE_MODEL. Results are
 cached on disk so re-runs cost nothing.

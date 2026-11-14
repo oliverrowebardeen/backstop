@@ -1,4 +1,4 @@
-"""Offline truth for logged searches: judge the exact result list each search returned (lane S4).
+"""Offline truth for logged searches: judge the exact result list each search returned.
 
 Event logs record each search's query, goal, engines and freshness cutoff, but not
 its results. The Telem wrapper caches every response under a key built from those

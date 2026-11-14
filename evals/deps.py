@@ -1,4 +1,4 @@
-"""Single import point for the evals package (lanes S2, S4).
+"""Single import point for the evals package.
 
 Dependencies are plain module attributes, read at call time by the rest of the
 package: telem_client and llm (Oliver's so.telem_client and so.llm), OUT (where

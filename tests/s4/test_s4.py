@@ -1,4 +1,4 @@
-"""Lane S4 tests: resume detection, cost_per_search_call, paired flips, checker join."""
+"""Tests: resume detection, cost_per_search_call, paired flips, checker join."""
 from __future__ import annotations
 
 import asyncio

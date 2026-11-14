@@ -10,3 +10,8 @@ out/usage.db
 out/usage.db-*
 out/factsheets.db
 out/factsheets.db-*
+
+# Generated visual exports.
+demo/screenshots/*.png
+out/frontier.png
+out/rescue_heatmap.png

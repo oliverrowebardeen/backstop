@@ -1,6 +1,6 @@
-"""Test double for so.agent.run_question (section 6.10); tests install it as evals.run_eval.AGENT.
+"""Test double for so.agent.run_question; tests install it as evals.run_eval.AGENT.
 
-Writes a full section 6.11 log through the real so.eventlog.EventLog, so every
+Writes a full event log through the real so.eventlog.EventLog, so every
 event is validated against so.contracts.Event. Prices, models and engines come
 from so.config. Every other number comes from a hash of (question id, setup,
 step), so re-running gives the same log apart from timestamps and run_id.
@@ -32,7 +32,7 @@ from so.contracts import AgentAnswer, Setup
 from so.eventlog import EventLog
 from tests.s2.fakes import GOLD_MARKER, _h, _run
 
-MAX_RESCUES = 2  # section 6.8
+MAX_RESCUES = 2
 MISS_VERDICTS = ["WRONG_ENTITY", "STALE", "SHALLOW", "DEAD"]
 FETCH_PRICE = {"tavily": TAVILY_EXTRACT_PRICE_USD, "telem": TELEM_FETCH_PRICE_USD}
 # Fake outcome mix per setup: P(correct), P(wrong); the rest is declined.

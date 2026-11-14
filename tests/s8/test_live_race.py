@@ -1,4 +1,4 @@
-"""S8 public live races: opt-in, demo code, capacity, per-IP limit, cost cap, recordings."""
+"""public live races: opt-in, demo code, capacity, per-IP limit, cost cap, recordings."""
 from __future__ import annotations
 
 import asyncio

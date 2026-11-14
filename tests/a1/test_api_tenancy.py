@@ -1,10 +1,8 @@
-"""Review fixes for the hosted API: per-key spend caps (#2), session ownership (#3), blank queries (#6)."""
+"""Hosted API spend caps, session ownership and blank-query validation."""
 
 from __future__ import annotations
 
 import asyncio
-import sys
-from types import ModuleType
 from typing import Any
 
 import httpx
@@ -14,10 +12,8 @@ from fastapi.testclient import TestClient
 
 from server import api_v1
 from server.usage import RateLimiter, UsageStore
-from so import autopsy as autopsy_module
 from so import config
 from so.client import BackstopSearchResponse
-from tests.a1.fakes import CheckedVerdict, FakeAsyncTelem, FakeSessions, verdict
 
 ALICE = "bk_test_alice"
 BOB = "bk_test_bob"
@@ -70,7 +66,7 @@ def make_app(monkeypatch, tmp_path):
     return build
 
 
-# 6: blank query
+# Reject blank queries
 
 @pytest.mark.parametrize("query", ["   ", "\n\t "])
 def test_whitespace_query_is_422_not_500(make_app, query):
@@ -88,7 +84,7 @@ def test_query_and_goal_are_stripped(make_app):
     assert fake.calls[0]["query"] == "q" and fake.calls[0]["goal"] is None
 
 
-# 2: clamps, per-key cap, concurrency, autopsy metering
+# Clamp limits and reserve spend across concurrent requests
 
 def test_per_request_limits_are_clamped_to_server_maxima(make_app):
     app, _, fake = make_app()
@@ -136,63 +132,18 @@ async def test_concurrent_requests_cannot_overrun_the_cap(make_app, monkeypatch)
     assert store.spent(ALICE) <= 0.10 + 1e-9
 
 
-def _install_autopsy_fakes(monkeypatch, n_steps: int, cost: float = 0.0005) -> list[str]:
-    interactions = [{"interaction_id": f"i{n}", "created_at": f"2026-11-14T19:00:{n:02d}Z",
-                     "preprocessor_runs": [{"preprocessor_name": "tavily", "query": f"q{n}", "output_payload": {
-                         "results": [{"url": f"https://x.example/{n}", "title": "t", "summary": "s", "rank": 1}]}}],
-                     "user_input": {"query": f"q{n}"}, "metadata": {}} for n in range(n_steps)]
-    sessions = FakeSessions(history={"interactions": interactions})
-    monkeypatch.setattr(autopsy_module, "_telem_client", lambda: FakeAsyncTelem(sessions=sessions))
-    checked: list[str] = []
-
-    async def check(query, goal, results, today=None, **kwargs):
-        checked.append(query)
-        return CheckedVerdict(**verdict("DEAD").model_dump(), cost_usd=cost)
-
-    module = ModuleType("so.checker")
-    module.check = check
-    monkeypatch.setitem(sys.modules, "so.checker", module)
-    return checked
-
-
-def test_autopsy_checker_spend_is_metered(make_app, monkeypatch):
-    checked = _install_autopsy_fakes(monkeypatch, n_steps=4)
-    app, store, _ = make_app()
-    store.bind_session(ALICE, "sess-a")
-    resp = TestClient(app).get("/v1/autopsy/sess-a", headers=auth(ALICE))
-    assert resp.status_code == 200 and len(checked) == 4
-    totals = store.totals(ALICE)
-    assert totals["autopsies"] == 1 and totals["cost_usd"] == pytest.approx(4 * 0.0005)
-
-
-def test_autopsy_steps_are_limited_by_remaining_cap(make_app, monkeypatch):
-    checked = _install_autopsy_fakes(monkeypatch, n_steps=10)
-    monkeypatch.setattr(config, "BACKSTOP_KEY_SPEND_CAP_USD", 0.05)
-    app, store, _ = make_app()
-    store.bind_session(ALICE, "sess-a")
-    store.record(ALICE, status="HIT", engine_calls=1, fetches=0, cost_usd=0.047)
-    resp = TestClient(app).get("/v1/autopsy/sess-a", headers=auth(ALICE))
-    assert resp.status_code == 200 and len(checked) == 3 and resp.json()["truncated"]
-    store.record(ALICE, status="HIT", engine_calls=1, fetches=0, cost_usd=0.01)
-    resp = TestClient(app).get("/v1/autopsy/sess-a", headers=auth(ALICE))
-    assert resp.status_code == 402 and len(checked) == 3
-
-
-# 3: sessions belong to the key whose search returned them
+# Sessions belong to the key whose search returned them
 
 def test_sessions_are_bound_to_the_key_that_created_them(make_app, monkeypatch):
-    _install_autopsy_fakes(monkeypatch, n_steps=1)
     app, store, fake = make_app()
     client = TestClient(app)
     created = client.post("/v1/search", headers=auth(ALICE), json={"query": "q"}).json()["session_id"]
     assert created == "sess-1" and store.owns_session(ALICE, created)
 
-    assert client.get(f"/v1/autopsy/{created}", headers=auth(BOB)).status_code == 404
     stolen = client.post("/v1/search", headers=auth(BOB), json={"query": "q", "session": created})
     assert stolen.status_code == 404 and stolen.json()["detail"]["code"] == "session_not_found"
     assert len(fake.calls) == 1
 
-    assert client.get(f"/v1/autopsy/{created}", headers=auth(ALICE)).status_code == 200
     reused = client.post("/v1/search", headers=auth(ALICE), json={"query": "q2", "session": created})
     assert reused.status_code == 200 and fake.calls[-1]["session"] == created
 
@@ -200,8 +151,6 @@ def test_sessions_are_bound_to_the_key_that_created_them(make_app, monkeypatch):
 def test_unknown_session_is_404_like_another_tenants(make_app):
     app, _, fake = make_app()
     client = TestClient(app)
-    unknown = client.get("/v1/autopsy/never-seen", headers=auth(ALICE))
-    assert unknown.status_code == 404
     assert client.post("/v1/search", headers=auth(ALICE),
                        json={"query": "q", "session": "never-seen"}).status_code == 404
     assert fake.calls == []
@@ -211,15 +160,16 @@ def test_usage_store_reservations_and_migration(tmp_path):
     import sqlite3
 
     path = tmp_path / "old.db"
-    with sqlite3.connect(path) as db:  # a database created before autopsies were metered
+    with sqlite3.connect(path) as db:  # Existing databases may carry extra counters.
         db.execute("""CREATE TABLE usage (key_id TEXT PRIMARY KEY, verified_searches INTEGER NOT NULL DEFAULT 0,
                       hits INTEGER NOT NULL DEFAULT 0, not_found INTEGER NOT NULL DEFAULT 0,
                       unchecked INTEGER NOT NULL DEFAULT 0, engine_calls INTEGER NOT NULL DEFAULT 0,
                       fetches INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
-                      first_seen TEXT NOT NULL, last_seen TEXT NOT NULL)""")
+                      first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, legacy_count INTEGER DEFAULT 0)""")
     store = UsageStore(path)
-    store.record_autopsy(ALICE, cost_usd=0.01)
-    assert store.totals(ALICE)["autopsies"] == 1
+    store.record(ALICE, status="HIT", engine_calls=1, fetches=0, cost_usd=0.01)
+    assert store.totals(ALICE)["verified_searches"] == 1
+    assert "legacy_count" not in store.totals(ALICE)
     assert store.reserve(ALICE, 0.5, minimum=0.1, cap=1.0) == 0.5
     assert store.reserve(ALICE, 0.5, minimum=0.1, cap=1.0) == pytest.approx(0.49)
     assert store.reserve(ALICE, 0.5, minimum=0.1, cap=1.0) == 0.0

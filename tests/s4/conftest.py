@@ -1,4 +1,4 @@
-"""S4 tests run on test doubles only: no keys, no paid calls, nothing written to out/.
+"""tests run on test doubles only: no keys, no paid calls, nothing written to out/.
 
 Every test gets the fake Telem and LLM (tests/s2/fakes.py) and the fake agent
 (tests/s4/fake_agent.py) injected through the evals module attributes, with all

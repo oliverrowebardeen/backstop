@@ -1,4 +1,4 @@
-"""Rescue table (lane S3), section 6.6. Learn split only.
+"""Rescue table. Learn split only.
 
 rescue[A][B] = questions where A missed and B hit, over misses(A).
 order_after[A] sorts the other engines by rate desc, ties by lower price.
@@ -7,6 +7,7 @@ order_after[A] sorts the other engines by rate desc, ties by lower price.
 """
 from __future__ import annotations
 
+import argparse
 import json
 
 from data.load import load_all
@@ -74,7 +75,7 @@ def main() -> None:
     learn_ids = {q.id for q in questions}
     rows = [r for r in need_matrix() if r["question_id"] in learn_ids]
     t = build(rows, questions)
-    RescueTable.model_validate(t)  # section 6.6 contract
+    RescueTable.model_validate(t)  # rescue table contract
     common.OUT.mkdir(parents=True, exist_ok=True)
     (common.OUT / "rescue_table.json").write_text(json.dumps(t, indent=2))
     print_table(t)
@@ -82,4 +83,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(description=__doc__).parse_args()
     main()

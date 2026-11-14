@@ -439,8 +439,6 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                     raise HTTPException(503, f"The {name} artifact is not ready to display.") from None
         return output
 
-    from server.memo import install_memo
-    install_memo(app, settings, guard, manager.active_runs)  # Check a memo: /memo-check, /memo/recordings
 
     from server.site import install_site
     install_site(app, settings)

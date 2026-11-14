@@ -1,4 +1,4 @@
-"""Part A and B: limits, fail-open checking, engine errors, ranking and visible rewrites."""
+"""limits, fail-open checking, engine errors, ranking and visible rewrites."""
 
 from datetime import date
 

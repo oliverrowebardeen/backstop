@@ -13,7 +13,7 @@ def test_order_scores_before_analysis():
 def test_dry_run_runs_nothing(monkeypatch, capsys):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
     assert finalize.main(["--dry-run"]) == 0
-    assert "[1/5] score the eval" in capsys.readouterr().out
+    assert "[1/3] score the eval" in capsys.readouterr().out
 
 
 def test_stops_at_first_failure(monkeypatch, eval_fakes):

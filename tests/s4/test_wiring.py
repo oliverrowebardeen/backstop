@@ -1,4 +1,4 @@
-"""R13: production modules never import test code or switch on an environment flag for fakes."""
+"""production modules never import test code or switch on an environment flag for fakes."""
 import ast
 from pathlib import Path
 

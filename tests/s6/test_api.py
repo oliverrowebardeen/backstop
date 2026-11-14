@@ -1,4 +1,4 @@
-"""Part D: hosted /v1 API with bearer auth, metering, rate limits and JSON errors."""
+"""hosted /v1 API with bearer auth, metering, rate limits and JSON errors."""
 
 from __future__ import annotations
 

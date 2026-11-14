@@ -1,4 +1,4 @@
-"""Fake so.telem_client and so.llm with the section 4 / 6.4 signatures.
+"""Fake so.telem_client and so.llm with the production call signatures.
 
 Deterministic: an engine "hits" when hash(query, engine) says so, and the hit
 snippet contains the marker GOLD_MARKER so the fake judge can find it.
