@@ -58,3 +58,19 @@ def test_fixtures_are_served_and_secret_free(tmp_path):
                 lowered = text.lower()
                 for marker in ("api_key", "authorization", "bearer ", "sk-ant", "tvly-", "bk_live"):
                     assert marker not in lowered, (name, marker)
+
+
+def test_developer_curl_matches_the_hosted_api():
+    """The site's curl example uses the real route, auth header and request fields of server/api_v1.py."""
+    import re
+
+    from server import api_v1
+
+    html = (ROOT / "ui/index.html").read_text()
+    curl = re.search(r'<pre id="code-curl"><code>(.*?)</code></pre>', html, re.S).group(1)
+    assert re.search(r"curl -s \S+/v1/search \\", curl)
+    routes = {(route.path, method) for route in api_v1.router.routes for method in getattr(route, "methods", ())}
+    assert ("/v1/search", "POST") in routes and " -d " in curl  # -d makes curl send a POST
+    assert '-H "Authorization: Bearer $BACKSTOP_KEY"' in curl
+    body = re.search(r"-d '(.*)'", curl, re.S).group(1).replace("'\\''", "'")
+    api_v1.SearchRequest.model_validate_json(body)  # extra fields are forbidden, so this checks every field
