@@ -2,6 +2,7 @@
 import asyncio
 from dataclasses import replace
 import json
+import logging
 from pathlib import Path
 import shutil
 
@@ -10,7 +11,7 @@ import pytest
 
 from server.app import ServerSettings, create_app, read_events, replay_catalog
 from so.config import ROOT
-from tests.o4.fakes import interrupted_question, run_question
+from tests.o4.fakes import interrupted_question, run_question, usage_limit_question
 
 
 def messages(response):
@@ -127,6 +128,61 @@ def test_interrupted_agent_produces_stream_error(root):
         assert not any(kind == "complete" for kind, _ in rows)
 
 
+def test_provider_failure_emits_terminal_errors_for_both_sides(root, caplog):
+    with caplog.at_level(logging.ERROR, logger="server.app"):
+        with TestClient(create_app(settings=settings(root), runner=usage_limit_question)) as client:
+            response = client.post("/race", json={"question": "Fail both runs"})
+            assert response.status_code == 200
+            ids = response.json()
+            for run_id in ids.values():
+                rows = messages(client.get(f"/stream/{run_id}"))
+                assert [data["type"] for kind, data in rows if kind == "log"] == ["run_start", "run_end"]
+                assert not any(kind == "complete" for kind, _ in rows)
+                kind, failure = rows[-1]
+                assert kind == "stream_error"
+                assert failure["run_id"] == run_id
+                assert failure["error_type"] == "HTTPStatusError"
+                assert "usage limit" in failure["message"]
+                assert "billing" in failure["message"]
+                resumed = messages(client.get(f"/stream/{run_id}", headers={"Last-Event-ID": "2"}))
+                assert resumed == [("stream_error", failure)]
+    assert len([record for record in caplog.records if "Race agent failed" in record.message]) == 2
+    assert "HTTPStatusError" in caplog.text
+    assert "Your account has reached its usage limit" in caplog.text
+    assert "Traceback" in caplog.text
+    with TestClient(create_app(settings=settings(root))) as restarted:
+        for run_id in ids.values():
+            rows = messages(restarted.get(f"/stream/{run_id}"))
+            assert rows[-1][0] == "stream_error"
+            assert "usage limit" in rows[-1][1]["message"]
+
+
+@pytest.mark.parametrize("failed_setup", ["single", "second_opinion"])
+def test_a_failed_run_does_not_hide_the_other_runs_success(root, failed_setup):
+    async def mixed(question, setup, *, log_dir):
+        runner = usage_limit_question if setup == failed_setup else run_question
+        return await runner(question, setup, log_dir=log_dir)
+
+    with TestClient(create_app(settings=settings(root), runner=mixed)) as client:
+        ids = client.post("/race", json={"question": "Mixed outcome"}).json()
+        for run_id in ids.values():
+            terminal = messages(client.get(f"/stream/{run_id}"))[-1][0]
+            assert terminal == ("stream_error" if run_id.startswith(failed_setup + "-") else "complete")
+
+
+def test_archived_failed_run_end_is_not_success(root):
+    logs = root / "out/logs"
+    logs.mkdir(parents=True)
+    events = read_events(root / "tests/o4/fixtures/single.jsonl")
+    events[-1].data["error"] = "HTTPStatusError"
+    path = logs / f"{events[0].run_id}.jsonl"
+    path.write_text("\n".join(event.model_dump_json() for event in events) + "\n")
+    with TestClient(create_app(settings=settings(root))) as client:
+        rows = messages(client.get(f"/stream/{events[0].run_id}"))
+        assert rows[-1][0] == "stream_error"
+        assert not any(kind == "complete" for kind, _ in rows)
+
+
 def test_failed_agent_start_is_a_service_error(root):
     async def failed(*args, **kwargs):
         raise RuntimeError("Private provider error")
@@ -222,7 +278,8 @@ def test_stream_waits_for_a_complete_jsonl_line(root):
         log = EventLog(f"{setup}-{question.id}-partial", question.id, setup, log_dir=log_dir)
         start = log.emit("run_start", question=question.question)
         await asyncio.sleep(.03)
-        final = start.model_copy(update={"seq": 2, "type": "run_end", "data": {
+        log.emit("answer", final="NOT FOUND", status="NOT_FOUND", citations=[])
+        final = start.model_copy(update={"seq": 3, "type": "run_end", "data": {
             "engine_calls": 0, "fetches": 0, "searches": 0, "cost_usd_search": 0,
             "cost_usd_llm": 0, "cost_usd_total": 0, "latency_ms": 40}})
         line = final.model_dump_json() + "\n"
@@ -237,7 +294,7 @@ def test_stream_waits_for_a_complete_jsonl_line(root):
     with TestClient(create_app(settings=settings(root), runner=partial)) as client:
         ids = client.post("/race", json={"question": "Partial write"}).json()
         rows = messages(client.get(f"/stream/{ids['left_run_id']}"))
-        assert [data["seq"] for kind, data in rows if kind == "log"] == [1, 2]
+        assert [data["seq"] for kind, data in rows if kind == "log"] == [1, 2, 3]
         assert rows[-1][0] == "complete"
 
 

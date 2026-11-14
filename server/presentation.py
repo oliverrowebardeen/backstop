@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request
 
 from so import config
 from so.contracts import Event, Question, Results
+from server.errors import describe_failure
 
 
 def read_json(path: Path) -> Any:
@@ -102,6 +103,7 @@ def install_presentation(app, settings, runner=None):
             jobs = {}
             seen = {'left': 0, 'right': 0}
             ended = set()
+            answered = set()
             try:
                 for side, setup in (('left', body.left), ('right', body.right)):
                     directory = settings.log_dir / question.id / side
@@ -126,8 +128,15 @@ def install_presentation(app, settings, runner=None):
                                 if event.seq <= seen[side]:
                                     continue
                                 seen[side] = event.seq
+                                if event.type == 'answer':
+                                    answered.add(side)
                                 yield sse('log', {'side': side, 'event': event.model_dump()}, f'{side}-{event.seq}')
                                 if event.type == 'run_end':
+                                    await asyncio.shield(asyncio.gather(task, return_exceptions=True))
+                                    error = task.exception() if not task.cancelled() else None
+                                    if error or event.data.get('error') or side not in answered:
+                                        message = describe_failure(error)[0].message if error else 'The agent stopped before completing an answer.'
+                                        yield sse('stream_error', {'side': side, 'message': message})
                                     ended.add(side)
                         if task.done() and side not in ended:
                             # Drain once more if the final append followed this read.

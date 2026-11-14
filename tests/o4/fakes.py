@@ -3,6 +3,8 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
+
 from so.contracts import AgentAnswer, Question
 from so.eventlog import EventLog
 
@@ -26,3 +28,20 @@ async def interrupted_question(question: Question, setup: str, *, log_dir: str) 
     log.emit("run_start", question=question.question)
     await asyncio.sleep(.1)
     raise RuntimeError("Test agent stopped")
+
+
+async def usage_limit_question(question: Question, setup: str, *, log_dir: str) -> AgentAnswer:
+    """Match the agent's run_end-in-finally behavior when the provider rejects a call."""
+    log = EventLog(f"{setup}-{question.id}-usage-limit", question.id, setup, log_dir=log_dir)
+    log.emit("run_start", question=question.question)
+    try:
+        await asyncio.sleep(.01)
+        request = httpx.Request("POST", "https://provider.invalid/messages")
+        response = httpx.Response(400, request=request, json={"error": {
+            "type": "invalid_request_error", "message": "Your account has reached its usage limit."}})
+        response.raise_for_status()
+    finally:
+        log.emit("run_end", engine_calls=0, fetches=0, searches=0, cost_usd_search=0,
+                 cost_usd_llm=0, cost_usd_total=0, latency_ms=10, error="HTTPStatusError")
+        # Let a stream observe run_end before the task raises, as can happen in cleanup.
+        await asyncio.sleep(.03)

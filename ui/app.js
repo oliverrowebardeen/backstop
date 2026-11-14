@@ -1,4 +1,4 @@
-import {newRun, applyEvent, VERDICTS, safeURL} from './race-state.js';
+import {newRun, applyEvent, failRun, VERDICTS, safeURL} from './race-state.js';
 import {proofMetrics, efficientFrontier} from './proof.js';
 
 const $ = selector => document.querySelector(selector);
@@ -43,8 +43,8 @@ function render(side) {
     steps.scrollTop = steps.scrollHeight;
   } else steps.replaceChildren(element('li', 'empty', 'Waiting for the question.'));
   const declined = state.answer?.status === 'NOT_FOUND';
-  find('.answer-label').textContent = declined ? 'Not found · a deliberate outcome' : 'Final answer';
-  const fullAnswer = state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
+  find('.answer-label').textContent = state.failure ? 'Run failed' : declined ? 'Not found · a deliberate outcome' : 'Final answer';
+  const fullAnswer = state.failure || state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
   const lead = typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter('en', {granularity:'sentence'}).segment(fullAnswer)][0]?.segment.trim() : fullAnswer;
   find('.answer-text').textContent = lead || fullAnswer;
   find('.answer-full').textContent = fullAnswer;
@@ -73,10 +73,10 @@ function receive(side, event) {
   }
   if (states.left.finished && states.right.finished) finish();
 }
-function finish() { setActive(false); const interrupted = Object.values(states).some(state => state.status === 'Interrupted'); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? 'Recorded run complete. Run your own question above.' : 'Both agents have finished. Export the audit trail below.'); }
+function finish() { setActive(false); const interrupted = Object.values(states).some(state => Boolean(state.failure)); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? 'Recorded run complete. Run your own question above.' : 'Both agents have finished. Export the audit trail below.'); }
 function fail(message, side) {
   for (const name of side ? [side] : ['left', 'right']) {
-    if (!states[name].finished) { states[name].finished = true; states[name].status = 'Interrupted'; render(name); }
+    if (side || !states[name].finished) { failRun(states[name], message); render(name); }
   }
   notify(message);
   if (states.left.finished && states.right.finished) setActive(false);

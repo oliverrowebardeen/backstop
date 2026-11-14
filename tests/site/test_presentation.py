@@ -80,3 +80,16 @@ def test_stream_rejects_blank_and_oversize_questions(tmp_path):
     with TestClient(create_app(settings=settings(tmp_path),runner=run_question)) as client:
         assert client.post('/race-stream',json={'question':'  '}).status_code==422
         assert client.post('/race-stream',json={'question':'x'*2001}).status_code==422
+
+
+def test_provider_limit_after_cleanup_totals_is_a_stream_failure(tmp_path):
+    from tests.o4.fakes import usage_limit_question
+    with TestClient(create_app(settings=settings(tmp_path),runner=usage_limit_question)) as client:
+        response=client.post('/race-stream',json={'question':'A test question'})
+        rows=sse_rows(response)
+        for side in ['left','right']:
+            ends=[data for kind,data in rows if kind=='log' and data['side']==side and data['event']['type']=='run_end']
+            failures=[data for kind,data in rows if kind=='stream_error' and data['side']==side]
+            assert len(ends)==1 and len(failures)==1
+            assert 'usage limit' in failures[0]['message'].lower()
+        assert rows[-1][0]=='complete'

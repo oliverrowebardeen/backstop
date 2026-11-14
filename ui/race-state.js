@@ -13,7 +13,14 @@ export const VERDICTS = {
 export function newRun(setup, firstEngine) {
   return {setup, firstEngine, events: [], seen: new Set(), runId: null, session: null, engineCalls: 0,
     telemCalls: 0, cost: 0, elapsed: 0, startedAt: null, finished: false,
-    steps: [], answer: null, status: 'Ready'};
+    steps: [], answer: null, failure: null, status: 'Ready'};
+}
+
+/** A terminal stream failure can arrive after the agent's cleanup totals. */
+export function failRun(state, message) {
+  state.failure = message || 'The run failed before an answer was completed.';
+  state.status = 'Failed';
+  state.finished = true;
 }
 
 /** Apply one contract event. Repeated SSE deliveries are ignored. */
@@ -36,7 +43,7 @@ export function applyEvent(state, event) {
   if (typeof session === 'string') state.session = session;
   state.startedAt ??= Date.parse(event.ts);
   state.elapsed = Math.max(state.elapsed, Date.parse(event.ts) - state.startedAt);
-  state.status = 'Running';
+  if (!state.failure) state.status = 'Running';
   if (event.type === 'search') {
     state.engineCalls += data.engines.length;
     state.telemCalls += 1;
@@ -69,7 +76,11 @@ export function applyEvent(state, event) {
     state.elapsed = data.latency_ms;
     state.telemCalls = data.telem_calls ?? state.telemCalls;
     state.finished = true;
-    state.status = data.error || !state.answer ? 'Interrupted' : state.answer.status === 'NOT_FOUND' ? 'Not found' : 'Complete';
+    if (state.failure || data.error || !state.answer) {
+      failRun(state, state.failure || 'The run failed before an answer was completed. Check the server logs for the reason.');
+    } else {
+      state.status = state.answer.status === 'NOT_FOUND' ? 'Not found' : 'Complete';
+    }
   }
   return true;
 }
