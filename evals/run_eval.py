@@ -15,7 +15,8 @@ which spreads fact and finance evenly, so any prefix is a fair sample.
                 in out/eval_manifest.json so evals.score reports the cut.
 
 Resumable: a (question, setup) is done when some log in out/logs/ for it has a
-run_end event. Logs without run_end (a crash, a kill) are ignored; the rerun
+run_end event, no error and an answer. Logs without one (a crash, a kill, an
+agent error) are ignored; the rerun
 writes a fresh log with a new run_id.
 
 Logs are read with so.eventlog. The agent is so.agent; with SO_FAKE=1 it is the
@@ -67,11 +68,25 @@ def run_end(path: Path) -> dict | None:
     return next((e for e in reversed(events) if e["type"] == "run_end"), None)
 
 
+def completed(path: Path) -> dict | None:
+    """The run_end event of a run that produced an answer, else None.
+
+    The agent writes run_end even when it raises (data.error holds the exception
+    type), so a log with run_end is not necessarily a finished run. Only a run with
+    an answer event and no error counts; anything else is retried on the next pass.
+    """
+    end = run_end(path)
+    if end is None or end["data"].get("error"):
+        return None
+    events = eventlog.read_log(path)
+    return end if any(e["type"] == "answer" for e in events) else None
+
+
 def finished_runs(log_dir: Path) -> dict[tuple[str, str], Path]:
-    """{(question_id, setup): path} for every log that reached run_end. The newest log wins."""
+    """{(question_id, setup): path} for every completed run (see `completed`). The newest log wins."""
     best: dict[tuple[str, str], tuple[float, str, Path]] = {}
     for path in Path(log_dir).glob("*.jsonl"):
-        end = run_end(path)
+        end = completed(path)
         if end is None:
             continue
         key, rank = (end["question_id"], end["setup"]), (path.stat().st_mtime, path.name, path)
@@ -87,7 +102,7 @@ def run_cost(path: Path) -> float:
 def _finished_since(log_dir: Path, qid: str, setup: str, since: float) -> Path | None:
     """The finished log this process just wrote for (qid, setup), found by its run_id prefix."""
     fresh = [p for p in Path(log_dir).glob(f"{setup}-{qid}-*.jsonl") if p.stat().st_mtime >= since]
-    return next((p for p in sorted(fresh, key=lambda p: p.stat().st_mtime, reverse=True) if run_end(p)), None)
+    return next((p for p in sorted(fresh, key=lambda p: p.stat().st_mtime, reverse=True) if completed(p)), None)
 
 
 # ---------------------------------------------------------------- selection

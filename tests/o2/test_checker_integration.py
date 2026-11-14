@@ -1,5 +1,6 @@
 """Verify checker usage and page evidence with the real checker adapter."""
 
+import json
 from datetime import date
 from inspect import signature
 
@@ -9,21 +10,24 @@ from so import llm, tavily_client, telem_client
 from so.contracts import EngineRun, LLMResponse, PageText, RescueTable, RunContext
 from so.eventlog import EventLog, read_log, summarize
 from so.second_opinion import search
-from tests.o2.fakes import source, verdict
+from tests.o2.fakes import source
+
+
+def model_reply(label: str, rank: int | None = None) -> str:
+    """A checker model reply in the schema the model answers in (so.checker.VERDICT_SCHEMA)."""
+    return json.dumps({"verdict": label, "confidence": 0.9, "why": "Evidence assessment", "rank": rank,
+                       "rewrite": None})
 
 
 async def test_real_checker_usage_is_emitted_once_and_page_url_is_retained(monkeypatch, tmp_path):
     url = source().url
-    responses = iter([
-        verdict("SHALLOW", best_url=url),
-        verdict("HIT"),
-    ])
+    responses = iter([model_reply("SHALLOW", rank=1), model_reply("HIT")])
 
     async def complete(role, system, messages, **kwargs):
         if "PAGE TEXT:" in messages[0]["content"]:
             assert f"PAGE URL: {url}" in messages[0]["content"]
         return LLMResponse(
-            text=next(responses).model_dump_json(), role="checker", model="fixture-model",
+            text=next(responses), role="checker", model="fixture-model",
             cost_usd=0.001, latency_ms=25, tokens_in=100, tokens_out=30,
         )
 
@@ -69,7 +73,7 @@ def test_page_reader_contracts_accept_goal_metadata():
 
 
 async def test_malformed_checker_retry_is_costed_before_engine_rescue(monkeypatch, tmp_path, caplog):
-    replies = iter(['{"verdict": "HIT"', '{"verdict": "HIT"', verdict("HIT", evidence_rank=1).model_dump_json()])
+    replies = iter(['{"verdict": "HIT"', '{"verdict": "HIT"', model_reply("HIT", rank=1)])
 
     async def complete(role, system, messages, **kwargs):
         return LLMResponse(

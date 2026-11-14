@@ -67,6 +67,27 @@ def _http_url(value: Any) -> bool:
         return False
 
 
+def _trailing_json(text: str) -> Any:
+    """Parse the reply as JSON, or the JSON object that ends it.
+
+    Models often explain their evidence in prose and then end with the answer
+    object unfenced. Only an object that closes the reply is accepted, so a stray
+    brace earlier in the prose cannot be mistaken for the answer.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as first_error:
+        decoder = json.JSONDecoder()
+        for start in (i for i in range(len(text) - 1, -1, -1) if text[i] == "{"):
+            try:
+                payload, end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and not text[end:].strip():
+                return payload
+        raise first_error
+
+
 def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
     """Validate final model output without converting format errors into declines."""
     final = text.strip()
@@ -76,7 +97,7 @@ def _answer(text: str, sources: set[str], searches: int) -> AgentAnswer:
     if len(blocks) > 1:
         raise ValueError("Invalid agent answer: expected one JSON answer block")
     try:
-        payload = json.loads(blocks[0] if blocks else final)
+        payload = json.loads(blocks[0]) if blocks else _trailing_json(final)
     except json.JSONDecodeError as exc:
         raise ValueError("Invalid agent answer: expected a JSON object or NOT FOUND") from exc
     if not isinstance(payload, dict):
@@ -179,7 +200,21 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
                      cost_usd=response.cost_usd, latency_ms=response.latency_ms,
                      cached=response.cached)
             if not response.tool_calls:
-                answer = _answer(response.text, sources, counts["searches"])
+                try:
+                    answer = _answer(response.text, sources, counts["searches"])
+                except ValueError as format_error:
+                    # One repair turn: the evidence is already gathered, only the format slipped.
+                    messages.append({"role": "assistant", "content": response.text or ""})
+                    messages.append({"role": "user", "content": (
+                        f"Your reply did not follow the required answer format ({format_error}). "
+                        "Reply with only the JSON answer object described in your instructions, "
+                        "citing URLs you retrieved, or exactly NOT FOUND.")})
+                    response = await llm.complete("agent", system_prompt, messages, tools=None)
+                    log.emit("llm", role="agent", model=response.model or config.AGENT_MODEL,
+                             tokens_in=response.tokens_in, tokens_out=response.tokens_out,
+                             cost_usd=response.cost_usd, latency_ms=response.latency_ms,
+                             cached=response.cached)
+                    answer = _answer(response.text, sources, counts["searches"])
                 break
             if finishing:
                 raise RuntimeError("Agent continued requesting tools after the final turn limit")

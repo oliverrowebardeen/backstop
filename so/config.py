@@ -54,6 +54,13 @@ def _bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean")
 
 
+def _unit_interval(name: str, default: str) -> float:
+    value = float(os.getenv(name, default))
+    if not 0 <= value <= 1:
+        raise ValueError(f"{name} must be between 0 and 1, got {value}")
+    return value
+
+
 def api_key(provider: str) -> str:
     """Read a configured credential without exposing its value in errors."""
     name = f"{provider.upper()}_API_KEY"
@@ -122,14 +129,20 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 ANTHROPIC_MESSAGES_URL = os.getenv("ANTHROPIC_MESSAGES_URL", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages")
 OPENAI_CHAT_URL = os.getenv("OPENAI_CHAT_URL", OPENAI_BASE_URL.rstrip("/") + "/chat/completions")
 ANTHROPIC_API_VERSION = os.getenv("ANTHROPIC_API_VERSION", "2023-06-01")
-# The checker's verdict is about 100 tokens of JSON; the cap stays under 400.
-CHECKER_MAX_TOKENS = int(os.getenv("CHECKER_MAX_TOKENS", "399"))
-LLM_MAX_TOKENS = {"checker": CHECKER_MAX_TOKENS, "agent": 2048, "judge": 1024}
-LLM_MAX_TOKENS.update(json.loads(os.getenv("LLM_MAX_TOKENS_JSON", "{}")))
-# Anthropic thinking mode per role: "disabled", "adaptive", or "" for the model default.
+
+# Checker
+# A HIT below this confidence is not trusted: the page it cites is read instead.
+CHECKER_HIT_MIN_CONFIDENCE = _unit_interval("CHECKER_HIT_MIN_CONFIDENCE", "0.6")
+# Thinking mode sent to Anthropic: "disabled", "adaptive", or "" for the model default.
 # Haiku 5.5 thinks adaptively by default, and that hidden thinking counts against
 # max_tokens: it used the checker's whole budget and left an empty reply.
 CHECKER_THINKING = os.getenv("CHECKER_THINKING", "disabled")
+# The verdict is about 100 tokens of JSON; the cap stays under 400.
+CHECKER_MAX_TOKENS = int(os.getenv("CHECKER_MAX_TOKENS", "399"))
+
+LLM_MAX_TOKENS = {"checker": CHECKER_MAX_TOKENS, "agent": 2048, "judge": 1024}
+LLM_MAX_TOKENS.update(json.loads(os.getenv("LLM_MAX_TOKENS_JSON", "{}")))
+# Anthropic thinking mode per role; LLM_THINKING_JSON entries merge over these.
 LLM_THINKING = {"checker": CHECKER_THINKING}
 LLM_THINKING.update(json.loads(os.getenv("LLM_THINKING_JSON", "{}")))
 if set(LLM_THINKING.values()) - {"disabled", "adaptive", ""}:

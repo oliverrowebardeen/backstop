@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from server import api_v1
 from so import config
 from so.contracts import AgentAnswer, Event, Frontier, Question, Results, Setup
 from so.eventlog import read_log
@@ -165,6 +166,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
     app = FastAPI(title="Backstop", lifespan=lifespan)
     app.mount("/ui", StaticFiles(directory=settings.ui_dir), name="ui")
+    app.include_router(api_v1.router)  # Hosted API: /v1/search, /v1/usage, /health
 
     @app.get("/")
     async def index() -> FileResponse:

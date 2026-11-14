@@ -29,12 +29,14 @@ def write_log(path, events, torn_tail=False):
 
 END = dict(engine_calls=1, fetches=0, searches=1, cost_usd_search=0.005, cost_usd_llm=0.01,
            cost_usd_total=0.015, latency_ms=1000)
+ANSWER = dict(final="A", status="ANSWERED", citations=["https://a.example"])
 
 
 # ---------------------------------------------------------------- resume
 
 def test_finished_runs_needs_run_end(tmp_path):
-    write_log(tmp_path / "single-sqa-0001-aaaaaaaa.jsonl", [ev("run_start", question="q"), ev("run_end", **END)])
+    write_log(tmp_path / "single-sqa-0001-aaaaaaaa.jsonl",
+              [ev("run_start", question="q"), ev("answer", **ANSWER), ev("run_end", **END)])
     # half-finished: no run_end, and a torn last line
     write_log(tmp_path / "single-sqa-0002-bbbbbbbb.jsonl", [ev("run_start", qid="sqa-0002", question="q"),
                                                             ev("search", qid="sqa-0002", engines=[FIRST_ENGINE])],
@@ -42,6 +44,7 @@ def test_finished_runs_needs_run_end(tmp_path):
     # hyphenated ids and an underscore setup parse from the events, not the file name
     write_log(tmp_path / "second_opinion-trap-001-cccccccc.jsonl",
               [ev("run_start", qid="trap-001", setup="second_opinion", question="q"),
+               ev("answer", qid="trap-001", setup="second_opinion", **ANSWER),
                ev("run_end", qid="trap-001", setup="second_opinion", **END)])
     # corrupt line in the middle: unreadable, so not finished (and no crash)
     (tmp_path / "single-sqa-0003-dddddddd.jsonl").write_text(
@@ -52,8 +55,8 @@ def test_finished_runs_needs_run_end(tmp_path):
 
 def test_finished_runs_newest_wins(tmp_path):
     old, new = tmp_path / "single-sqa-0001-aaaaaaaa.jsonl", tmp_path / "single-sqa-0001-bbbbbbbb.jsonl"
-    write_log(old, [ev("run_end", **END)])
-    write_log(new, [ev("run_end", **END)])
+    write_log(old, [ev("answer", **ANSWER), ev("run_end", **END)])
+    write_log(new, [ev("answer", **ANSWER), ev("run_end", **END)])
     t = time.time()
     os.utime(old, (t - 100, t - 100))
     assert finished_runs(tmp_path)[("sqa-0001", "single")] == new
@@ -176,3 +179,26 @@ def test_first_engine_checks_and_metrics():
     assert c["miss_recall"] == 1.0
     assert c["false_alarm_rate"] == 0.5
     assert c["rescuable_vs_dead_acc"] == 1.0
+
+
+def test_errored_run_is_not_counted_as_finished(tmp_path):
+    """The agent writes run_end even when it raises; such a run must be retried."""
+    import json as _json
+    from evals.run_eval import completed, finished_runs
+
+    def write(name, events):
+        p = tmp_path / name
+        p.write_text("".join(_json.dumps({"ts": "2026-11-14T19:00:00.000Z", "run_id": name[:-6],
+                                          "question_id": "q1", "setup": "single", "seq": i + 1,
+                                          "type": t, "data": d}) + "\n" for i, (t, d) in enumerate(events)))
+        return p
+
+    end = {"engine_calls": 1, "fetches": 0, "searches": 1, "cost_usd_search": 0.005,
+           "cost_usd_llm": 0.01, "cost_usd_total": 0.015, "latency_ms": 900}
+    crashed = write("single-q1-aaaa.jsonl", [("run_start", {"question": "Q"}),
+                                            ("run_end", {**end, "error": "ValueError"})])
+    assert completed(crashed) is None and finished_runs(tmp_path) == {}
+    ok = write("single-q1-bbbb.jsonl", [("run_start", {"question": "Q"}),
+                                       ("answer", {"final": "A", "status": "ANSWERED", "citations": ["https://a.example"]}),
+                                       ("run_end", end)])
+    assert finished_runs(tmp_path) == {("q1", "single"): ok}

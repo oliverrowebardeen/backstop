@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from so import checker
 from so.checker import (MALFORMED_WHY, TRUNCATED_WHY, CheckedVerdict, CheckerError, check, check_page,
                         parse_page_verdict, parse_verdict)
+from so import config
 from so.config import BudgetExceeded
 from so.contracts import CheckerVerdict, PageText, Result, RunContext
 from tests.o1.examples import EXAMPLES, TODAY
@@ -99,9 +104,39 @@ def test_confidence_outside_unit_interval_is_malformed(raw):
 def test_hit_threshold_setting_is_validated(monkeypatch):
     monkeypatch.setenv("CHECKER_TEST_THRESHOLD", "1.5")
     with pytest.raises(ValueError):
-        checker._unit_interval("CHECKER_TEST_THRESHOLD", "0.6")
+        config._unit_interval("CHECKER_TEST_THRESHOLD", "0.6")
     monkeypatch.setenv("CHECKER_TEST_THRESHOLD", "0.7")
-    assert checker._unit_interval("CHECKER_TEST_THRESHOLD", "0.6") == 0.7
+    assert config._unit_interval("CHECKER_TEST_THRESHOLD", "0.6") == 0.7
+
+
+def _config_in_clean_env(**env: str) -> dict:
+    """Import so.config in a fresh interpreter with no .env file and only the given settings."""
+    code = ("import json; from so import config as c; print(json.dumps([c.CHECKER_HIT_MIN_CONFIDENCE, "
+            "c.CHECKER_THINKING, c.CHECKER_MAX_TOKENS, c.LLM_MAX_TOKENS['checker'], c.LLM_THINKING['checker']]))")
+    base = {"PATH": os.environ.get("PATH", ""), "SO_ENV_FILE": os.devnull}
+    proc = subprocess.run([sys.executable, "-c", code], env={**base, **env}, capture_output=True, text=True,
+                          cwd=Path(__file__).resolve().parents[2])
+    return {"returncode": proc.returncode, "values": json.loads(proc.stdout) if proc.returncode == 0 else None,
+            "stderr": proc.stderr}
+
+
+def test_checker_settings_defaults_and_wiring():
+    assert _config_in_clean_env()["values"] == [0.6, "disabled", 399, 399, "disabled"]
+    custom = _config_in_clean_env(CHECKER_HIT_MIN_CONFIDENCE="0.7", CHECKER_THINKING="adaptive",
+                                  CHECKER_MAX_TOKENS="2000")
+    assert custom["values"] == [0.7, "adaptive", 2000, 2000, "adaptive"]
+
+
+@pytest.mark.parametrize("env", [{"CHECKER_HIT_MIN_CONFIDENCE": "1.5"}, {"CHECKER_THINKING": "on"}])
+def test_invalid_checker_settings_fail_at_import(env):
+    out = _config_in_clean_env(**env)
+    assert out["returncode"] != 0 and "ValueError" in out["stderr"]
+
+
+def test_hit_floor_is_read_from_config(monkeypatch):
+    monkeypatch.setattr(config, "CHECKER_HIT_MIN_CONFIDENCE", 0.95)
+    out = parse_verdict(reply(verdict="HIT", confidence=0.9, rank=1), RESULTS, "q")
+    assert (out.verdict, out.best_url) == ("SHALLOW", RESULTS[0].url)
 
 
 # Rules that keep HIT trustworthy.
