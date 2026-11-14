@@ -8,6 +8,7 @@ import pytest
 
 from so import agent, setups
 from so.contracts import EngineRun, LLMResponse, PageText, Question, Result, RunContext, SearchOutcome, ToolCall
+from so.eventlog import read_log, summarize
 
 URL = "https://example.com/founder"
 
@@ -36,7 +37,7 @@ def final_response():
 
 
 def events(path):
-    return [json.loads(line) for file in path.glob("*.jsonl") for line in file.read_text().splitlines()]
+    return [event for file in path.glob("*.jsonl") for event in read_log(file)]
 
 
 @pytest.fixture
@@ -70,6 +71,7 @@ async def test_run_session_evidence_and_totals(question, wrappers, tmp_path, set
     assert log[0]["type"] == "run_start"
     assert [entry["seq"] for entry in log] == list(range(1, len(log) + 1))
     totals = log[-1]["data"]
+    assert summarize(next(tmp_path.glob("*.jsonl"))) == totals
     assert totals["session"] == "session-one"
     assert totals["engine_calls"] == engine_calls and totals["searches"] == 1
     assert totals["cost_usd_search"] == pytest.approx(cost)
