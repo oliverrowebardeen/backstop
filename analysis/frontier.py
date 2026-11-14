@@ -3,19 +3,26 @@
 Coverage = share of questions where the answer is in the top-5 results of at
 least one engine used. It is NOT final answer accuracy.
 
-Second Opinion point:
-  * If out/results.json has setups.second_opinion, that point uses its measured
-    accuracy and cost_per_q_search, labelled as final-answer accuracy
-    (coverage is not defined there). simulated: false.
-  * Otherwise it is simulated from the matrix (simulated: true): ask tavily; on a
-    miss try the first MAX_RESCUES engines of order_after["tavily"] from the
-    learn-built rescue table. The checker is assumed perfect (stops exactly on a
-    hit), and every result list checked costs CHECKER_COST_USD.
+Second Opinion point (preference order):
+  1. Measured: out/results.json setups.second_opinion exists. coverage = its
+     accuracy (coverage is not defined for the full agent, so the point is labelled
+     "final accuracy"); x = cost_per_q_search + cost_per_q_checker. If
+     cost_per_q_checker is missing the note says "checker cost missing".
+  2. Simulated from the matrix: ask FIRST_ENGINE, on a miss try the first
+     --max-rescues engines of the learn-built order_after[FIRST_ENGINE]. Checker
+     error: if results.json has checker miss_recall and false_alarm_rate they are
+     applied as expected values (a missed miss stops the chain with no answer; a
+     false alarm costs one more search); otherwise the checker is perfect, and the
+     note and chart label say so. Checker cost per check is derived, not guessed:
+     tokens_in = len(checker prompt + query + goal + the 5 formatted results of
+     that question and engine from matrix_results.jsonl) / --chars-per-token,
+     tokens_out = --checker-tokens-out, priced with LLM_PRICE_USD[CHECKER_MODEL].
 
   python -m analysis.frontier
 """
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 from collections import defaultdict
@@ -27,9 +34,14 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from analysis.common import (ENGINES, FIRST_ENGINE, OUT, banner, load_rescue_table, need_matrix,  # noqa: E402
                              price, read_jsonl, split_ids)
+from data.load import load_all  # noqa: E402
+from so.checker import load_prompt, render_user  # noqa: E402
+from so.config import CHECKER_MODEL, LLM_PRICE_USD  # noqa: E402
+from so.contracts import Frontier, Result  # noqa: E402
 
-CHECKER_COST_USD = 0.0006  # estimated cost of one checker call on one result list (small model, ~1.5k tokens in)
-MAX_RESCUES = 2
+DEFAULT_MAX_RESCUES = 2  # section 6.8: up to two rescues
+DEFAULT_CHECKER_TOKENS_OUT = 150  # the checker replies with one short JSON object
+DEFAULT_CHARS_PER_TOKEN = 4  # common rule of thumb for English text
 
 
 def per_question(rows: list[dict], ids: set[str]) -> dict[str, dict[str, tuple[bool, float]]]:
@@ -63,45 +75,100 @@ def efficient(points: list[dict]) -> list[dict]:
     return out
 
 
-def simulate_so(pq: dict, order: list[str]) -> dict:
-    rescues = order[:MAX_RESCUES]
+def read_results_json() -> dict | None:
+    f = OUT / "results.json"
+    if not f.exists():
+        return None
+    try:
+        return json.loads(f.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
+def checker_costs(ids: set[str], tokens_out: int, chars_per_token: float) -> tuple[dict, float]:
+    """(question_id, engine) -> derived USD cost of one checker call; plus the mean."""
+    p_in, p_out = LLM_PRICE_USD[CHECKER_MODEL]
+    system = load_prompt("checker")
+    text = {q.id: q.question for q in load_all() if q.id in ids}
+    costs: dict[tuple[str, str], float] = {}
+    for r in read_jsonl(OUT / "matrix_results.jsonl"):
+        qid, eng = r["question_id"], r["engine"]
+        if qid not in text or eng == "telem_default":
+            continue
+        results = [Result.model_validate(x) for x in (r.get("results") or [])]
+        user = render_user(text[qid], text[qid], results, None)  # matrix uses question as query and goal
+        tokens_in = (len(system) + len(user)) / chars_per_token
+        costs[(qid, eng)] = (tokens_in * p_in + tokens_out * p_out) / 1e6
+    if not costs:
+        raise SystemExit(f"no usable rows in {OUT / 'matrix_results.jsonl'} to derive the checker cost")
+    return costs, sum(costs.values()) / len(costs)
+
+
+def simulate_so(pq: dict, order: list[str], max_rescues: int, chk: dict, chk_mean: float,
+                recall: float | None, false_alarm: float | None) -> dict:
+    """Expected coverage and cost per question. recall/false_alarm None means a perfect checker."""
+    perfect = recall is None or false_alarm is None
+    rec, far = (1.0, 0.0) if perfect else (recall, false_alarm)
+    stages = [FIRST_ENGINE] + order[:max_rescues]
     cov = cost = 0.0
     n = 0
     for q, d in pq.items():
         if FIRST_ENGINE not in d:
             continue
         n += 1
-        found = False
-        for e in [FIRST_ENGINE] + rescues:
+        states = {False: 1.0, True: 0.0}  # already holding a hit -> probability mass still searching
+        for i, e in enumerate(stages):
             if e not in d:
-                continue
-            cost += d[e][1] + CHECKER_COST_USD
-            if d[e][0]:
-                found = True
                 break
-        cov += found
+            hit, c = d[e]
+            nxt = {False: 0.0, True: 0.0}
+            for found, mass in states.items():
+                if not mass:
+                    continue
+                cost += mass * (c + chk.get((q, e), chk_mean))
+                now = found or hit
+                if i == len(stages) - 1:
+                    cov += mass * now
+                    continue
+                go_on = far if hit else rec  # checker says "not a hit" -> rescue
+                cov += mass * (1 - go_on) * now
+                nxt[now] += mass * go_on
+            states = nxt
+    if perfect:
+        how = "perfect checker (no results.json checker metrics yet)"
+    else:
+        how = f"checker error rates from results.json (miss_recall {rec:.3f}, false_alarm_rate {far:.3f}) applied as expected values"
     return {"kind": "second_opinion", "engines": [], "coverage": round(cov / n, 4),
             "cost_per_q": round(cost / n, 6), "n_questions": n, "simulated": True,
-            "rescue_order": rescues, "checker_cost_usd": CHECKER_COST_USD,
-            "note": "simulated from the matrix: perfect checker, first engine tavily, up to "
-                    f"{MAX_RESCUES} rescues in learned order; real checker errors would lower coverage"}
+            "label": "simulated, " + ("perfect checker" if perfect else "measured checker error"),
+            "rescue_order": stages[1:], "checker_cost_usd_mean": round(chk_mean, 7),
+            "note": f"simulated from the matrix: {FIRST_ENGINE} first, up to {max_rescues} rescues in learned order, {how}. "
+                    f"Checker cost per check derived from prompt length / token ratio and LLM_PRICE_USD[{CHECKER_MODEL}], "
+                    "averaged over the checks made."}
 
 
-def measured_so() -> dict | None:
-    f = OUT / "results.json"
-    if not f.exists():
-        return None
+def measured_so(res: dict | None) -> dict | None:
     try:
-        so = json.loads(f.read_text())["setups"]["second_opinion"]
-        return {"kind": "second_opinion", "engines": [], "coverage": float(so["accuracy"]),
-                "cost_per_q": float(so["cost_per_q_search"]), "n_questions": None, "simulated": False,
-                "coverage_is": "final answer accuracy (coverage is not defined for the full agent)",
-                "note": "measured in out/results.json; x is search cost per question, checker cost not included"}
+        so = res["setups"]["second_opinion"]
+        cov, search = float(so["accuracy"]), float(so["cost_per_q_search"])
     except (KeyError, ValueError, TypeError):
         return None
+    chk = so.get("cost_per_q_checker")
+    note = "measured in out/results.json; x = search + checker cost per question"
+    if chk is None:
+        note = "measured in out/results.json; checker cost missing, x is search cost only"
+    return {"kind": "second_opinion", "engines": [], "coverage": cov,
+            "cost_per_q": search + float(chk or 0.0), "n_questions": None, "simulated": False,
+            "label": "final accuracy", "note": note,
+            "coverage_is": "final answer accuracy (coverage is not defined for the full agent)"}
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--max-rescues", type=int, default=DEFAULT_MAX_RESCUES)
+    ap.add_argument("--checker-tokens-out", type=int, default=DEFAULT_CHECKER_TOKENS_OUT)
+    ap.add_argument("--chars-per-token", type=float, default=DEFAULT_CHARS_PER_TOKEN)
+    args = ap.parse_args(argv)
     ids = split_ids("test")
     pq = per_question(need_matrix(), ids)
     combos = combo_points(pq)
@@ -116,13 +183,21 @@ def main() -> None:
                "cost_per_q": round(sum(c for _, c in (d["telem_default"] for d in drows.values())) / nd, 6),
                "n_questions": nd}
 
-    so_pt = measured_so()
+    res = read_results_json()
+    so_pt = measured_so(res)
     if so_pt is None:
-        so_pt = simulate_so(pq, load_rescue_table()["order_after"][FIRST_ENGINE])
+        chk, chk_mean = checker_costs(ids, args.checker_tokens_out, args.chars_per_token)
+        m = (res or {}).get("checker") or {}
+        recall, far = m.get("miss_recall"), m.get("false_alarm_rate")
+        if not m.get("n_searches"):  # metrics block present but empty
+            recall = far = None
+        so_pt = simulate_so(pq, load_rescue_table()["order_after"][FIRST_ENGINE], args.max_rescues,
+                            chk, chk_mean, recall, far)
 
     points = combos + [default, so_pt]
     doc = {"split": "test", "non_trap_only": True, "generated_from": banner(),
            "frontier_engines": [p["engines"] for p in front], "points": points}
+    Frontier.model_validate(doc)  # section 6.13 contract
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "frontier.json").write_text(json.dumps(doc, indent=2))
     plot(combos, front, default, so_pt)
@@ -149,7 +224,7 @@ def plot(combos, front, default, so_pt) -> None:
                 textcoords="offset points", fontsize=20, color="#444444", fontweight="bold")
     ax.scatter([so_pt["cost_per_q"]], [so_pt["coverage"]], s=320, color="#e8590c", zorder=6,
                edgecolor="black")
-    lab = "Second Opinion" + ("\n(simulated)" if so_pt.get("simulated") else "\n(final accuracy)")
+    lab = f"Second Opinion\n({so_pt['label']})"
     ax.annotate(lab, (so_pt["cost_per_q"], so_pt["coverage"]), xytext=(30, -120), ha="left",
                 arrowprops={"arrowstyle": "-", "color": "#c2410c", "lw": 2},
                 textcoords="offset points", fontsize=20, color="#c2410c", fontweight="bold")

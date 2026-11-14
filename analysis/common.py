@@ -16,25 +16,11 @@ ROOT = Path(__file__).resolve().parent.parent
 FAKE = os.getenv("SO_FAKE") == "1"
 OUT = ROOT / "out" / "fake" if FAKE else ROOT / "out"
 
-try:
-    from so.config import ENGINES, FIRST_ENGINE  # type: ignore
-except Exception:  # so/ not merged yet
-    ENGINES = ["tavily", "exa", "brave", "perplexity", "parallel", "ceramic"]
-    FIRST_ENGINE = "tavily"
+from so.config import (DEFAULT_PRICE_USD, ENGINES, FALLBACK_ORDER, FIRST_ENGINE,  # noqa: E402,F401
+                       PRICE_USD)
 
-# Section 6.2
-try:
-    from so.config import DEFAULT_PRICE_USD, PRICE_USD  # type: ignore
-except Exception:
-    PRICE_USD = {"tavily": 0.005, "brave": 0.005, "you": 0.005,
-                 "parallel": 0.001, "ceramic": 0.00005, "tinyfish": 0.0}
-    DEFAULT_PRICE_USD = 0.005
-
-# The spec's fixed fallback (section 6.6), used as the "fixed order" baseline.
-try:
-    from so.config import FALLBACK_ORDER as FIXED_ORDER  # type: ignore
-except Exception:
-    FIXED_ORDER = ["exa", "perplexity", "brave", "parallel", "ceramic"]
+# The spec's fixed fallback (section 6.6/6.8), the baseline for "learned vs fixed".
+FIXED_ORDER = list(FALLBACK_ORDER)
 
 
 def price(engine: str) -> float:

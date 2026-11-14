@@ -1,7 +1,7 @@
 import pytest
 
 from analysis.rescue_table import LearnOnlyError, build
-from tests.s2.fake_contracts import Question
+from so.contracts import Question
 
 
 def q(i, split="learn", trap=False):
