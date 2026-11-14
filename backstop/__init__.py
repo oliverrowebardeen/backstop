@@ -9,6 +9,8 @@ The implementation lives in the `so` package; this module is the stable public n
 """
 
 from so.client import (
+    BackstopEvidence,
+    BackstopRankEntry,
     BackstopProviderRun,
     BackstopResult,
     BackstopSearchResponse,
@@ -21,6 +23,8 @@ from so.client import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "BackstopEvidence",
+    "BackstopRankEntry",
     "BackstopProviderRun",
     "BackstopResult",
     "BackstopSearchResponse",

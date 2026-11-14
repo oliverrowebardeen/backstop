@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from so import config
 from so.contracts import EngineRun, RunContext, SearchOutcome
@@ -32,7 +32,9 @@ from so.second_opinion import SearchLimits, SearchError, TelemUnavailable, ranke
 from so.second_opinion import search as second_opinion_search
 
 __all__ = [
+    "BackstopEvidence",
     "BackstopProviderRun",
+    "BackstopRankEntry",
     "BackstopResult",
     "BackstopSearchResponse",
     "BackstopTelem",
@@ -70,6 +72,33 @@ class BackstopResult(BaseModel):
         return self.summary or " ".join(self.excerpt or [])
 
 
+class BackstopEvidence(BaseModel):
+    """Verified evidence behind a HIT (built by so.evidence; no extra calls).
+
+    Unknown keys from newer versions of the evidence builder are kept as-is.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    verified: bool = True
+    url: str = ""
+    snippet: str = ""
+    engines_agreeing: int = 0
+    agreeing_engines: list[str] = Field(default_factory=list)
+    source: str = ""
+    rank_reason: str | None = None
+    chunks: int | None = None
+
+
+class BackstopRankEntry(BaseModel):
+    """One position in the ranked result list and why it is there."""
+
+    url: str
+    rank: int
+    rank_reason: str
+    engines: list[str] = Field(default_factory=list)
+
+
 class BackstopProviderRun(BaseModel):
     """One engine call, shaped like telem.ProviderRun."""
 
@@ -103,6 +132,8 @@ class BackstopSearchResponse(BaseModel):
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     trace: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: BackstopEvidence | None = None
+    ranking: list[BackstopRankEntry] | None = None
 
     @property
     def found(self) -> bool:
@@ -312,9 +343,14 @@ def _response(outcome: SearchOutcome, calls: Sequence[BackstopProviderRun], sess
         position = next((item.rank for item in results if item.rank_reason == "evidence"), None)
         if position is not None:
             note = f"Answer is in result {position}. You can stop searching for this."
+    evidence = done.get("evidence") if outcome.status == "HIT" else None
+    ranking = [BackstopRankEntry(url=item.url, rank=item.rank, rank_reason=item.rank_reason or "",
+                                 engines=item.engines) for item in results] if results else None
     return BackstopSearchResponse(
         results=results, by_provider=list(calls), session_id=session, status=outcome.status,
         verdict=verdict, why=why, note=note, engines_called=list(outcome.engines_called),
         engine_calls=outcome.calls, fetches=outcome.fetches, cost_usd=outcome.cost_usd,
         latency_ms=outcome.latency_ms, trace=outcome.trace,
+        evidence=BackstopEvidence.model_validate(evidence) if isinstance(evidence, dict) else None,
+        ranking=ranking,
     )

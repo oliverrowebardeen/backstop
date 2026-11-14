@@ -117,6 +117,8 @@ When no limit is reached, behavior is identical to the unbounded loop.
 | `cost_usd` | `float` | Engines, page reads and checker calls, all included. |
 | `latency_ms` | `float` | Wall clock for the whole search. |
 | `trace` | `list[dict]` | Every event of this search (see [Event log](#event-log)). |
+| `evidence` | `BackstopEvidence \| None` | Optional. The verified evidence behind a `HIT` (see below). `None` for `NOT_FOUND` and `UNCHECKED`. |
+| `ranking` | `list[BackstopRankEntry] \| None` | Optional. The ranked order as `{url, rank, rank_reason, engines}`, matching `results`. `None` when there are no results. |
 | `found` | property | `True` when `status == "HIT"`. |
 
 `BackstopResult`: `url`, `title`, `summary`, `excerpt`, `publish_date`, `rank`,
@@ -126,6 +128,26 @@ When no limit is reached, behavior is identical to the unbounded loop.
 Ranking is: the result the checker cited as evidence (`rank_reason="evidence"`), then
 results returned by more than one engine, more engines first (`"agreement: 2 engines"`),
 then the rest by their best original engine rank (`"engine rank 3"`).
+
+`BackstopEvidence` is built from data the search already holds, so it adds no cost:
+
+| Field | Meaning |
+|---|---|
+| `verified` | Always `true`: the checker confirmed this source states the answer. |
+| `url` | The source holding the answer (the same URL as `results[0]`). |
+| `snippet` | Up to 500 characters of that source, centred on the answer. |
+| `engines_agreeing`, `agreeing_engines` | How many and which engines' top results also state the answer. |
+| `source` | Where the snippet came from: `search` (a result snippet), `tavily_extract` or `telem_fetch` (a page read). |
+| `rank_reason` | Why the source ranked where it did before the evidence boost, for example `agreement: 2 engines`. |
+| `chunks` | Number of Tavily Extract chunks read, when the evidence came from a page read. |
+
+Newer evidence keys are passed through unchanged.
+
+```json
+"evidence": {"verified": true, "url": "https://www.reuters.com/...", "snippet": "...valued at $50 billion...",
+             "engines_agreeing": 2, "agreeing_engines": ["exa", "tavily"], "source": "search",
+             "rank_reason": "agreement: 2 engines"}
+```
 
 `BackstopProviderRun`: `provider`, `status`, `results`, `error`, `latency_ms`, `query`,
 `batch_index`, as on `telem.ProviderRun`.
@@ -184,7 +206,8 @@ curl -s http://localhost:8000/v1/search \
 Body fields: `query` (required, 1 to 2000 characters), `goal`, `session`,
 `max_rescues` (0 to 5), `max_cost_usd` (up to 1), `timeout_s` (up to 120),
 `checker_timeout_s` (up to 60). Unknown fields are rejected. The response is the
-`BackstopSearchResponse` above as JSON.
+`BackstopSearchResponse` above as JSON, including the optional `evidence` object on a
+`HIT` and the `ranking` list.
 
 ### `GET /v1/usage`
 
