@@ -15,4 +15,4 @@
 
 - O3 built: shared agent loop, baseline setup adapters, session propagation, citation validation, bounded tools, and event-based cost totals in so/agent.py, so/setups.py, and so/prompts/agent.md.
 - O3 run: `.venv/bin/pytest tests/o3 -q` passes 25 tests; `.venv/bin/python -m so.agent --setup single --question "Who is the CEO of Tavily?"` and the same command with `--setup telem_default` are the live acceptance checks.
-- O3 not done: live acceptance and main merge require a working shared Telem credential and O0 config exports AGENT_MAX_SEARCHES=6, AGENT_MAX_PAGE_READS=12, AGENT_MAX_TURNS=24, AGENT_PROMPT_PATH=so/prompts/agent.md, LOG_DIR=out/logs, and boolean SO_ENABLE_SECOND_OPINION. Both attempted live checks failed with Telem AuthError.
+- O3 not done: live acceptance awaits the replacement shared Telem credential; both earlier attempts failed with Telem AuthError. The agent is merged on green unit tests and uses O0's configuration, including SO_LOG_DIR. Set SO_ENABLE_SECOND_OPINION=0 for an explicit single-engine fallback until so.second_opinion is installed.
