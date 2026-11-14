@@ -1,6 +1,6 @@
 # Race API integration
 
-This backend supports a separately hosted race screen. The race section at `/#race` (`/race` redirects there) remains a reference client. There is no pitch presentation endpoint or combined `/race-stream` route. Search, checker and agent behavior is unchanged.
+This backend serves the product site and its Live race section at `/#race` (`/race` redirects there), and can also back a separately hosted client. On serverless hosts, `POST /race/stream` starts both sides and streams their events on one response.
 
 Run `python -m server` in the Python 3.11 environment after installing the project. Host, port, artifact paths, capacity and timeouts come from `so.config`. Use **one persistent worker** with writable, persistent log storage. See [deployment instructions](../DEPLOY.md).
 

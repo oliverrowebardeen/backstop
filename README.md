@@ -1,20 +1,30 @@
 # Backstop
 
-**Verified search for AI agents, built on Telem.**
+**Same accuracy. Half the cost. Checked search for AI agents, built on Telem and Tavily.**
 
-Backstop sits between your agent and Telem's search API. It asks one engine, chosen by
-question type, checks whether the results actually answer what the agent needs, rescues
-misses on the engine our data says catches them, and returns `NOT_FOUND` instead of letting the agent guess.
-It is for teams running research and diligence agents, where a confident wrong fact
-in a memo, a model or a customer answer costs real money. Backstop is open source,
-installable, and production-ready: bounded in cost and time, fail-open, typed, and
-fully traced.
+Live demo: **[backstop-pied.vercel.app](https://backstop-pied.vercel.app)**. Race Backstop against Telem's default routing on your own question.
+
+Every time an agent searches, it either asks one engine and hopes the answer is there, or
+asks many at once and pays for all of them. Backstop is the third option. It asks one
+engine through Telem, chosen by question type, checks whether the results actually answer
+what the agent needs, and pays for another engine only when the first one missed. If two
+rescues still miss, it returns `NOT_FOUND` instead of letting the agent guess.
+
+On 200 held-out questions it matched Telem's default routing on accuracy (94.5% vs 94.5%)
+with **84% fewer engine calls** and **53% lower total cost per question** ($0.048 vs
+$0.102), and it had the lowest median latency of the three setups we tested. See [Results](#results).
+
+Backstop is open source, installable and built to run in production: bounded in cost and
+time, fail-open, typed and fully traced.
 
 ## Quickstart
 
 ```sh
-pip install -e .            # Python 3.11+; put TELEM_API_KEY and ANTHROPIC_API_KEY in .env
+pip install -e .            # Python 3.11+; put TELEM_API_KEY, ANTHROPIC_API_KEY and OPENAI_API_KEY in .env
 ```
+
+`OPENAI_API_KEY` powers the fast first-stage checker. Without it, Backstop falls back to
+the Anthropic checker on every search and keeps working.
 
 ```python
 from backstop import BackstopTelem
@@ -48,7 +58,7 @@ flowchart LR
     direction LR
     a["Agent: search(query, goal)"] --> f["One engine first, routed by question type, measured on the learn split: Perplexity for fact, Exa for finance, Tavily as the fallback first engine"]
     f -->|"top 5 results, goal and session attached"| c{"Checker reads the top 5 against the goal"}
-    c -->|"Hit"| ok(["Verified: evidence and source links"])
+    c -->|"Hit"| ok(["Hit: evidence and source links, the agent stops searching"])
     c -->|"Shallow"| p["Read the best page: Tavily Extract, Telem fetch if that fails"]
     p -->|"re-check"| c
     c -->|"Stale, Wrong entity, Dead"| r["Retry on the next untried engine: Exa then Parallel, with the rewritten query, published_after for Stale"]
@@ -147,6 +157,9 @@ Set in `.env` or the environment; the limits can also be set on the client or pe
 | `SEARCH_MAX_COST_USD` / `max_cost_usd` | 0.03 | Spend cap per search, checker included |
 | `SEARCH_TIMEOUT_S` / `timeout_s` | 12 | Wall-clock budget per search |
 | `CHECKER_TIMEOUT_S` / `checker_timeout_s` | 4 | Slower checks fail open as `UNCHECKED` |
+| `DECISION_TIMEOUT_S` | 2 | Time the Decisions checker gets before the cascade falls back to the LLM checker; kept below `CHECKER_TIMEOUT_S` |
+| `EVIDENCE_FILTER_ENABLED`, `EVIDENCE_EXTRA_RESULTS` | `true`, 1 | On a `HIT`, hand the agent the cited result, any page it read and this many extra results instead of the full list |
+| `FINANCE_DEEP_READ` | `true` | On a finance miss, read the best page once (Tavily Extract chunks) instead of searching again |
 | `TELEM_BUDGET_USD`, `LLM_BUDGET_USD` | 25 | Process-wide spend guards |
 
 ```python
@@ -177,8 +190,8 @@ curl -s http://localhost:8000/health
 
 Errors are JSON with the right status codes: 401 bad key, 402 key spend cap reached,
 404 session not yours, 422 bad body, 429 rate
-limited, 502 Telem unavailable. The same server hosts the race screen at `/`, which
-plays a single-engine agent and a Backstop agent side by side from their event logs.
+limited, 502 Telem unavailable. The same server hosts the product site at `/`, including
+the live race described below.
 
 ## Race screen
 
@@ -236,10 +249,15 @@ and Backstop made about 1.22 searches per question at about 1.08 engines each (2
 calls over 242 searches).
 
 Backstop scored 199 of 200 questions: sqa-1447 failed in both passes because the agent
-cited URLs it had not retrieved. Counting it as wrong gives 188/200 (94.0%). Backstop's
-10 wrong answers are within one or two questions of the baselines (8 and 11), so this
-run does not show that it gives fewer wrong answers. Total cost covers the agent model,
-every engine call, page reads and the checker; the judge is excluded.
+cited URLs it had not retrieved. Counting it as wrong gives 188/200 (94.0%). The agent
+now drops unretrieved citations and gets one repair turn instead of failing the run.
+Backstop's 10 wrong answers are within one or two questions of the baselines (8 and 11):
+the gain is in cost, engine calls and time, not in a lower error rate. Total cost covers
+the agent model, every engine call, page reads and the checker; the judge is excluded.
+
+These numbers were measured before compact evidence delivery (`EVIDENCE_FILTER_ENABLED`)
+became the default. On a 40-question learn-split A/B it held accuracy (39/40 with and
+without) and cut total cost by a further 26%; that saving is not included above.
 
 **Traps.** On 30 false-premise questions, no setup gave a confidently wrong answer (0/30
 in each). Backstop and Telem default flagged the false premise in 30/30; the
