@@ -170,6 +170,29 @@ async def _grade_all(items, questions) -> dict[tuple[str, str], str | None]:
     return dict(await asyncio.gather(*(one(k, a) for k, a in items)))
 
 
+def _provenance(runs: dict) -> dict:
+    """The configuration behind the reported numbers: models actually used, judge, prices, commit."""
+    import subprocess
+
+    from evals.judge import provenance as judge_provenance
+    from so import config
+
+    models: dict[str, set[str]] = {}
+    for path in runs.values():
+        for e in eventlog.read_log(path):
+            if e["type"] == "llm" and e["data"].get("model"):
+                models.setdefault(e["data"].get("role", "?"), set()).add(e["data"]["model"])
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                                cwd=Path(__file__).resolve().parent.parent, timeout=5).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        commit = None
+    return {"models_in_logs": {role: sorted(m) for role, m in models.items()},
+            "judge": judge_provenance(), "engine_price_usd": dict(config.PRICE_USD),
+            "default_price_usd": config.DEFAULT_PRICE_USD, "llm_price_usd_per_mtok": config.LLM_PRICE_USD,
+            "telem_base_url": config.TELEM_BASE_URL, "scored_at_commit": commit}
+
+
 async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
     from evals.judge import SPEND
     questions = {q.id: q for q in load_questions(split="test") + [t for t in load_traps() if t.split == "test"]}
@@ -233,6 +256,7 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
         "setups": setups,
         "checker": checker,
         "retrieval": retrieval,
+        "provenance": _provenance(runs),
         "judge_agreement": judge_agreement,
         "paired": {f"{OURS}_vs_{b}": paired_flips(by_setup[OURS], by_setup[b]) for b in BASELINES},
         "judge_cost_usd": {
