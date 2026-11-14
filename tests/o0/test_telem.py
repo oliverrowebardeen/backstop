@@ -69,10 +69,11 @@ async def test_default_routes_without_pinning_and_passes_goal(fake_client):
 
 
 async def test_fetch_truncates_and_preserves_session(fake_client):
-    page = await telem_client.fetch_page("https://example.com", session="s")
-    cached = await telem_client.fetch_page("https://example.com", session="s")
+    page = await telem_client.fetch_page("https://example.com", session="s", goal="first")
+    cached = await telem_client.fetch_page("https://example.com", session="s", goal="second")
     assert page.ok and len(page.text) == 6000
     assert fake_client.calls[0]["session"] == "s"
+    assert "goal" not in fake_client.calls[0]
     assert cached.cached and cached.cost_usd == page.cost_usd == 0.001
     assert len(fake_client.calls) == 1
 

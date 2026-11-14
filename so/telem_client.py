@@ -108,8 +108,11 @@ async def search_default(query: str, *, goal: str | None = None,
                          published_after=None, session=session)
 
 
-async def fetch_page(url: str, *, session: str | None = None) -> PageText:
-    """Read one page through Telem's fetch API in the caller's session."""
+async def fetch_page(url: str, *, session: str | None = None, goal: str | None = None) -> PageText:
+    """Read a page in the caller's session. Telem fetch has no goal parameter.
+
+    goal is accepted for caller compatibility and ignored, including in cache keys.
+    """
     request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
                    inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
     key = config.cache_key("telem-fetch-v1", {"endpoint": config.TELEM_BASE_URL, **request})

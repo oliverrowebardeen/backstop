@@ -28,11 +28,12 @@ async def test_extract_success_failure_and_cache(tmp_path, monkeypatch, success)
                     "failed_results": [] if success else [{"url": "https://example.com", "error": "failed"}]}
 
     monkeypatch.setattr(tavily_client, "AsyncTavilyClient", Client)
-    first = await tavily_client.tavily_extract("https://example.com")
-    second = await tavily_client.tavily_extract("https://example.com")
+    first = await tavily_client.tavily_extract("https://example.com", goal="find answer")
+    second = await tavily_client.tavily_extract("https://example.com", goal="find answer")
     assert first.ok == success
     assert len(first.text) == (6000 if success else 0)
     assert second.cached and second.latency_ms == first.latency_ms
     assert len(Client.calls) == 1
     assert Client.calls[0]["urls"] == ["https://example.com"]
+    assert Client.calls[0]["query"] == "find answer"
     assert config.SEARCH_BUDGET.spent == (config.TAVILY_EXTRACT_PRICE_USD if success else 0)

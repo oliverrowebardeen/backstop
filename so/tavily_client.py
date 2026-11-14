@@ -9,10 +9,12 @@ from so import config
 from so.contracts import PageText
 
 
-async def tavily_extract(url: str) -> PageText:
-    """Extract one page; failed URLs return ok=False for Telem fallback."""
+async def tavily_extract(url: str, *, goal: str | None = None) -> PageText:
+    """Extract a page, forwarding goal as Tavily's query for content ranking."""
     request = dict(urls=[url], extract_depth=config.TAVILY_EXTRACT_DEPTH,
                    format=config.PAGE_CONTENT_FORMAT, timeout=config.TAVILY_TIMEOUT_S)
+    if goal is not None:
+        request["query"] = goal
     key = config.cache_key("tavily-extract-v1", {"endpoint": config.TAVILY_API_URL, **request})
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
