@@ -389,6 +389,10 @@ h1 {
   color: var(--accent);
 }
 
+.run-status.failed {
+  color: var(--red);
+}
+
 .setup-description {
   font-size: 11px;
   color: var(--muted);
@@ -596,6 +600,17 @@ h1 {
   border-radius: 7px;
   border: 0;
   margin-top: 1px;
+}
+
+.answer.failed {
+  background: var(--red-soft);
+  color: var(--red);
+  padding: 14px 12px 12px;
+  border-radius: 7px;
+}
+
+.answer.failed .answer-label {
+  color: var(--red);
 }
 
 .sources {

@@ -1,4 +1,4 @@
-import {SETUPS, VERDICTS, newRun, applyEvent, safeURL} from './race-state.js';
+import {SETUPS, VERDICTS, newRun, applyEvent, failRun, safeURL} from './race-state.js';
 
 const $ = selector => document.querySelector(selector);
 const elements = {};
@@ -84,6 +84,7 @@ function render(side) {
   find('.session').title = state.session ? `Telem session: ${state.session}` : 'No Telem session recorded yet';
   find('.run-status').textContent = state.status;
   find('.run-status').classList.toggle('running', state.status === 'Running');
+  find('.run-status').classList.toggle('failed', Boolean(state.failure));
   find('.event-count').textContent = `${state.events.length} events recorded`;
   find('.export').disabled = !state.events.length;
   const steps = find('.steps');
@@ -114,12 +115,13 @@ function render(side) {
       element('span', '', 'Queries, engines, checks, and page reads.'));
     steps.replaceChildren(empty);
   }
-  const declined = state.answer?.status === 'NOT_FOUND';
+  const declined = !state.failure && state.answer?.status === 'NOT_FOUND';
+  find('.answer').classList.toggle('failed', Boolean(state.failure));
   find('.answer').classList.toggle('declined', declined);
-  find('.answer').classList.toggle('waiting', !state.answer);
-  find('.answer-label').textContent = declined ? 'NOT FOUND · A DELIBERATE OUTCOME' : 'FINAL ANSWER';
-  find('.answer-text').textContent = state.answer?.final || (state.events.length ? 'Following the evidence…' : 'Waiting for a question.');
-  find('.sources').replaceChildren(...(state.answer?.citations || []).map((url, index) => {
+  find('.answer').classList.toggle('waiting', !state.answer && !state.failure);
+  find('.answer-label').textContent = state.failure ? 'RUN FAILED' : (declined ? 'NOT FOUND · A DELIBERATE OUTCOME' : 'FINAL ANSWER');
+  find('.answer-text').textContent = state.failure || state.answer?.final || (state.events.length ? 'Following the evidence…' : 'Waiting for a question.');
+  find('.sources').replaceChildren(...(state.failure ? [] : state.answer?.citations || []).map((url, index) => {
     const safe = safeURL(url);
     return safe ? link(url, `[${index + 1}] ${safe.hostname.replace(/^www\./, '')}`) : null;
   }).filter(Boolean));
@@ -133,13 +135,12 @@ function receive(side, event) {
   if (states.left.finished && states.right.finished) setActive(false);
 }
 
-function streamFailure(connection, sides, message) {
+function streamFailure(connection, sides, message, terminal = false) {
   connection.close();
   notify(message);
   for (const side of sides) {
-    if (!states[side].finished) {
-      states[side].status = 'Interrupted';
-      states[side].finished = true;
+    if (terminal || !states[side].finished) {
+      failRun(states[side], message);
       render(side);
     }
   }
@@ -157,7 +158,7 @@ function connect(url, sides, replay = false) {
     } catch (error) { streamFailure(connection, sides, error.message); }
   });
   connection.addEventListener('complete', () => connection.close());
-  connection.addEventListener('stream_error', message => streamFailure(connection, sides, JSON.parse(message.data).message));
+  connection.addEventListener('stream_error', message => streamFailure(connection, sides, JSON.parse(message.data).message, true));
   connection.onerror = () => streamFailure(connection, sides, 'The event stream was interrupted. Recorded events can still be exported.');
 }
 
@@ -206,7 +207,11 @@ $('#race-form').addEventListener('submit', async event => {
     if (current !== generation) return;
     connect(`/stream/${encodeURIComponent(data.left_run_id)}`, ['left']);
     connect(`/stream/${encodeURIComponent(data.right_run_id)}`, ['right']);
-  } catch (error) { notify(error.message); setActive(false); }
+  } catch (error) {
+    for (const side of ['left', 'right']) { failRun(states[side], error.message); render(side); }
+    notify(error.message);
+    setActive(false);
+  }
 });
 
 $('#replay').addEventListener('change', () => { $('#play').disabled = active || !$('#replay').value; });

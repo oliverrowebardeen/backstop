@@ -21,6 +21,7 @@ from server import api_v1
 from so import config
 from so.contracts import AgentAnswer, Event, Frontier, Question, Results, Setup
 from so.eventlog import read_log
+from server.errors import RunFailure, describe_failure, log_failure, read_failure, write_failure
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 logger = logging.getLogger(__name__)
@@ -228,13 +229,21 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         jobs = []
 
         async def execute(setup: Setup, directory: Path) -> AgentAnswer:
-            async with asyncio.timeout(settings.run_timeout):
-                return await active_runner(question, setup, log_dir=str(directory))
+            try:
+                async with asyncio.timeout(settings.run_timeout):
+                    return await active_runner(question, setup, log_dir=str(directory))
+            except Exception as exc:
+                failure = log_failure(logger, exc)
+                try:
+                    write_failure(directory, failure)
+                except OSError as write_error:
+                    log_failure(logger, write_error)
+                raise
 
         def finish(task: asyncio.Task[AgentAnswer]) -> None:
             tasks.discard(task)
-            if not task.cancelled() and task.exception() is not None:
-                logger.error("A race agent stopped before completion")
+            if not task.cancelled():
+                task.exception()
             for run_id, job in list(runs.items()):
                 if job.task is task:
                     del runs[run_id]
@@ -269,12 +278,12 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         try:
             async with asyncio.timeout(settings.start_timeout):
                 left, right = await asyncio.gather(*(identify(job) for job in jobs))
-        except Exception:
+        except Exception as exc:
             for job in jobs:
                 job.task.cancel()
             await asyncio.gather(*(job.task for job in jobs), return_exceptions=True)
-            logger.error("Race could not start")
-            raise HTTPException(503, "The live run could not start. Check the server configuration or choose a replay.") from None
+            failure, _ = describe_failure(exc)
+            raise HTTPException(503, f"The live run could not start. {failure.message}") from None
         return {"left_run_id": left, "right_run_id": right}
 
     @app.get("/stream/{run_id}")
@@ -293,6 +302,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         async def events() -> AsyncIterator[str]:
             pending = ""
             position = 0
+            has_answer = False
             last_keepalive = asyncio.get_running_loop().time()
             while not await request.is_disconnected():
                 try:
@@ -314,10 +324,22 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                     except ValidationError:
                         yield sse("stream_error", {"message": "The run contains an invalid event."})
                         return
+                    if event.type == "answer":
+                        has_answer = True
+                    if event.type == "run_end" and job:
+                        # run_end is also emitted by the agent's failure cleanup.
+                        # Shield the runner so disconnecting cannot cancel its work.
+                        await asyncio.shield(asyncio.gather(job.task, return_exceptions=True))
                     if event.seq > last_seq:
                         yield sse("log", event.model_dump(), str(event.seq))
                     if event.type == "run_end":
-                        yield sse("complete", {"run_id": run_id})
+                        failure = read_failure(path)
+                        if failure is None and (event.data.get("error") or not has_answer):
+                            failure = RunFailure(error_type="AgentFailure", message="The run failed before an answer was completed. Check the server logs for the reason.")
+                        if failure:
+                            yield sse("stream_error", {"run_id": run_id, **failure.model_dump()})
+                        else:
+                            yield sse("complete", {"run_id": run_id})
                         return
                 if job is None or job.task.done():
                     # A final append can arrive while the preceding events are sent.
@@ -325,7 +347,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                         continue
                     if job and not job.task.cancelled():
                         job.task.exception()
-                    yield sse("stream_error", {"message": "The run stopped before final totals were recorded."})
+                    failure = read_failure(path) or RunFailure(error_type="InterruptedRun", message="The run stopped before final totals were recorded.")
+                    yield sse("stream_error", {"run_id": run_id, **failure.model_dump()})
                     return
                 now = asyncio.get_running_loop().time()
                 if now - last_keepalive >= settings.keepalive_seconds:

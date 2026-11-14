@@ -20,11 +20,15 @@ Open the root page, select the fixture, and choose **Play replay**. Both columns
 pytest tests/o4 -q && node --test tests/o4/test_ui.mjs
 ```
 
+For an offline failure check, run `uvicorn tests.o4.preview_failure:app` and submit any question. The test runner rejects both runs with a simulated provider usage limit. Both columns must show **Failed** with the reason; no external calls are made.
+
 ## Routes and event streams
 
 `POST /race` accepts `{question, left, right}` using the three setup names in `so.contracts`. It starts `so.agent.run_question` twice and returns the agent's actual `left_run_id` and `right_run_id`. Each run writes to its own directory below `SERVER_LOG_DIR`. Missing agents, failed startup, timeouts, capacity limits, and incomplete logs produce explicit errors.
 
 `GET /stream/{run_id}` emits `log` SSE messages containing unmodified section 6.11 events. The SSE ID is the event sequence number; `Last-Event-ID` resumes after that sequence. `complete` ends a successful stream. `stream_error` ends an interrupted or malformed stream. Completed logs remain readable after a server restart. Browser disconnection does not cancel the agent.
+
+The agent also writes `run_end` during failure cleanup. The server waits for the task outcome before sending a terminal stream message and reports failed cleanup as `stream_error`. Redacted failure metadata is stored beside the log in `<run_id>.error.json` so reconnects retain the reason. Server diagnostics include the exception type, message, and redacted traceback. The UI shows **Failed** and a plain explanation separately from a deliberate **Not found** outcome.
 
 `GET /replays` lists complete recording pairs. `GET /replay/{name}` interleaves their logs using each run's original elapsed time. Its `log` messages contain `{side, event}`. It also emits `replay` metadata and a final `complete` message. A pair is a JSON manifest in `SERVER_DEMO_DIR`:
 
