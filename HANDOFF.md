@@ -24,3 +24,22 @@
 - O2 built: configurable rescue policy, per-run retrieval memory, and Second Opinion search with URL deduplication, checker usage totals, goal propagation, and Tavily Extract with Telem fetch fallback.
 - O2 run: `.venv/bin/python -m pytest tests/o2 -q` passes 55 tests; `.venv/bin/python -m so.second_opinion "What was Stripe's valuation in its 2023 round?" --goal "find the valuation figure"` returns HIT with $50 billion evidence from Stripe's newsroom, Tavily then Exa, 2 engine calls, 0 fetches, $0.0120596 including checker usage, and 11403.02 ms. Cached rerun returns the same result, cost and original latency with 2/2 searches cached.
 - O2 not done: O1 should investigate truncated checker JSON on the Tavily results (399 output tokens per attempt); its retry also failed to parse, then the Exa rescue succeeded. O2 records the failure and all checker usage. Live and cached acceptance now pass with the corrected Telem event endpoint.
+
+## S2: Hit matrix and judge
+- Built: evals/judge.py (judge_hit, grade_answer on JUDGE_MODEL via so.llm, disk-cached), evals/matrix.py (330 questions x 6 engines + Telem default, async, resumable, --rejudge), evals/contamination.py (drops benchmark copies before judging), evals/handcheck.py. Outputs on main: out/matrix.jsonl (1,979 rows), out/default_matrix.jsonl (330), out/matrix_results.jsonl (raw top-5 per row, what the judge saw before filtering).
+- Run: python -m evals.matrix [--limit N] | --summary | --rejudge ; python -m evals.handcheck. Live cost: $27.17 collection + $2.35 re-judge. One ceramic row (1 test question) still errors with a 503.
+- Hit rates (after the contamination filter; traps = results contain evidence the premise is false):
+
+| engine | learn | test | traps | test, before filter |
+|---|---|---|---|---|
+| tavily | 70.0% (70/100) | 68.5% (137/200) | 90.0% (27/30) | 70.5% (141/200) |
+| exa | 80.0% (80/100) | 82.0% (164/200) | 90.0% (27/30) | 84.0% (168/200) |
+| brave | 70.0% (70/100) | 67.0% (134/200) | 86.7% (26/30) | 69.5% (139/200) |
+| perplexity | 78.0% (78/100) | 82.0% (164/200) | 80.0% (24/30) | 96.5% (193/200) |
+| parallel | 74.0% (74/100) | 63.5% (127/200) | 83.3% (25/30) | 67.5% (135/200) |
+| ceramic | 2.0% (2/100) | 4.5% (9/199) | 33.3% (10/30) | 5.5% (11/199) |
+| telem_default | 87.0% (87/100) | 90.0% (180/200) | 100.0% (30/30) | 97.0% (194/200) |
+
+- Contamination: 667 engine results and 501 Telem-default results were copies of the benchmark (Hugging Face viewers, published FinanceBench answer sheets, pages quoting the question verbatim). Perplexity was hit hardest (96.5% to 82.0% on test). Oliver: please apply evals.contamination.filter_results in so/checker_eval.py before checking (otherwise the checker can say HIT on a copy the truth calls a miss), and consider it in the agent's search path for the eval.
+- Telem endpoint: the event's keys come from hack.telem.ai and its router is https://hack.telem.ai/api/router (set TELEM_BASE_URL; the SDK reads it). On that deployment Telem's default routing chose 7 engines for a test query, not 3, so the telem_default baseline costs more there. The matrix above was collected on router.telem.ai before the switch.
+- Not done: human hand-check of the judge (see judge_agreement in out/ once labelled).
