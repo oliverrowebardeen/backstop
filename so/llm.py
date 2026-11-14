@@ -6,11 +6,15 @@ models with id, name and parsed arguments. Callers emit the llm event.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import math
 import time
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 
 from so import config
 from so.contracts import LLMResponse, ToolCall
@@ -162,6 +166,8 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
     if role not in models:
         raise ValueError("role must be agent, checker or judge")
     provider = config.LLM_PROVIDER
+    if role == "checker" and config.CHECKER_PROVIDER_EXPLICIT:
+        provider = config.CHECKER_PROVIDER
     if provider not in {"anthropic", "openai"}:
         raise ValueError("LLM_PROVIDER must be anthropic or openai")
     model = models[role]
@@ -222,3 +228,182 @@ async def complete(role: Role, system: str, messages: list[dict[str, Any]], *,
                 response = _normalize(raw, provider, role, model, (time.perf_counter() - start) * 1000)
                 record.update(normalized=response.model_dump(mode="json"), _cost_usd=response.cost_usd)
             return response
+
+
+class DecisionChoice(BaseModel):
+    """One named option supplied to the Decisions API."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+    value: str
+    description: str
+
+
+class DecisionResponse(LLMResponse):
+    """A selected option and API confidence with the original billed usage."""
+
+    choice: str
+    confidence: float = Field(ge=0, le=1, strict=True)
+
+
+class DecisionCallError(RuntimeError):
+    """A failed decision, retaining billed or conservatively reserved usage."""
+
+    def __init__(self, message: str, *, usage: LLMResponse, kind: str) -> None:
+        super().__init__(message)
+        self.usage = usage
+        self.kind = kind
+
+
+class _DecisionCacheUsage(BaseModel):
+    model_config = ConfigDict(strict=True)
+    cached_tokens: int = Field(ge=0)
+    cache_write_tokens: int = Field(ge=0)
+    cache_write_tokens_details: dict[str, int] = Field(default_factory=dict)
+
+
+class _DecisionUsage(BaseModel):
+    model_config = ConfigDict(strict=True)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    input_tokens_details: _DecisionCacheUsage
+
+
+def _decision_rates() -> dict[str, float]:
+    """Require explicit, verified prices before making any paid decision."""
+    rates = config.DECISION_PRICE_USD.get(config.DECISION_MODEL, {})
+    for name in ("input", "cache_read", "cache_write", "cache_write_12h"):
+        value = rates.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError("Set verified Decisions rates in DECISION_PRICE_USD_JSON")
+    return rates
+
+
+def _decision_usage(raw: dict[str, Any], elapsed: float, rates: dict[str, float]) -> LLMResponse:
+    usage = _DecisionUsage.model_validate(raw["usage"])
+    details = usage.input_tokens_details
+    cached, written = details.cached_tokens, details.cache_write_tokens
+    long_write = details.cache_write_tokens_details.get("ttl_12h_tokens", 0)
+    if not 0 <= long_write <= written or cached + written > usage.input_tokens:
+        raise ValueError("Invalid Decisions cache token counts")
+    cost = ((usage.input_tokens - cached - written) * rates["input"]
+            + cached * rates["cache_read"] + (written - long_write) * rates["cache_write"]
+            + long_write * rates["cache_write_12h"]) / 1_000_000
+    return LLMResponse(role="checker", model=config.DECISION_MODEL, tokens_in=usage.input_tokens,
+                       tokens_out=usage.output_tokens, cost_usd=cost, latency_ms=elapsed)
+
+
+def _decision_answer(raw: dict[str, Any], choices: Sequence[DecisionChoice], usage: LLMResponse) -> DecisionResponse:
+    answers = raw["answers"]
+    if not isinstance(answers, list) or len(answers) != 1:
+        raise ValueError("Expected exactly one Decisions answer")
+    answer = answers[0]
+    if not isinstance(answer, dict) or answer.get("name") != "checker":
+        raise ValueError("Decisions answer name does not match the request")
+    if answer.get("type") == "refusal":
+        raise DecisionCallError("Decisions refused the checker request", usage=usage, kind="refusal")
+    if answer.get("type") != "choice" or answer.get("choice") not in {c.value for c in choices}:
+        raise ValueError("Decisions returned an unknown choice")
+    return DecisionResponse(**usage.model_dump(), choice=answer["choice"], confidence=answer["confidence"])
+
+
+async def decide(instructions: str, evidence: str, choices: Sequence[DecisionChoice]) -> DecisionResponse:
+    """Make one OpenAI decision, cached and charged to both LLM and Decisions budgets.
+
+    CHECKER_PROVIDER selects the ordinary LLM checker and timeout fallback.
+    This endpoint is OpenAI-only and always uses OPENAI_API_KEY. A timeout is
+    charged at its conservative reservation because delivery is uncertain.
+    """
+    choices = [DecisionChoice.model_validate(c) for c in choices]
+    if not 2 <= len(choices) <= config.DECISION_MAX_CHOICES or len({c.value for c in choices}) != len(choices):
+        raise ValueError("Decisions requires unique choices within DECISION_MAX_CHOICES")
+    body = {"model": config.DECISION_MODEL, "input": evidence, "questions": [{
+        "type": "choice", "name": "checker", "instructions": instructions,
+        "choices": [c.model_dump() for c in choices],
+    }]}
+    size = len(json.dumps(body, ensure_ascii=False).encode()) + config.LLM_TOKEN_RESERVE_OVERHEAD
+    if size > config.DECISION_MAX_INPUT_BYTES:
+        raise ValueError("Decisions request exceeds DECISION_MAX_INPUT_BYTES")
+    rates = _decision_rates()
+    request = {"provider": "openai", "endpoint": config.DECISION_URL, "body": body}
+    key = config.cache_key("decision-v2", request)
+    async with config.semaphore(key, 1):
+        cached = config.read_cache(key)
+        if cached:
+            if cached.get("failure"):
+                usage = LLMResponse.model_validate(cached["failure_usage"]).model_copy(update={"cached": True})
+                raise DecisionCallError("Cached Decisions response failed validation", usage=usage, kind=cached["failure"])
+            response = DecisionResponse.model_validate(cached["normalized"])
+            if response.choice not in {c.value for c in choices}:
+                raise ValueError("Cached decision choice does not match the request")
+            return response.model_copy(update={"cached": True})
+        api_key = config.api_key("openai")
+        estimate = size * max(rates.values()) / 1_000_000
+        async with config.semaphore("decision", config.DECISION_MAX_CONCURRENCY):
+            start = time.perf_counter()
+            uncertain_cost = 0.0
+
+            async def send() -> DecisionResponse:
+                nonlocal uncertain_cost
+                config.LLM_BUDGET.reserve(estimate)
+                try:
+                    config.DECISION_BUDGET.reserve(estimate)
+                except BaseException:
+                    config.LLM_BUDGET.settle(estimate, 0)
+                    raise
+                try:
+                    async with httpx.AsyncClient(timeout=config.DECISION_TIMEOUT_S) as client:
+                        response = await client.post(config.DECISION_URL,
+                            headers={"Authorization": f"Bearer {api_key}"}, json=body)
+                        response.raise_for_status()
+                except BaseException as exc:
+                    uncertain = isinstance(exc, (httpx.TimeoutException, asyncio.CancelledError))
+                    charge = estimate if uncertain else 0
+                    uncertain_cost += charge
+                    try:
+                        config.LLM_BUDGET.settle(estimate, charge)
+                    finally:
+                        config.DECISION_BUDGET.settle(estimate, charge)
+                    raise
+                elapsed = (time.perf_counter() - start) * 1000
+                usage = LLMResponse(role="checker", model=config.DECISION_MODEL,
+                                    cost_usd=estimate, latency_ms=elapsed)
+                try:
+                    raw = response.json()
+                except ValueError:
+                    raw = {"invalid_json": response.text}
+                failure = None
+                try:
+                    with config.paid_response(key, request, raw, config.LLM_BUDGET, estimate) as record:
+                        try:
+                            usage = _decision_usage(raw, elapsed, rates)
+                            record["_cost_usd"] = usage.cost_usd
+                            result = _decision_answer(raw, choices, usage)
+                            if raw.get("model") != config.DECISION_MODEL:
+                                raise ValueError("Decisions response model does not match the requested model")
+                        except (ValueError, KeyError, TypeError, AttributeError, DecisionCallError) as exc:
+                            kind = exc.kind if isinstance(exc, DecisionCallError) else "malformed"
+                            failure = DecisionCallError("Decisions response failed validation", usage=usage, kind=kind)
+                            record.update(failure=kind, failure_usage=usage.model_dump(mode="json"))
+                        else:
+                            record["normalized"] = result.model_dump(mode="json")
+                finally:
+                    config.DECISION_BUDGET.settle(estimate, usage.cost_usd)
+                if failure is not None:
+                    raise failure
+                return result
+
+            try:
+                async with asyncio.timeout(config.DECISION_TIMEOUT_S):
+                    return await config.retry(send)
+            except (TimeoutError, httpx.TimeoutException) as exc:
+                usage = LLMResponse(role="checker", model=config.DECISION_MODEL, cost_usd=uncertain_cost,
+                                    latency_ms=(time.perf_counter() - start) * 1000)
+                config.write_cache(key, {"request": request, "failure": "timeout",
+                                         "failure_usage": usage.model_dump(mode="json")})
+                raise DecisionCallError("Decisions request timed out", usage=usage, kind="timeout") from exc
+            except httpx.HTTPError as exc:
+                usage = LLMResponse(role="checker", model=config.DECISION_MODEL,
+                                    latency_ms=(time.perf_counter() - start) * 1000)
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                detail = f"HTTP {status}" if status else type(exc).__name__
+                raise DecisionCallError(f"Decisions request failed: {detail}", usage=usage, kind="transport") from exc

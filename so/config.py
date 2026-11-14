@@ -307,3 +307,51 @@ for _server_setting in ("SERVER_START_TIMEOUT_SECONDS", "SERVER_RUN_TIMEOUT_SECO
         raise ValueError(f"{_server_setting} must be finite and positive")
 if not SERVER_HOST.strip() or not 1 <= SERVER_PORT <= 65535:
     raise ValueError("SERVER_HOST must be nonempty and SERVER_PORT must be between 1 and 65535")
+
+
+# Optional Decisions checker. The existing search/checker integration stays on LLM.
+CHECKER_BACKEND = os.getenv("CHECKER_BACKEND", "llm")
+CHECKER_PROVIDER = os.getenv("CHECKER_PROVIDER", LLM_PROVIDER)
+CHECKER_PROVIDER_EXPLICIT = "CHECKER_PROVIDER" in os.environ
+DECISION_MODEL = os.getenv("DECISION_MODEL", "gpt-6-luna")
+DECISION_URL = os.getenv("DECISION_URL", OPENAI_BASE_URL.rstrip("/") + "/decisions")
+DECISION_TIMEOUT_S = float(os.getenv("DECISION_TIMEOUT_S", "10"))
+DECISION_MAX_CONCURRENCY = int(os.getenv("DECISION_MAX_CONCURRENCY", "4"))
+DECISION_MAX_CHOICES = int(os.getenv("DECISION_MAX_CHOICES", "255"))
+DECISION_TOP_K = int(os.getenv("DECISION_TOP_K", "5"))
+# Bound UTF-8 request bytes below short-context pricing, including token overhead.
+DECISION_MAX_INPUT_BYTES = int(os.getenv("DECISION_MAX_INPUT_BYTES", "32000"))
+DECISION_BUDGET_USD = float(os.getenv("DECISION_BUDGET_USD", "3"))
+DECISION_EVAL_BUDGET_USD = float(os.getenv("DECISION_EVAL_BUDGET_USD", "3"))
+DECISION_EVAL_ENGINES = _csv("DECISION_EVAL_ENGINES", FIRST_ENGINE)
+DECISION_EVAL_SKIP_ENGINES = _csv("DECISION_EVAL_SKIP_ENGINES", "ceramic")
+DECISION_EVAL_MATRIX_PATH = Path(os.getenv("DECISION_EVAL_MATRIX_PATH", str(OUT_DIR / "matrix.jsonl")))
+DECISION_EVAL_RESULTS_PATH = Path(os.getenv("DECISION_EVAL_RESULTS_PATH", str(OUT_DIR / "matrix_results.jsonl")))
+DECISION_PROMPT_PATH = Path(os.getenv("DECISION_PROMPT_PATH", str(ROOT / "so" / "prompts" / "checker.md")))
+DECISION_EVAL_THRESHOLDS = [float(value) for value in _csv("DECISION_EVAL_THRESHOLDS", "0.5,0.6,0.7,0.8,0.9")]
+DECISION_METRIC_TOLERANCE = _unit_interval("DECISION_METRIC_TOLERANCE", "0.03")
+DECISION_TARGET_LATENCY_MS = float(os.getenv("DECISION_TARGET_LATENCY_MS", "500"))
+# Decisions input/cache rates, USD per million tokens; output is free.
+# https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability
+# https://developers.openai.com/api/docs/pricing (standard, 30-minute cache writes)
+DECISION_PRICE_USD = json.loads(os.getenv("DECISION_PRICE_USD_JSON", json.dumps({
+    "gpt-6-luna": {"input": 0.10, "cache_read": 0.01, "cache_write": 0.125, "cache_write_12h": 0.25},
+})))
+if CHECKER_BACKEND not in {"llm", "decision"}:
+    raise ValueError("CHECKER_BACKEND must be llm or decision")
+if CHECKER_PROVIDER not in {"anthropic", "openai"}:
+    raise ValueError("CHECKER_PROVIDER must be anthropic or openai")
+for _decision_setting in ("DECISION_TIMEOUT_S", "DECISION_TARGET_LATENCY_MS"):
+    if not math.isfinite(globals()[_decision_setting]) or globals()[_decision_setting] <= 0:
+        raise ValueError(f"{_decision_setting} must be finite and positive")
+if DECISION_MAX_CONCURRENCY < 1 or not 5 <= DECISION_MAX_CHOICES <= 255:
+    raise ValueError("Decisions concurrency must be positive; choice limit must be between 5 and 255")
+if not 1 <= DECISION_TOP_K <= 5:
+    raise ValueError("DECISION_TOP_K must be between 1 and 5")
+if not 1 <= DECISION_MAX_INPUT_BYTES <= 32000:
+    raise ValueError("DECISION_MAX_INPUT_BYTES must be between 1 and 32000 for verified short-context pricing")
+if not DECISION_EVAL_THRESHOLDS or any(not 0 <= value <= 1 for value in DECISION_EVAL_THRESHOLDS):
+    raise ValueError("DECISION_EVAL_THRESHOLDS must contain numbers between 0 and 1")
+if not 0 <= DECISION_EVAL_BUDGET_USD <= 3 or not 0 <= DECISION_BUDGET_USD <= 3:
+    raise ValueError("Decisions budgets must be between 0 and the $3 evaluation cap")
+DECISION_BUDGET = Budget(DECISION_BUDGET_USD)
