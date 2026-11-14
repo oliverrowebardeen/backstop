@@ -2,10 +2,14 @@
 
   python -m demo.record --golden                       # every entry in demo/golden.json
   python -m demo.record --name NAME --question-id ID [--left single] [--right second_opinion]
+  python -m demo.record --golden --checker-backend cascade   # default: CHECKER_BACKEND
 
 Both setups run at the same time on the same question with the response cache
 off, so every search, page read and model call in the recording is live and its
-timing is real. Each pair is written as `demo/<name>.json` plus two logs under
+timing is real. The checker backend is fixed for the whole recording and written
+to the manifest. The decision and cascade backends need OPENAI_API_KEY, and a
+recording is refused if a checked run made no Decisions call, because the
+cascade falls back to the LLM checker without failing. Each pair is written as `demo/<name>.json` plus two logs under
 `demo/recordings/<name>/`, then loaded with the server's replay reader. A pair
 that fails to load is removed again, so a bad recording never breaks the list.
 The race screen labels these pairs as replays of a live run.
@@ -28,6 +32,7 @@ from so import config, eventlog
 from so.contracts import Question, Setup
 
 SETUPS: tuple[str, ...] = get_args(Setup)
+CHECKER_BACKENDS = ("llm", "decision", "cascade")
 RECORDINGS = "recordings"
 
 
@@ -77,6 +82,26 @@ def _validate_spec(spec: PairSpec) -> None:
         raise RecordingError(f"Unknown story {spec.story!r}; choose from {', '.join(STORIES)}")
 
 
+def _validate_backend(backend: str) -> None:
+    if backend not in CHECKER_BACKENDS:
+        raise RecordingError(f"Unknown checker backend {backend!r}; choose from {', '.join(CHECKER_BACKENDS)}")
+    if backend != "llm":
+        try:
+            config.api_key("openai")
+        except ValueError:
+            raise RecordingError(f"The {backend} checker calls Decisions and needs OPENAI_API_KEY") from None
+
+
+def _require_decisions(setup: str, events: list[dict[str, Any]], backend: str) -> None:
+    """A checked run on the decision or cascade backend must show at least one Decisions call."""
+    if backend == "llm" or not any(e["type"] == "check" for e in events):
+        return
+    if not any(e["type"] == "llm" and e["data"].get("role") == "checker"
+               and e["data"].get("model") == config.DECISION_MODEL for e in events):
+        raise RecordingError(f"The {setup} run made no {config.DECISION_MODEL} call, so it did not run the "
+                             f"{backend} checker; check the Decisions key and endpoint")
+
+
 async def _run_side(question: Question, setup: str, log_dir: Path) -> Path:
     from so.agent import run_question
 
@@ -99,28 +124,35 @@ def story_holds(story: Story, left: RunView, right: RunView) -> bool:
     return right.status == "ANSWERED" and rescued_by(right.events, "FETCH_PAGE")
 
 
-async def record(spec: PairSpec, demo_dir: Path) -> dict[str, Any]:
-    """Run both setups live, write the pair into `demo_dir` and verify that it loads."""
+async def record(spec: PairSpec, demo_dir: Path, *, checker_backend: str | None = None) -> dict[str, Any]:
+    """Run both setups live, write the pair into `demo_dir` and verify that it loads.
+
+    `checker_backend` defaults to CHECKER_BACKEND and holds for both runs.
+    """
     from server.app import replay_catalog
 
+    backend = checker_backend or config.CHECKER_BACKEND
     _validate_spec(spec)
+    _validate_backend(backend)
     target = demo_dir / RECORDINGS / spec.name
     manifest = demo_dir / f"{spec.name}.json"
     if target.exists() or manifest.exists():
         raise RecordingError(f"A recording named {spec.name!r} already exists; remove it or pick a new name")
-    previous_cache = config.SO_CACHE
-    config.SO_CACHE = "off"
+    previous = config.SO_CACHE, config.CHECKER_BACKEND
+    config.SO_CACHE, config.CHECKER_BACKEND = "off", backend
     try:
         with tempfile.TemporaryDirectory() as scratch:
             sides = [Path(scratch) / "left", Path(scratch) / "right"]
             left_log, right_log = await asyncio.gather(
                 _run_side(spec.question, spec.left, sides[0]),
                 _run_side(spec.question, spec.right, sides[1]))
+            for setup, log in ((spec.left, left_log), (spec.right, right_log)):
+                _require_decisions(setup, eventlog.read_log(log), backend)
             target.mkdir(parents=True)
             shutil.copyfile(left_log, target / "left.jsonl")
             shutil.copyfile(right_log, target / "right.jsonl")
     finally:
-        config.SO_CACHE = previous_cache
+        config.SO_CACHE, config.CHECKER_BACKEND = previous
     payload = {
         "title": spec.title or spec.question.question,
         "left": f"{RECORDINGS}/{spec.name}/left.jsonl",
@@ -129,7 +161,10 @@ async def record(spec: PairSpec, demo_dir: Path) -> dict[str, Any]:
         "story": spec.story,
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "live": True,
+        "checker_backend": backend,
     }
+    if backend == "cascade":
+        payload["checker_cascade_threshold"] = config.CHECKER_CASCADE_THRESHOLD
     manifest.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         catalog = replay_catalog(demo_dir, None)
@@ -141,13 +176,14 @@ async def record(spec: PairSpec, demo_dir: Path) -> dict[str, Any]:
         raise RecordingError(f"Recording {spec.name!r} did not load as a replay: {exc}") from exc
     left = RunView.from_events(spec.left, eventlog.read_log(target / "left.jsonl"))
     right = RunView.from_events(spec.right, eventlog.read_log(target / "right.jsonl"))
-    return {"name": spec.name, "manifest": str(manifest), "left": left, "right": right,
+    return {"name": spec.name, "manifest": str(manifest), "left": left, "right": right, "checker_backend": backend,
             "story_holds": story_holds(spec.story, left, right) if spec.story else None}
 
 
 def _report(spec: PairSpec, outcome: dict[str, Any]) -> None:
     print(f"\n{spec.name}: {spec.question.id}  {spec.question.question[:100]}")
     print(f"  gold: {', '.join(spec.question.gold)}")
+    print(f"  checker backend: {outcome['checker_backend']}")
     for view in (outcome["left"], outcome["right"]):
         totals = view.totals
         print(f"  {view.setup}: {view.status} | {view.final[:140]}")
@@ -161,11 +197,11 @@ def _report(spec: PairSpec, outcome: dict[str, Any]) -> None:
     print(f"  wrote {outcome['manifest']}")
 
 
-async def _record_all(specs: list[PairSpec], demo_dir: Path) -> int:
+async def _record_all(specs: list[PairSpec], demo_dir: Path, checker_backend: str) -> int:
     failures = 0
     for spec in specs:
         try:
-            _report(spec, await record(spec, demo_dir))
+            _report(spec, await record(spec, demo_dir, checker_backend=checker_backend))
         except RecordingError as exc:
             failures += 1
             print(f"\n{spec.name}: not recorded. {exc}")
@@ -182,6 +218,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--title")
     parser.add_argument("--story", choices=STORIES)
     parser.add_argument("--demo-dir", type=Path, default=Path(config.SERVER_DEMO_DIR))
+    parser.add_argument("--checker-backend", choices=CHECKER_BACKENDS, default=config.CHECKER_BACKEND,
+                        help="checker for every run in the recording (default: CHECKER_BACKEND); "
+                             "decision and cascade need OPENAI_API_KEY")
     args = parser.parse_args(argv)
     if args.golden == bool(args.name or args.question_id):
         parser.error("use either --golden or both --name and --question-id")
@@ -191,7 +230,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--name and --question-id are both required")
     else:
         specs = [PairSpec(args.name, find_question(args.question_id), args.left, args.right, args.title, args.story)]
-    failures = asyncio.run(_record_all(specs, args.demo_dir))
+    failures = asyncio.run(_record_all(specs, args.demo_dir, args.checker_backend))
     if failures:
         raise SystemExit(f"{failures} of {len(specs)} recording(s) failed")
 

@@ -237,6 +237,14 @@ python -m demo.candidates --write   # test-split runs that show each story -> de
 python -m demo.record --golden      # re-run each pair live, cache off, and save it for replay
 ```
 
+When Backstop's runs come from a separate pass, as in [Results](#results), point
+`--so-log-dir` at that pass and record with the same checker:
+
+```sh
+python -m demo.candidates --log-dir out/logs --so-log-dir out/logs_cascade --write
+python -m demo.record --golden --checker-backend cascade   # needs OPENAI_API_KEY for Decisions
+```
+
 ## Results
 
 On 200 held-out test questions, Backstop matched Telem's default routing on accuracy

@@ -3,11 +3,14 @@
   python -m demo.candidates                 # list candidates per story
   python -m demo.candidates --write         # also write the top pick per story to demo/golden.json
   python -m demo.candidates --log-dir DIR   # read eval logs from DIR instead of SO_LOG_DIR
+  python -m demo.candidates --so-log-dir DIR   # Second Opinion runs from DIR, baselines from --log-dir
 
 Reads finished evaluation logs for test questions and traps, grades each final
 answer with the evaluation judge (the same cached grading `evals.score` uses, so
 no number changes), and applies the rules in `demo.stories`. Candidates are
 ranked by Second Opinion wall time, so the shortest clear run comes first.
+When the headline Second Opinion runs come from a separate pass (as with
+`evals.score --so-log-dir`), pass that directory as --so-log-dir.
 """
 from __future__ import annotations
 
@@ -63,12 +66,19 @@ async def _default_grade(question: Question, answer: dict[str, Any]) -> str:
     return await grade_answer(question, answer)
 
 
-async def find_candidates(log_dir: Path, grade: Grader = _default_grade) -> dict[Story, list[Candidate]]:
-    """Grade every finished baseline and Second Opinion pair and group them by story."""
+async def find_candidates(log_dir: Path, grade: Grader = _default_grade, *,
+                          so_log_dir: Path | None = None) -> dict[Story, list[Candidate]]:
+    """Grade every finished baseline and Second Opinion pair and group them by story.
+
+    Baselines come from `log_dir`; Second Opinion runs from `so_log_dir` when given.
+    """
     from evals.run_eval import finished_runs
 
     questions = eval_questions()
-    runs = finished_runs(log_dir)
+    baselines = finished_runs(log_dir)
+    ours = finished_runs(so_log_dir) if so_log_dir is not None else baselines
+    runs = {key: path for key, path in baselines.items() if key[1] == BASELINE}
+    runs.update({key: path for key, path in ours.items() if key[1] == OURS})
     pairs = [qid for qid in sorted(questions) if (qid, BASELINE) in runs and (qid, OURS) in runs]
     limit = asyncio.Semaphore(config.LLM_MAX_CONCURRENCY)
 
@@ -109,11 +119,24 @@ def golden_entries(found: dict[Story, list[Candidate]]) -> list[dict[str, Any]]:
     return entries
 
 
-def write_golden(entries: list[dict[str, Any]], path: Path = GOLDEN_PATH) -> None:
+def _shown(path: Path) -> str:
+    """A log directory as it may appear in a committed file: repo-relative, never a local absolute path."""
+    try:
+        return Path(path).resolve().relative_to(config.ROOT.resolve()).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
+def write_golden(entries: list[dict[str, Any]], path: Path = GOLDEN_PATH, *,
+                 log_dirs: dict[str, Path] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-               "source": "finished evaluation logs on the test split and traps, graded by the evaluation judge",
-               "golden": entries}
+    payload: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": "finished evaluation logs on the test split and traps, graded by the evaluation judge",
+    }
+    if log_dirs:
+        payload["log_dirs"] = {setup: _shown(directory) for setup, directory in log_dirs.items()}
+    payload["golden"] = entries
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
@@ -134,14 +157,17 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--log-dir", type=Path, default=Path(config.SO_LOG_DIR),
                         help="directory of finished eval logs (default: SO_LOG_DIR, where evals.run_eval writes)")
+    parser.add_argument("--so-log-dir", type=Path, default=None,
+                        help="read Second Opinion runs from this directory instead, e.g. a separate headline "
+                             "pass; baselines still come from --log-dir")
     parser.add_argument("--limit", type=int, default=5, help="candidates printed per story")
     parser.add_argument("--write", action="store_true", help=f"write the top pick per story to {GOLDEN_PATH.name}")
     args = parser.parse_args(argv)
-    found = asyncio.run(find_candidates(args.log_dir))
+    found = asyncio.run(find_candidates(args.log_dir, so_log_dir=args.so_log_dir))
     _print(found, args.limit)
     if args.write:
         entries = golden_entries(found)
-        write_golden(entries)
+        write_golden(entries, log_dirs={BASELINE: args.log_dir, OURS: args.so_log_dir or args.log_dir})
         print(f"\nwrote {len(entries)} golden question(s) to {GOLDEN_PATH}")
         if len(entries) < len(STORIES):
             missing = sorted(set(STORIES) - {entry["story"] for entry in entries})
