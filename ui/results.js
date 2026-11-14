@@ -269,15 +269,14 @@ function renderFindings(root, markdown) {
  */
 export function raceNote(metrics) {
   if (!metrics) return null;
-  const {n, baseline, ours} = metrics;
-  const same = Math.abs(ours.accuracy - baseline.accuracy) < 0.005;
-  const accuracy = same ? 'same accuracy as Telem default' : `${pct(ours.accuracy)} accuracy vs ${pct(baseline.accuracy)} for Telem default`;
-  const ratio = baseline.cost_per_q_total > 0 ? ours.cost_per_q_total / baseline.cost_per_q_total : null;
-  const cost = ratio === null ? 'cost per question' : ratio < 0.5 ? 'less than half the cost per question'
-    : ratio < 1 ? `${Math.round(100 * (1 - ratio))}% lower cost per question` : `${Math.round(100 * (ratio - 1))}% higher cost per question`;
-  return `Live single questions vary. Measured on ${n} held-out factual questions: ${accuracy} at ${cost} ` +
-    `(Backstop ${ours.correct}/${scored(ours, n)} vs Telem default ${baseline.correct}/${scored(baseline, n)} correct; ` +
-    `${usd(ours.cost_per_q_total)} vs ${usd(baseline.cost_per_q_total)} total per question).`;
+  const {baseline, ours} = metrics;
+  const e = economy(metrics);
+  const accuracy = e.same ? `matched Telem default's accuracy (${pct(baseline.accuracy)})`
+    : `scored ${pct(ours.accuracy)} accuracy vs ${pct(baseline.accuracy)} for Telem default`;
+  const cost = e.cost === null ? '' : ` at ${change(e.cost, 'lower', 'higher')} total cost per question ` +
+    `(${usd(ours.cost_per_q_total)} vs ${usd(baseline.cost_per_q_total)})`;
+  const calls = e.calls === null ? '' : `, with ${change(e.calls, 'fewer', 'more')} engine calls`;
+  return `Live single questions vary. On the held-out test questions, Backstop ${accuracy}${cost}${calls}.`;
 }
 
 export async function loadResults(root) {

@@ -1,0 +1,17 @@
+{
+  "title": "Who was awarded The Oceanography Society's Walter Munk Medal in 2015?",
+  "left": "sqa-4053.telem_default.jsonl",
+  "right": "sqa-4053.second_opinion.jsonl",
+  "question_id": "sqa-4053",
+  "story": null,
+  "recorded_at": "2026-11-14T22:26:10+00:00",
+  "live": true,
+  "checker_backend": "cascade",
+  "first_engine_routing": "on",
+  "cache": "off",
+  "split": "test",
+  "seed": 14,
+  "selection": "One of 6 test-split questions drawn at random with seed 14; all 6 recordings are shown, whatever the outcome",
+  "commit": "0ef610b456cc",
+  "checker_cascade_threshold": 0.7
+}

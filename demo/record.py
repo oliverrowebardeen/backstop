@@ -3,6 +3,7 @@
   python -m demo.record --golden                       # every entry in demo/golden.json
   python -m demo.record --name NAME --question-id ID [--left single] [--right second_opinion]
   python -m demo.record --golden --checker-backend cascade   # default: CHECKER_BACKEND
+  python -m demo.record --sample 6 --seed 14 --layout flat --demo-dir ui/fixtures --commit origin/main
 
 Both setups run at the same time on the same question with the response cache
 off, so every search, page read and model call in the recording is live and its
@@ -13,20 +14,30 @@ cascade falls back to the LLM checker without failing. Each pair is written as `
 `demo/recordings/<name>/`, then loaded with the server's replay reader. A pair
 that fails to load is removed again, so a bad recording never breaks the list.
 The race screen labels these pairs as replays of a live run.
+
+`--sample N --seed S` draws N questions at random from one split's question file
+(traps excluded) with `random.Random(S)`, after sorting by id, so the pick depends
+only on the seed and nobody chooses the questions. Telem default races Backstop on
+each, and every recording is kept whatever the outcome. `--layout flat` writes the
+shipped-fixture layout (`<name>.json` beside `<question id>.<setup>.jsonl`), and the
+manifest records the commit whose agent code ran, the seed and the selection rule,
+which the race screen shows as "Recorded <date> on commit <sha>".
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import random
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, get_args
 
-from data.load import load_all
+from data.load import load_all, load_questions
 from demo.stories import STORIES, RunView, Story, rescued_by, search_path
 from so import config, eventlog
 from so.contracts import Question, Setup
@@ -34,6 +45,8 @@ from so.contracts import Question, Setup
 SETUPS: tuple[str, ...] = get_args(Setup)
 CHECKER_BACKENDS = ("llm", "decision", "cascade")
 RECORDINGS = "recordings"
+# What a recording's behavior depends on. A commit label is only honest if these match it.
+RUNTIME_PATHS = ("so", "data", "out/first_engine.json", "out/rescue_table.json")
 
 
 @dataclass(frozen=True)
@@ -68,6 +81,36 @@ def golden_specs(path: Path) -> list[PairSpec]:
     return [PairSpec(name=e["name"], question=find_question(e["question_id"]), left=e.get("left", "single"),
                      right=e.get("right", "second_opinion"), title=e.get("title"), story=e.get("story"))
             for e in entries]
+
+
+def short_title(text: str, limit: int = 90) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 3].rsplit(" ", 1)[0].rstrip(",;:") + "..."
+
+
+def sample_specs(n: int, seed: int, *, split: str = "test", left: str = "telem_default",
+                 right: str = "second_opinion") -> list[PairSpec]:
+    """n questions drawn at random from the split's question file (traps excluded), fixed by the seed."""
+    pool = sorted(load_questions(split=split), key=lambda question: question.id)
+    if not 1 <= n <= len(pool):
+        raise RecordingError(f"Cannot draw {n} questions from {len(pool)} in the {split} split")
+    picks = random.Random(seed).sample(pool, n)
+    return [PairSpec(name=f"race-{question.id}", question=question, left=left, right=right,
+                     title=short_title(question.question)) for question in picks]
+
+
+def code_commit(rev: str) -> str:
+    """The commit whose agent code is running. Refuses when so/, data/ or the routing tables differ from it."""
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short=12", rev], cwd=config.ROOT, check=True,
+                             capture_output=True, text=True).stdout.strip()
+        changed = subprocess.run(["git", "diff", "--name-only", rev, "--", *RUNTIME_PATHS], cwd=config.ROOT,
+                                 check=True, capture_output=True, text=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RecordingError(f"Cannot resolve commit {rev!r}: {exc}") from None
+    if changed:
+        raise RecordingError(f"The agent code differs from {rev} ({', '.join(changed[:5])}); commit it first")
+    return sha
 
 
 def _validate_spec(spec: PairSpec) -> None:
@@ -124,19 +167,26 @@ def story_holds(story: Story, left: RunView, right: RunView) -> bool:
     return right.status == "ANSWERED" and rescued_by(right.events, "FETCH_PAGE")
 
 
-async def record(spec: PairSpec, demo_dir: Path, *, checker_backend: str | None = None) -> dict[str, Any]:
+async def record(spec: PairSpec, demo_dir: Path, *, checker_backend: str | None = None,
+                 flat: bool = False, provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run both setups live, write the pair into `demo_dir` and verify that it loads.
 
-    `checker_backend` defaults to CHECKER_BACKEND and holds for both runs.
+    `checker_backend` defaults to CHECKER_BACKEND and holds for both runs. `flat` writes the
+    shipped-fixture layout; `provenance` (commit, seed, selection) is copied into the manifest.
     """
     from server.app import replay_catalog
 
     backend = checker_backend or config.CHECKER_BACKEND
     _validate_spec(spec)
     _validate_backend(backend)
-    target = demo_dir / RECORDINGS / spec.name
+    if flat and spec.left == spec.right:
+        raise RecordingError("The flat layout names logs by setup, so the two setups must differ")
+    target = demo_dir if flat else demo_dir / RECORDINGS / spec.name
+    names = ([f"{spec.question.id}.{spec.left}.jsonl", f"{spec.question.id}.{spec.right}.jsonl"] if flat
+             else [f"{RECORDINGS}/{spec.name}/left.jsonl", f"{RECORDINGS}/{spec.name}/right.jsonl"])
+    logs = [demo_dir / name for name in names]
     manifest = demo_dir / f"{spec.name}.json"
-    if target.exists() or manifest.exists():
+    if (not flat and target.exists()) or manifest.exists() or any(log.exists() for log in logs):
         raise RecordingError(f"A recording named {spec.name!r} already exists; remove it or pick a new name")
     previous = config.SO_CACHE, config.CHECKER_BACKEND
     config.SO_CACHE, config.CHECKER_BACKEND = "off", backend
@@ -148,20 +198,23 @@ async def record(spec: PairSpec, demo_dir: Path, *, checker_backend: str | None 
                 _run_side(spec.question, spec.right, sides[1]))
             for setup, log in ((spec.left, left_log), (spec.right, right_log)):
                 _require_decisions(setup, eventlog.read_log(log), backend)
-            target.mkdir(parents=True)
-            shutil.copyfile(left_log, target / "left.jsonl")
-            shutil.copyfile(right_log, target / "right.jsonl")
+            target.mkdir(parents=True, exist_ok=flat)
+            shutil.copyfile(left_log, logs[0])
+            shutil.copyfile(right_log, logs[1])
     finally:
         config.SO_CACHE, config.CHECKER_BACKEND = previous
     payload = {
         "title": spec.title or spec.question.question,
-        "left": f"{RECORDINGS}/{spec.name}/left.jsonl",
-        "right": f"{RECORDINGS}/{spec.name}/right.jsonl",
+        "left": names[0],
+        "right": names[1],
         "question_id": spec.question.id,
         "story": spec.story,
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "live": True,
         "checker_backend": backend,
+        "first_engine_routing": config.FIRST_ENGINE_ROUTING,
+        "cache": "off",
+        **(provenance or {}),
     }
     if backend == "cascade":
         payload["checker_cascade_threshold"] = config.CHECKER_CASCADE_THRESHOLD
@@ -172,10 +225,13 @@ async def record(spec: PairSpec, demo_dir: Path, *, checker_backend: str | None 
             raise ValueError("the server did not list the new pair")
     except ValueError as exc:
         manifest.unlink(missing_ok=True)
-        shutil.rmtree(target, ignore_errors=True)
+        for log in logs:
+            log.unlink(missing_ok=True)
+        if not flat:
+            shutil.rmtree(target, ignore_errors=True)
         raise RecordingError(f"Recording {spec.name!r} did not load as a replay: {exc}") from exc
-    left = RunView.from_events(spec.left, eventlog.read_log(target / "left.jsonl"))
-    right = RunView.from_events(spec.right, eventlog.read_log(target / "right.jsonl"))
+    left = RunView.from_events(spec.left, eventlog.read_log(logs[0]))
+    right = RunView.from_events(spec.right, eventlog.read_log(logs[1]))
     return {"name": spec.name, "manifest": str(manifest), "left": left, "right": right, "checker_backend": backend,
             "story_holds": story_holds(spec.story, left, right) if spec.story else None}
 
@@ -197,11 +253,13 @@ def _report(spec: PairSpec, outcome: dict[str, Any]) -> None:
     print(f"  wrote {outcome['manifest']}")
 
 
-async def _record_all(specs: list[PairSpec], demo_dir: Path, checker_backend: str) -> int:
+async def _record_all(specs: list[PairSpec], demo_dir: Path, checker_backend: str, *, flat: bool = False,
+                      provenance: dict[str, Any] | None = None) -> int:
     failures = 0
     for spec in specs:
         try:
-            _report(spec, await record(spec, demo_dir, checker_backend=checker_backend))
+            _report(spec, await record(spec, demo_dir, checker_backend=checker_backend, flat=flat,
+                                       provenance=provenance))
         except RecordingError as exc:
             failures += 1
             print(f"\n{spec.name}: not recorded. {exc}")
@@ -211,9 +269,15 @@ async def _record_all(specs: list[PairSpec], demo_dir: Path, checker_backend: st
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--golden", action="store_true", help="record every pair listed in golden.json")
+    parser.add_argument("--sample", type=int, help="draw this many questions at random from --split")
+    parser.add_argument("--seed", type=int, help="seed for --sample (required with it)")
+    parser.add_argument("--split", default="test", choices=("learn", "test"))
+    parser.add_argument("--layout", default="nested", choices=("nested", "flat"),
+                        help="flat: <name>.json beside <question id>.<setup>.jsonl, as in ui/fixtures")
+    parser.add_argument("--commit", default="HEAD", help="commit whose agent code is running (checked, then recorded)")
     parser.add_argument("--name")
     parser.add_argument("--question-id")
-    parser.add_argument("--left", default="single", choices=SETUPS)
+    parser.add_argument("--left", choices=SETUPS, help="default: telem_default with --sample, else single")
     parser.add_argument("--right", default="second_opinion", choices=SETUPS)
     parser.add_argument("--title")
     parser.add_argument("--story", choices=STORIES)
@@ -222,15 +286,28 @@ def main(argv: list[str] | None = None) -> None:
                         help="checker for every run in the recording (default: CHECKER_BACKEND); "
                              "decision and cascade need OPENAI_API_KEY")
     args = parser.parse_args(argv)
-    if args.golden == bool(args.name or args.question_id):
-        parser.error("use either --golden or both --name and --question-id")
-    if args.golden:
+    modes = [args.golden, bool(args.name or args.question_id), args.sample is not None]
+    if sum(modes) != 1:
+        parser.error("use exactly one of --golden, --sample or --name with --question-id")
+    provenance: dict[str, Any] = {}
+    if args.sample is not None:
+        if args.seed is None:
+            parser.error("--sample needs --seed")
+        specs = sample_specs(args.sample, args.seed, split=args.split, left=args.left or "telem_default",
+                             right=args.right)
+        provenance = {"split": args.split, "seed": args.seed,
+                      "selection": f"One of {args.sample} {args.split}-split questions drawn at random with seed "
+                                   f"{args.seed}; all {args.sample} recordings are shown, whatever the outcome"}
+    elif args.golden:
         specs = golden_specs(args.demo_dir / "golden.json")
     elif not (args.name and args.question_id):
         parser.error("--name and --question-id are both required")
     else:
-        specs = [PairSpec(args.name, find_question(args.question_id), args.left, args.right, args.title, args.story)]
-    failures = asyncio.run(_record_all(specs, args.demo_dir, args.checker_backend))
+        specs = [PairSpec(args.name, find_question(args.question_id), args.left or "single", args.right, args.title,
+                          args.story)]
+    provenance["commit"] = code_commit(args.commit)
+    failures = asyncio.run(_record_all(specs, args.demo_dir, args.checker_backend,
+                                       flat=args.layout == "flat", provenance=provenance))
     if failures:
         raise SystemExit(f"{failures} of {len(specs)} recording(s) failed")
 

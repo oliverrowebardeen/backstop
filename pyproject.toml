@@ -20,6 +20,10 @@ so = ["prompts/*.md"]
 data = ["questions.jsonl", "traps.jsonl"]
 ui = ["*.html", "*.css", "*.js", "*.svg", "fixtures/*.json", "fixtures/*.jsonl"]
 
+[tool.vercel]
+# The site and API deploy as one Vercel Python function; vercel.json sets its maxDuration.
+entrypoint = "server.app:app"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 import logging
+import os
 from pathlib import Path
 import re
+import tempfile
 from typing import Any, AsyncIterator, Awaitable, Callable
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -22,7 +24,8 @@ from pydantic import BaseModel, Field, ValidationError
 from server import api_v1
 from server.races import LiveRun, RaceManager, Runner
 from server.live_race import (PUBLIC_MAX_QUESTION_CHARS, DemoGuard, LiveRaceEnv, golden_examples,
-                              save_recording)
+                              live_off_reason, missing_live_keys, save_recording)
+from server.race_stream import follow_race
 from server.usage import RateLimiter
 from so import config
 from so.contracts import AgentAnswer, Event, Frontier, Question, Results, Setup
@@ -68,6 +71,12 @@ class ServerSettings:
     race_rate_per_hour: int = 10
     demo_code: str | None = None
     recordings_dir: Path | None = None
+    # Provider keys a live race needs that are not set; live races stay off until they are.
+    missing_keys: tuple[str, ...] = ()
+
+    @property
+    def live_ready(self) -> bool:
+        return self.live_races and not self.missing_keys
 
     @classmethod
     def from_config(cls) -> ServerSettings:
@@ -75,8 +84,13 @@ class ServerSettings:
         fixture_dir = config.SERVER_FIXTURE_DIR
         live = LiveRaceEnv.read()
         public = live.explicit is True
+        live_races = live.explicit if live.explicit is not None else config.SERVER_LIVE_RACES
+        log_dir = Path(config.SERVER_LOG_DIR)
+        if os.getenv("VERCEL") and not (os.getenv("SERVER_LOG_DIR") or os.getenv("SO_LOG_DIR")):
+            # Vercel functions can only write under /tmp.
+            log_dir = Path(tempfile.gettempdir()) / "backstop" / "logs"
         return cls(
-            live_races=live.explicit if live.explicit is not None else config.SERVER_LIVE_RACES,
+            live_races=live_races, missing_keys=missing_live_keys() if live_races else (),
             race_access="demo" if public else "api_key",
             race_max_usd=live.max_usd, race_timeout=live.timeout_s, max_races=live.max_races,
             race_rate_per_hour=live.rate_per_hour, demo_code=live.demo_code,
@@ -84,7 +98,7 @@ class ServerSettings:
             cors_origins=tuple(config.SERVER_CORS_ORIGINS),
             ui_dir=Path(config.SERVER_UI_DIR), demo_dir=Path(config.SERVER_DEMO_DIR),
             fixture_dir=Path(fixture_dir) if fixture_dir else None,
-            log_dir=Path(config.SERVER_LOG_DIR), results_path=Path(config.SERVER_RESULTS_PATH),
+            log_dir=log_dir, results_path=Path(config.SERVER_RESULTS_PATH),
             frontier_path=Path(config.SERVER_FRONTIER_PATH),
             max_active_runs=config.SERVER_MAX_ACTIVE_RUNS,
             max_question_chars=config.SERVER_MAX_QUESTION_CHARS,
@@ -112,6 +126,10 @@ class ServerSettings:
                 raise ValueError("SERVER_CORS_ORIGINS must contain exact HTTP(S) origins without paths or wildcards")
 
 
+# Provenance a recording manifest may carry; /replays passes it through for the race label.
+REPLAY_META = ("recorded_at", "commit", "question_id", "split", "seed", "selection", "checker_backend")
+
+
 @dataclass
 class Replay:
     name: str
@@ -120,11 +138,12 @@ class Replay:
     fixture: bool
     left: list[Event]
     right: list[Event]
+    meta: dict[str, Any] | None = None
 
     def summary(self) -> dict[str, Any]:
         return {"name": self.name, "title": self.title, "question": self.question,
                 "fixture": self.fixture, "left": self.left[0].setup,
-                "right": self.right[0].setup}
+                "right": self.right[0].setup, **(self.meta or {})}
 
 
 def read_events(path: Path) -> list[Event]:
@@ -167,9 +186,11 @@ def replay_catalog(demo_dir: Path, fixture_dir: Path | None,
                 name = ("fixture-" if synthetic else "") + manifest.stem
                 if not SAFE_NAME.fullmatch(name):
                     raise ValueError("Replay manifest names must be URL-safe")
+                meta = {key: data[key] for key in REPLAY_META
+                        if isinstance(data.get(key), (str, int, float)) and not isinstance(data.get(key), bool)}
                 pairs[name] = Replay(name, data.get("title", manifest.stem),
                                      left[0].data["question"],
-                                     synthetic or bool(data.get("fixture")), left, right)
+                                     synthetic or bool(data.get("fixture")), left, right, meta)
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 raise ValueError(f"Invalid replay manifest: {manifest.name}") from exc
     return pairs
@@ -201,6 +222,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
     max_question = min(settings.max_question_chars, PUBLIC_MAX_QUESTION_CHARS) if public else settings.max_question_chars
     if not settings.live_races:
         mode = "replay only (set BACKSTOP_LIVE_RACE=true for live races)"
+    elif settings.missing_keys:
+        mode = f"replay only: live races need {', '.join(settings.missing_keys)}"
     elif public:
         mode = (f"live races ON, public demo mode: max {settings.max_races} at once, {settings.race_rate_per_hour}/hour per IP, "
                 f"{f'${settings.race_max_usd:.2f}' if settings.race_max_usd else 'no cost cap'} and "
@@ -231,11 +254,15 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
     async def index() -> FileResponse:
         return FileResponse(settings.ui_dir / "index.html")
 
+    live_reason = live_off_reason(settings.live_races, settings.missing_keys)
+
     @app.get("/config")
     async def ui_config() -> dict[str, Any]:
         return {"first_engine": config.FIRST_ENGINE, "max_question_chars": max_question,
-                "live_available": settings.live_races,
-                "race_access": settings.race_access if settings.live_races else "replay",
+                "first_engine_routing": config.FIRST_ENGINE_ROUTING == "on",
+                "live_available": settings.live_ready, "live_reason": live_reason,
+                "race_stream": "/race/stream",
+                "race_access": settings.race_access if settings.live_ready else "replay",
                 "demo_code_required": bool(public and settings.demo_code),
                 "race_max_usd": settings.race_max_usd if public else None,
                 "race_timeout_s": settings.race_timeout if public else None,
@@ -273,9 +300,9 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         return stream_response(events())
 
     def require_live_races() -> None:
-        if not settings.live_races:
+        if not settings.live_ready:
             raise HTTPException(403, {"code": "live_races_disabled",
-                                      "message": "Live races are disabled. Watch a recorded replay instead."})
+                                      "message": live_reason or "Live races are disabled. Watch a recorded replay instead."})
 
     def live_key(request: Request, _enabled: None = Depends(require_live_races),
                  authorization: str | None = Header(default=None),
@@ -286,8 +313,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
             return guard.admit(request, demo_code, manager.active_runs())
         return api_v1.rate_limited_key(api_v1.require_key(authorization), limiter)
 
-    @app.post("/race")
-    async def race(body: RaceRequest, api_key: str = Depends(live_key)) -> dict[str, str]:
+    def race_question(body: RaceRequest) -> Question:
+        """Validated before admission, so a rejected question does not use a visitor's hourly quota."""
         question_text = body.question.strip()
         if not question_text:
             raise HTTPException(422, "Enter a question first.")
@@ -295,8 +322,29 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
             raise HTTPException(422, f"Questions are limited to {max_question} characters.")
         if public and body.left == body.right:
             raise HTTPException(422, "Choose two different setups to race.")
-        question = Question(id=f"race-{uuid4().hex}", question=question_text, gold=[],
-                            category="fact", source="race-ui", split="test")
+        return Question(id=f"race-{uuid4().hex}", question=question_text, gold=[],
+                        category="fact", source="race-ui", split="test")
+
+    @app.post("/race/stream")
+    async def race_stream(body: RaceRequest, request: Request, question: Question = Depends(race_question),
+                          api_key: str = Depends(live_key)) -> StreamingResponse:
+        """Start both setups and stream both runs' events on this one response (serverless safe)."""
+        jobs = manager.start(question, body.left, body.right, api_key=api_key)
+        head = {"question": question.question, "left": body.left, "right": body.right,
+                "race_max_usd": settings.race_max_usd, "race_timeout_s": settings.race_timeout}
+
+        async def events() -> AsyncIterator[str]:
+            yield sse("race", head)
+            async for message in follow_race(jobs, poll_seconds=settings.poll_seconds,
+                                             keepalive_seconds=settings.keepalive_seconds,
+                                             is_disconnected=request.is_disconnected):
+                yield ": keep-alive\n\n" if message is None else sse(*message)
+
+        return stream_response(events())
+
+    @app.post("/race")
+    async def race(body: RaceRequest, question: Question = Depends(race_question),
+                   api_key: str = Depends(live_key)) -> dict[str, str]:
         jobs = list(manager.start(question, body.left, body.right, api_key=api_key).values())
 
         def forget(task: asyncio.Task[AgentAnswer]) -> None:

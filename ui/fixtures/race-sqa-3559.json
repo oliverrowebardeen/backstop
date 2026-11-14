@@ -1,0 +1,17 @@
+{
+  "title": "What position did Ghulam Ishaq Khan, former Governor of the State Bank of Pakistan...",
+  "left": "sqa-3559.telem_default.jsonl",
+  "right": "sqa-3559.second_opinion.jsonl",
+  "question_id": "sqa-3559",
+  "story": null,
+  "recorded_at": "2026-11-14T22:26:01+00:00",
+  "live": true,
+  "checker_backend": "cascade",
+  "first_engine_routing": "on",
+  "cache": "off",
+  "split": "test",
+  "seed": 14,
+  "selection": "One of 6 test-split questions drawn at random with seed 14; all 6 recordings are shown, whatever the outcome",
+  "commit": "0ef610b456cc",
+  "checker_cascade_threshold": 0.7
+}

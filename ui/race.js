@@ -1,15 +1,15 @@
 /** Live race section of the product site (/#race). Live: type a question and race two setups. Replay: recordings of live runs. */
 import {newRun, applyEvent, failRun, citationVerified, VERDICTS, SETUPS, safeURL} from './race-state.js';
 import {raceControls, liveHeaders} from './race-access.js';
-import {watchRun} from './run-stream.js';
+import {readEvents} from './race-stream.js';
+import {raceSummary, replayLabel} from './race-summary.js';
 
 const $ = selector => document.querySelector(selector);
 const elements = {}, states = {};
-let firstEngine = 'tavily', active = false, replayPair = null, replaySource = null, controller = null;
+let firstEngine = null, active = false, replayPair = null, replaySource = null, controller = null;
 let replayMode = false, autoplayDone = false, raceVisible = false, ready = false, liveAvailable = false;
-const liveStreams = new Map();
-let auditQuestion = '', pairs = [];
-let mode = 'replay', raceAccess = 'replay', demoRequired = false, maxQuestion = 300, lastRuns = null, lastSaved = null;
+let auditQuestion = '', pairs = [], streamPath = '/race/stream';
+let mode = 'replay', raceAccess = 'replay', demoRequired = false, maxQuestion = 300;
 const setups = {left: 'telem_default', right: 'second_opinion'};
 const origins = {};
 const names = {single: 'Single engine', second_opinion: 'Backstop', telem_default: 'Telem default'};
@@ -48,22 +48,22 @@ function setActive(value) {
   $('#run-button').disabled = controls.disableRun || (live && demoRequired && !$('#demo-code').value.trim());
   $('#credentials').hidden = !(live && needsKey);
   $('#demo-code-box').hidden = !(live && demoRequired);
-  $('#replay-only').hidden = liveAvailable;
   $('#question').disabled = value;
   $('#question').readOnly = !live;
   $('#api-key').disabled = value;
   $('#example-chips').hidden = !live;
   $('#example-chips').querySelectorAll('button').forEach(chip => { chip.disabled = value; });
   $('#replay-controls').hidden = live;
+  $('#replay-meta').hidden = live || !$('#replay-meta').textContent;
   $('#replay-button').disabled = controls.disableReplay;
   $('#stop-button').hidden = !value;
-  // Setup pickers apply to live races; a replay always shows the setups it recorded.
-  for (const side of ['left', 'right']) $(`#${side}-setup`).disabled = value || !live;
+  // Live: pick both setups. A replay always shows the setups it recorded, so the pickers are hidden.
+  $('#setup-pickers').hidden = !live;
+  for (const side of ['left', 'right']) $(`#${side}-setup`).disabled = value;
   $('#replay-select').disabled = value || pairs.length < 2;
-  $('#mode-live').disabled = value || !liveAvailable;
+  $('#mode-toggle').hidden = !liveAvailable;
+  $('#mode-live').disabled = value;
   $('#mode-replay').disabled = value;
-  const finished = states.left?.finished && states.right?.finished && !states.left.failure && !states.right.failure;
-  $('#save-recording').hidden = !(live && lastRuns && finished && !value && lastSaved !== lastRuns.left_run_id);
 }
 
 function applySetups() {
@@ -85,10 +85,16 @@ function syncPickers() {
     for (const option of $(`#${side}-setup`).options) option.disabled = option.value === taken;
   }
 }
+/** Empty both columns, so a new pair of setups never shows another run's numbers. */
+function clearColumns() {
+  for (const name of ['left', 'right']) { states[name] = newRun(setups[name], firstEngine); if (elements[name]) render(name); }
+  showSummary();
+}
 for (const side of ['left', 'right']) {
   $(`#${side}-setup`).addEventListener('change', event => {
     setups[side] = event.target.value; liveSetups[side] = event.target.value;
     store.set('backstop.race.pair', JSON.stringify(liveSetups));
+    if (!active) clearColumns();
     applySetups();
   });
 }
@@ -100,7 +106,7 @@ function render(side) {
   find('.cost-count').textContent = `$${state.cost.toFixed(4)}`;
   find('.time-count').replaceChildren(document.createTextNode((state.elapsed / 1000).toFixed(1)), element('span', '', 's'));
   find('.run-status').textContent = state.status;
-  find('.session').textContent = state.session ? `Telem session · ${state.session}` : state.finished ? 'No Telem session recorded' : 'Session pending';
+  find('.session').textContent = state.session ? `Telem session ${state.session}` : state.finished ? 'No Telem session recorded' : 'Session pending';
   const steps = find('.steps');
   if (state.steps.length) {
     steps.replaceChildren(...state.steps.map((step, i) => {
@@ -109,7 +115,7 @@ function render(side) {
       row.append(title);
       if (step.choice) {
         const choice = [step.choice.engine ? `First engine: ${step.choice.engine}` : null,
-          step.choice.questionType ? `Question type: ${step.choice.questionType}` : null].filter(Boolean).join(' · ');
+          step.choice.questionType ? `Question type: ${step.choice.questionType}` : null].filter(Boolean).join(', ');
         row.append(element('p', 'engine-choice', choice));
       }
       if (step.rewrite) {
@@ -141,7 +147,7 @@ function render(side) {
     steps.scrollTop = steps.scrollHeight;
   } else steps.replaceChildren(element('li', 'empty', 'Waiting for the question.'));
   const declined = state.answer?.status === 'NOT_FOUND';
-  find('.answer-label').textContent = state.failure ? 'Run failed' : declined ? 'Not found · a deliberate outcome' : 'Final answer';
+  find('.answer-label').textContent = state.failure ? 'Run failed' : declined ? 'Not found, a deliberate outcome' : 'Final answer';
   const fullAnswer = state.failure || state.answer?.final || (state.finished ? 'The run ended without a final answer.' : 'Following the evidence…');
   const lead = typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter('en', {granularity:'sentence'}).segment(fullAnswer)][0]?.segment.trim() : fullAnswer;
   find('.answer-text').textContent = lead || fullAnswer;
@@ -161,12 +167,20 @@ function render(side) {
   }).filter(Boolean));
   find('.grade-note').hidden = replayMode || !state.events.length;
   find('.watch-recorded').hidden = !(state.failure && !replayMode && pairs.length);
-  $('#export-audit').disabled = !states.left?.events.length && !states.right?.events.length;
+}
+
+/** Once both runs finish cleanly: which side used fewer engine calls, cost less and finished sooner. */
+function showSummary() {
+  const done = states.left?.finished && states.right?.finished && !states.left.failure && !states.right.failure;
+  const side = name => ({name: names[states[name].setup] || states[name].setup, engineCalls: states[name].engineCalls,
+    cost: states[name].cost, elapsed: states[name].elapsed});
+  const text = done ? raceSummary(side('left'), side('right')) : null;
+  $('#race-summary').textContent = text || '';
+  $('#race-summary').hidden = !text;
 }
 
 function closeConnections() {
   replaySource?.close(); replaySource = null; controller?.abort(); controller = null;
-  liveStreams.forEach(close => close()); liveStreams.clear();
 }
 function reset(kind) {
   closeConnections(); replayMode = kind !== 'live';
@@ -177,11 +191,12 @@ function reset(kind) {
     states[side] = newRun(setup, firstEngine, {live}); states[side].status = 'Starting';
     origins[side] = live ? startedAt : null; render(side);
   }
+  showSummary();
   badge(kind === 'live' ? 'live' : kind === 'fixture' ? 'fixture' : 'replay');
   setActive(true);
 }
 function badge(kind) {
-  const label = {live: 'Live', replay: 'Replay of a live run', fixture: 'Synthetic fixture · not a live run'}[kind];
+  const label = {live: 'Live', replay: 'Replay of a live run', fixture: 'Synthetic fixture, not a live run'}[kind];
   $('#race-mode').textContent = label;
   $('#race-mode').classList.toggle('is-live', kind === 'live');
   $('#race-mode').classList.toggle('is-sample', kind === 'fixture');
@@ -195,13 +210,20 @@ function receive(side, event) {
   }
   if (states.left.finished && states.right.finished) finish();
 }
-function finish() { setActive(false); const interrupted = Object.values(states).some(state => Boolean(state.failure)); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? (liveAvailable ? 'Recorded run complete. Switch to Live to race your own question.' : 'Recorded run complete. Replay it or export the audit trail.') : 'Both agents have finished. Export the audit trail, or save the race as a recording.'); }
+function finish() {
+  setActive(false);
+  showSummary();
+  const interrupted = Object.values(states).some(state => Boolean(state.failure));
+  notify(interrupted ? 'One run stopped before it finished. Its reason is shown in its column.'
+    : replayMode ? (liveAvailable ? 'Recorded race complete. Switch to Live to race your own question.' : 'Recorded race complete. Pick another recording or play this one again.')
+    : 'Both runs have finished.');
+}
 function fail(message, side) {
   for (const name of side ? [side] : ['left', 'right']) {
     if (side || !states[name].finished) { failRun(states[name], message); render(name); }
   }
   notify(message);
-  if (states.left.finished && states.right.finished) setActive(false);
+  if (states.left.finished && states.right.finished) { setActive(false); showSummary(); }
 }
 
 for (const [side, setup] of Object.entries(setups)) {
@@ -233,18 +255,19 @@ function playReplay() {
   reset(replayPair.fixture ? 'fixture' : 'replay');
   $('#question').value = replayPair.question;
   auditQuestion = replayPair.question;
-  notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded evidence, played at its original pace.');
+  notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded live run, played at its original pace.');
   const source = new EventSource(`/replay/${encodeURIComponent(replayPair.name)}`);
   replaySource = source;
   source.addEventListener('log', message => { if (source !== replaySource) return; try { const payload = JSON.parse(message.data); receive(payload.side, payload.event); } catch { source.close(); fail('The recording contains an invalid event.'); } });
   source.addEventListener('complete', () => { source.close(); if (!(states.left.finished && states.right.finished)) fail('The recording ended before final totals.'); });
   source.addEventListener('stream_error', () => { source.close(); fail('The recorded stream was interrupted.'); });
-  source.onerror = () => { source.close(); if (active) fail('The recording disconnected. You can replay it or run a question.'); };
+  source.onerror = () => { source.close(); if (active) fail('The recording disconnected. Play it again or pick another.'); };
 }
 $('#replay-button').addEventListener('click', playReplay);
 $('#stop-button').addEventListener('click', () => {
+  const live = !replayMode;
   closeConnections();
-  fail(replayMode ? 'Replay stopped. The received events are available to export.' : 'Stopped viewing. Live agents continue until completion or the server timeout.');
+  fail(live ? 'Stopped. Both live runs were cancelled on the server.' : 'Replay stopped.');
 });
 
 $('#api-key').addEventListener('input', () => setActive(active));
@@ -271,6 +294,22 @@ async function errorMessage(response, fallback) {
   catch { return fallback; }
 }
 
+/** One request starts both sides and streams both logs back, so it works on serverless hosts too. */
+async function runLive(question, headers, signal) {
+  const response = await fetch(streamPath, {method: 'POST', headers, signal,
+    body: JSON.stringify({question, left: setups.left, right: setups.right})});
+  if (!response.ok) throw new Error(await errorMessage(response, 'The race could not start.'));
+  if (!response.body) throw new Error('This browser cannot read a streamed response.');
+  for await (const message of readEvents(response.body)) {
+    const {event, data} = message;
+    if (event === 'log') receive(data.side, data.event);
+    else if (event === 'stream_error') fail(data.message || 'The run stopped before it finished.', data.side);
+    else if (event === 'complete' && !states[data.side]?.finished) fail('The stream ended before final totals.', data.side);
+    else if (event === 'done') break;
+  }
+  if (!(states.left.finished && states.right.finished)) fail('The connection closed before both runs finished.');
+}
+
 $('#race-form').addEventListener('submit', async event => {
   event.preventDefault(); if (active || !liveAvailable || mode !== 'live') return;
   const question = validQuestion(); if (!question) return;
@@ -279,59 +318,29 @@ $('#race-form').addEventListener('submit', async event => {
   $('#question').value = question;
   auditQuestion = question;
   setups.left = $('#left-setup').value; setups.right = $('#right-setup').value;
-  lastRuns = null;
-  autoplayDone = true; reset('live'); notify('Both agents are searching live through Telem. Counts and costs come from the event log; the clock is real time.');
+  autoplayDone = true; reset('live');
+  notify('Both runs are searching live through Telem. Counts and costs come from their event logs; the clock is real time.');
   const abort = new AbortController(); controller = abort;
-  try {
-    const response = await fetch('/race',{method:'POST',headers,body:JSON.stringify({question,left:setups.left,right:setups.right}),signal:abort.signal});
-    if (!response.ok) throw new Error(await errorMessage(response, 'The race could not start.'));
-    const runs = await response.json();
-    if (typeof runs.left_run_id !== 'string' || typeof runs.right_run_id !== 'string') {
-      throw new Error('The server did not return both run IDs.');
-    }
-    lastRuns = runs;
-    for (const side of ['left', 'right']) {
-      liveStreams.set(side, watchRun(runs[`${side}_run_id`], {
-        onEvent: event => receive(side, event),
-        onComplete: () => {
-          liveStreams.delete(side);
-          if (!states[side].finished) fail('The stream ended before final totals.', side);
-        },
-        onFailure: message => { liveStreams.delete(side); fail(message, side); },
-        onReconnect: () => notify('Reconnecting to the run. The agent continues on the server.'),
-      }));
-    }
-  } catch(error) { if (error.name !== 'AbortError') fail(error.message); }
-});
-$('#save-recording').addEventListener('click', async () => {
-  if (!lastRuns) return;
-  $('#save-recording').disabled = true;
-  try {
-    const response = await fetch('/recordings', {method: 'POST', headers: raceHeaders(), body: JSON.stringify(lastRuns)});
-    if (!response.ok) throw new Error(await errorMessage(response, 'The recording could not be saved.'));
-    const saved = await response.json();
-    lastSaved = lastRuns.left_run_id;
-    await loadReplays(saved.name);
-    notify('Saved. The race is now in the Replay list.');
-  } catch (error) { notify(error.message); }
-  finally { $('#save-recording').disabled = false; setActive(active); }
-});
-$('#export-audit').addEventListener('click', () => {
-  const data = {product:'Backstop',mode:$('#race-mode').textContent,question:auditQuestion,setups:{...setups},runs:lastRuns && !replayMode ? lastRuns : undefined,left:states.left.events,right:states.right.events};
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)+'\n'],{type:'application/json'}));
-  const anchor = element('a'); anchor.href=url; anchor.download='backstop-race-audit.json';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  try { await runLive(question, headers, abort.signal); }
+  catch (error) { if (error.name !== 'AbortError') fail(error.message); }
+  finally { if (controller === abort) controller = null; }
 });
 
 async function loadConfiguration() {
   const response = await fetch('/config', {cache: 'no-store'});
   if (!response.ok) throw new Error('The race server configuration could not be loaded.');
   const data = await response.json();
-  firstEngine = data.first_engine;
+  // With routing on, the first engine depends on the question, so chips keep their recorded order.
+  firstEngine = data.first_engine_routing ? null : data.first_engine;
   liveAvailable = data.live_available === true;
+  streamPath = typeof data.race_stream === 'string' ? data.race_stream : '/race/stream';
   raceAccess = data.race_access || (liveAvailable ? 'api_key' : 'replay');
   demoRequired = data.demo_code_required === true;
   maxQuestion = Math.min(Number(data.max_question_chars) || 300, 300);
   $('#question').maxLength = maxQuestion;
+  const reason = liveAvailable ? '' : (typeof data.live_reason === 'string' && data.live_reason) || 'Live races are off on this server, so this section plays recorded races.';
+  $('#live-off').textContent = reason;
+  $('#live-off').hidden = !reason;
   const examples = (Array.isArray(data.examples) && data.examples.length ? data.examples : EXAMPLES).slice(0, 6);
   $('#example-chips').replaceChildren(...examples.map(text => {
     const chip = element('button', 'example-chip', text);
@@ -340,11 +349,15 @@ async function loadConfiguration() {
     return chip;
   }));
 }
+
 function selectPair(pair) {
   replayPair = pair;
+  $('#replay-meta').textContent = replayLabel(pair);
   if (!pair) return;
   $('#replay-select').value = pair.name;
-  if (!active && mode === 'replay') { $('#question').value = pair.question; setups.left = pair.left; setups.right = pair.right; applySetups(); badge(pair.fixture ? 'fixture' : 'replay'); }
+  if (!active && mode === 'replay') {
+    $('#question').value = pair.question; setups.left = pair.left; setups.right = pair.right; applySetups(); badge(pair.fixture ? 'fixture' : 'replay');
+  }
 }
 $('#replay-select').addEventListener('change', event => {
   const pair = pairs.find(p => p.name === event.target.value);
@@ -364,6 +377,7 @@ async function loadReplays(prefer) {
 function setMode(next) {
   if (active) return;
   if (next === 'live' && !liveAvailable) next = 'replay';
+  if (next !== mode) clearColumns();
   mode = next;
   $('#mode-live').setAttribute('aria-pressed', String(mode === 'live'));
   $('#mode-replay').setAttribute('aria-pressed', String(mode === 'replay'));
@@ -376,7 +390,7 @@ function setMode(next) {
   } else {
     selectPair(replayPair);
     if (!replayPair) { $('#race-mode').textContent = 'No recordings'; notify('No recording is available on this server yet.'); }
-    else notify(liveAvailable ? 'Play a recording of a live race, or switch to Live to run your own.' : 'Live races are off on this server. Play a recording of a live race.');
+    else notify(liveAvailable ? 'Play a recorded race, or switch to Live to run your own question.' : '');
   }
   setActive(false);
 }

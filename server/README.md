@@ -25,11 +25,12 @@ Race spend stays in each run's event log. Every finished, failed or cancelled ag
 | Endpoint | Auth | Response |
 | --- | --- | --- |
 | `POST /race` | Bearer key; live gate and shared limits | `{left_run_id, right_run_id}` |
+| `POST /race/stream` | Same as `POST /race` | Both runs' SSE events on this response (serverless safe) |
 | `GET /stream/{run_id}` | Public | One run's SSE events |
 | `GET /replays` | Public | Array of `{name, title, question, fixture, left, right}` |
 | `GET /replay/{name}` | Public | A recorded pair's interleaved SSE events |
 | `GET /results` | Public | `{results, frontier}` from configured artifacts |
-| `GET /config` | Public | `{first_engine, max_question_chars, live_available}` |
+| `GET /config` | Public | `{first_engine, first_engine_routing, max_question_chars, live_available, live_reason, race_stream, ...}` |
 | `GET /health` | Public | Service liveness |
 
 `POST /race` takes a JSON body such as `{ "question": "Your question", "left": "single", "right": "second_opinion" }`. Both setup names must be one of `single`, `telem_default`, `second_opinion`. The defaults are `single` and `second_opinion`. Blank questions or those exceeding `SERVER_MAX_QUESTION_CHARS` return 422. Agent startup failures return 503. The response IDs come from the agents' actual logs.
@@ -37,6 +38,10 @@ Race spend stays in each run's event log. Every finished, failed or cancelled ag
 Run streams are public to anyone with the run ID and require no bearer header, so native EventSource works. Disconnecting or closing a stream **does not cancel the agent**. It continues until completion, its configured timeout, or worker shutdown. A new POST starts new work; reconnect to the existing ID to continue viewing.
 
 `GET /results` validates the configured results and frontier artifacts against the shared contracts and preserves their provenance fields. Missing artifacts are `null`; malformed artifacts return 503. Consumers must respect each artifact's counts, metric definitions and simulated/observed labels. The reference race client does not make evaluation claims.
+
+## One-request races
+
+`POST /race/stream` takes the same body, checks and guards as `POST /race`, starts both setups and streams both runs on the same response, so it works when each request may reach a different instance (Vercel). Messages: `race` (`{question, left, right, race_max_usd, race_timeout_s}`), then `log` (`{side, event}` with one unmodified section 6.11 event), then per side `complete` (`{side, run_id}`) or `stream_error` (`{side, run_id, error_type, message}`), and finally `done`. Idle periods send `: keep-alive` comments. Closing the response cancels both agents. EventSource cannot POST, so read it with `fetch` and a `ReadableStream`, as `ui/race-stream.js` does.
 
 ## SSE protocol
 

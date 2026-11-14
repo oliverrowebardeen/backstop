@@ -269,9 +269,10 @@ td.is-pending .cell-main { color: var(--faint); font-weight: 550; font-size: 14p
 .footer-note { margin-top: 4px; font-size: 14px; color: var(--on-dark-faint); }
 .footer a { text-decoration: none; color: var(--on-dark); }
 
-/* Live race (the race view, now a section). Its colors follow the page theme. */
+/* Live race (the race view, now a section). No background or divider of its own: the page shows through. */
 .race-section { --r-bg: var(--paper); --r-card: var(--white); --r-ink: var(--ink); --r-muted: var(--muted); --r-line: var(--card-line); --r-chip: var(--soft); --r-accent: var(--accent); --r-input: var(--white);
-  background: var(--r-bg); color: var(--r-ink); border-top: 1px solid var(--card-line); transition: background 0.2s, color 0.2s; }
+  --r-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2367695e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color: var(--r-ink); }
 .race-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; margin-top: 48px; }
 .race-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .mode-toggle { display: inline-flex; padding: 4px; gap: 2px; border-radius: 999px; border: 1px solid var(--r-line); background: var(--r-card); }
@@ -287,13 +288,15 @@ td.is-pending .cell-main { color: var(--faint); font-weight: 550; font-size: 14p
 .example-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .example-chip { border: 1px solid var(--r-line); background: var(--r-card); color: var(--r-ink); border-radius: 999px; padding: 7px 13px; font-size: 13.5px; text-align: left; }
 .example-chip:hover:not(:disabled) { border-color: var(--r-accent); color: var(--r-accent); }
-.versus { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--r-muted); }
+.versus { font-size: 13px; line-height: 1; color: var(--r-muted); }
 .grade-note { margin-top: 8px; font-size: 12px; color: var(--r-muted); }
 .watch-recorded { margin-top: 10px; }
 .race-recording { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; font-size: 14px; color: var(--r-muted); }
 .race-recording label { font-weight: 600; color: var(--r-ink); }
-.race-section select { font: inherit; font-size: 14px; color: var(--r-ink); background: var(--r-input); border: 1px solid var(--r-line); border-radius: 999px; padding: 8px 14px; max-width: 100%; }
-.race-section select:disabled { opacity: 0.75; }
+/* Native arrows sit at the far edge of a select sized to its longest option; draw one 12px in and size to the choice. */
+.race-section select { appearance: none; -webkit-appearance: none; field-sizing: content; font: inherit; font-size: 14px; line-height: 1.3; color: var(--r-ink); background: var(--r-input) var(--r-chevron) no-repeat right 13px center / 10px 6px; border: 1px solid var(--r-line); border-radius: 999px; padding: 8px 32px 8px 14px; max-width: 100%; min-width: 0; cursor: pointer; }
+.race-section select:hover:not(:disabled) { border-color: var(--r-muted); }
+.race-section select:disabled { opacity: 0.6; cursor: default; }
 .race-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-weight: 650; font-size: 13px; color: var(--r-accent); border: 1px solid currentColor; white-space: nowrap; }
 .race-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .race-badge.is-sample { color: var(--r-muted); }
@@ -304,10 +307,13 @@ td.is-pending .cell-main { color: var(--faint); font-weight: 550; font-size: 14p
 .race-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; padding: 10px; border: 1px solid var(--r-line); border-radius: var(--radius-lg); background: var(--r-card); }
 .race-form input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--r-ink); font-size: clamp(17px, 1.4vw, 21px); font-weight: 550; padding: 10px 12px; }
 .race-form input:focus-visible { outline-offset: 0; }
-.setup-pickers { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--r-muted); }
-.setup-pickers label { display: inline-flex; align-items: center; gap: 8px; }
+.setup-pickers { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; line-height: 1; color: var(--r-muted); }
+.setup-pickers label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .race-note, .race-message { margin-top: 12px; font-size: 14px; color: var(--r-muted); }
 .race-honest { margin-top: 16px; font-size: 14px; color: var(--r-muted); max-width: 72ch; }
+.live-off { color: var(--r-ink); }
+.replay-meta { margin-top: 8px; font-size: 13px; color: var(--r-muted); }
+.race-summary { margin-top: 18px; padding: 14px 18px; border-left: 3px solid var(--r-accent); background: var(--r-card); border-radius: 0 var(--radius) var(--radius) 0; font-size: 16px; font-weight: 550; line-height: 1.5; max-width: 80ch; font-variant-numeric: tabular-nums; }
 .race-credentials { margin-top: 14px; display: grid; gap: 6px; max-width: 520px; font-size: 14px; }
 .race-credentials input { padding: 11px 14px; border-radius: 10px; border: 1px solid var(--r-line); background: var(--r-input); color: var(--r-ink); }
 .race-credentials p { color: var(--r-muted); font-size: 13px; }
@@ -328,7 +334,7 @@ td.is-pending .cell-main { color: var(--faint); font-weight: 550; font-size: 14p
 .steps li { padding: 12px 0; border-bottom: 1px solid var(--r-line); font-size: 14px; }
 .steps .empty { border: 0; color: var(--r-muted); padding-top: 24px; }
 .step-query { display: flex; gap: 10px; font-weight: 550; overflow-wrap: anywhere; }
-.step-num { font: 11px/1.9 var(--mono); color: var(--r-muted); }
+.step-num { flex: none; font: 11px/1.9 var(--mono); color: var(--r-muted); }
 .engine-choice, .rescue-action, .step-note { margin: 6px 0 0 28px; font-size: 13px; color: var(--r-muted); }
 .query-rewrite { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0 0 28px; font: 12.5px/1.45 var(--mono); }
 .query-rewrite dt { color: var(--r-muted); }

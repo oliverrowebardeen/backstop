@@ -16,7 +16,27 @@ Use one worker. It owns the active agent tasks, admission pool, request limiter 
 
 Terminate HTTPS at the hosting proxy and disable buffering for `/stream/` and `/replay/`. Keep streaming connections open for the configured run duration and allow SSE keepalives through. Ensure the process continues running after `POST /race` returns its run IDs.
 
-The pitch's Vercel entry point, configuration and ignore file were removed with its request-scoped `/race-stream` route. The retained start-then-stream API requires a persistent process and shared log storage between requests; this repository no longer supplies a Vercel deployment configuration.
+## Vercel
+
+The site and API deploy to Vercel as one Python function. `pyproject.toml` names the entrypoint (`[tool.vercel] entrypoint = "server.app:app"`) and `vercel.json` gives that function `maxDuration: 120`, which covers a race's 90 second limit plus start-up. Run logs go to `/tmp/backstop/logs` on Vercel unless `SERVER_LOG_DIR` is set.
+
+On a serverless host the start-then-stream pair (`POST /race`, then `GET /stream/{run_id}`) can fail, because the stream request may reach an instance that never started the run. The race section therefore uses `POST /race/stream`, which starts both sides and streams both logs on the same response; closing it cancels both agents. The older routes still work on a persistent server.
+
+Set these in the Vercel project (Production) to turn on public live races:
+
+| Variable | Value |
+| --- | --- |
+| `BACKSTOP_LIVE_RACE` | `true` |
+| `TELEM_API_KEY` | Telem key (every search and Telem fetch) |
+| `TAVILY_API_KEY` | Tavily key (Tavily Extract page reads) |
+| `ANTHROPIC_API_KEY` | Anthropic key (agent model, and the cascade's LLM checker stage) |
+| `OPENAI_API_KEY` | OpenAI key (the cascade's first stage, the Decisions model) |
+| `CHECKER_BACKEND` | `cascade` (the code default; set it so the deployment is explicit) |
+| `FIRST_ENGINE_ROUTING` | `on` (the code default) |
+
+Optional: `BACKSTOP_DEMO_CODE` to require a code, and `BACKSTOP_RACE_MAX_USD` (default 0.50), `BACKSTOP_RACE_TIMEOUT_S` (default 90), `BACKSTOP_MAX_RACES` (default 2) and `BACKSTOP_RACE_RATE_PER_HOUR` (default 10). `TELEM_BUDGET_USD` and `LLM_BUDGET_USD` cap spend per running instance (default 25 each). `GET /config` reports `live_available` and, when it is false, `live_reason` names what is missing; the race section shows that line.
+
+On Vercel the per-race cost cap and time limit hold exactly, since a race lives inside one request. The concurrency and per-IP limits are kept in memory, so each instance enforces its own; the client IP comes from `x-vercel-forwarded-for`, which Vercel sets.
 
 Mount or deploy the chosen recording directory and evaluation artifacts using `SERVER_DEMO_DIR`, `SERVER_RESULTS_PATH` and `SERVER_FRONTIER_PATH`. Missing artifacts are reported as unavailable. `SERVER_FIXTURE_DIR` stays empty in production.
 

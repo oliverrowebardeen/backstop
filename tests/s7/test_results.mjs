@@ -9,11 +9,15 @@ test('the note under the race comes from out/results.json', () => {
   const metrics = measured(results, validateResults(results));
   const {telem_default: base, second_opinion: ours} = results.setups;
   const note = raceNote(metrics);
-  assert.ok(note.startsWith('Live single questions vary.'));
-  assert.ok(note.includes(`Measured on ${results.n_test} held-out`));
-  assert.ok(note.includes(`Backstop ${ours.correct}/${ours.n} vs Telem default ${base.correct}/${base.n} correct`));
-  assert.ok(note.includes(`$${ours.cost_per_q_total.toFixed(4)} vs $${base.cost_per_q_total.toFixed(4)}`));
-  assert.ok(note.includes(ours.cost_per_q_total < base.cost_per_q_total / 2 ? 'less than half the cost' : 'cost per question'));
+  const e = economy(metrics);
+  assert.ok(note.startsWith('Live single questions vary. On the held-out test questions, Backstop '));
+  assert.ok(note.includes(e.same ? `matched Telem default's accuracy (${(100 * base.accuracy).toFixed(1)}%)`
+    : `scored ${(100 * ours.accuracy).toFixed(1)}% accuracy`));
+  assert.ok(note.includes(`${Math.abs(e.cost)}% ${e.cost >= 0 ? 'lower' : 'higher'} total cost per question ` +
+    `($${ours.cost_per_q_total.toFixed(4)} vs $${base.cost_per_q_total.toFixed(4)})`));
+  assert.ok(note.includes(`${Math.abs(e.calls)}% ${e.calls >= 0 ? 'fewer' : 'more'} engine calls`));
+  // No question count and no correct/scored fractions: the scored totals differ by setup.
+  assert.ok(!/\d+\/\d+/.test(note) && !new RegExp(`\\b${results.n_test}\\b`).test(note), note);
   assert.equal(raceNote(null), null);
 });
 

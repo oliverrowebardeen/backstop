@@ -121,6 +121,8 @@ def test_pitch_routes_and_assets_are_removed_but_reference_client_is_available(r
         assert client.post("/race-stream", headers=AUTH, json={"question": "Test"}).status_code == 404
         page = client.get("/race")
         assert page.status_code == 200 and 'id="race-form"' in page.text
-        assert 'id="export-audit"' in page.text
+        # O10: the race reads one streamed POST (/race/stream); audit export left the race UI.
+        assert 'id="export-audit"' not in page.text and 'id="save-recording"' not in page.text
+        assert client.get("/ui/race-stream.js").status_code == 200
         assert 'id="proof"' not in page.text
         assert client.get("/ui/run-stream.js").status_code == 200

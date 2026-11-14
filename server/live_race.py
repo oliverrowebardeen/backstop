@@ -22,6 +22,7 @@ from fastapi import HTTPException, Request
 
 from server.errors import RunFailure
 from server.usage import RateLimiter
+from so import config
 
 PUBLIC_MAX_QUESTION_CHARS = 300
 MAX_SAVED_RECORDINGS = 50
@@ -92,7 +93,7 @@ class DemoGuard:
         self.check_code(supplied_code)
         if active_runs + 2 > 2 * self.max_races:
             raise _http(429, "busy", "Busy, try again in a moment.", {"Retry-After": "15"})
-        address = request.client.host if request.client else "unknown"
+        address = client_address(request)
         allowed, retry_after = self.limiter.allow(f"race-ip:{address}")
         if not allowed:
             raise _http(429, "rate_limited",
@@ -100,6 +101,38 @@ class DemoGuard:
                         "Watch a recorded run, or try again later.",
                         {"Retry-After": str(max(1, math.ceil(retry_after)))})
         return f"demo:{address}"
+
+
+def client_address(request: Request) -> str:
+    """The caller's IP. On Vercel the platform sets x-vercel-forwarded-for and overwrites
+    x-forwarded-for, so clients cannot spoof them; elsewhere only the socket address is trusted."""
+    if os.getenv("VERCEL"):
+        for header in ("x-vercel-forwarded-for", "x-forwarded-for", "x-real-ip"):
+            value = request.headers.get(header, "").split(",")[0].strip()
+            if value:
+                return value
+    return request.client.host if request.client else "unknown"
+
+
+def missing_live_keys() -> tuple[str, ...]:
+    """Provider keys a live race needs with the current settings that are not set."""
+    names = ["TELEM_API_KEY", "TAVILY_API_KEY", f"{config.LLM_PROVIDER.upper()}_API_KEY"]
+    if config.CHECKER_BACKEND != "llm":
+        names.append("OPENAI_API_KEY")  # the cascade's first stage is the OpenAI Decisions model
+    if config.CHECKER_BACKEND != "decision":
+        names.append(f"{config.CHECKER_PROVIDER.upper()}_API_KEY")
+    return tuple(name for name in dict.fromkeys(names) if not os.getenv(name, "").strip())
+
+
+def live_off_reason(enabled: bool, missing: tuple[str, ...]) -> str | None:
+    """One plain line for the race section when live races cannot run here."""
+    if not enabled:
+        return "Live races are off on this server (BACKSTOP_LIVE_RACE is not true), so this section plays recorded races."
+    if missing:
+        names = ", ".join(missing[:-1]) + (" and " if len(missing) > 1 else "") + missing[-1]
+        verb = "is" if len(missing) == 1 else "are"
+        return f"Live races are off on this server because {names} {verb} not set, so this section plays recorded races."
+    return None
 
 
 SAFE_RUN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
