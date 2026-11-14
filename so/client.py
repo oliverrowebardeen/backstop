@@ -300,7 +300,8 @@ class BackstopTelem:
                     url=item.url, title=item.title, summary=item.snippet or None, publish_date=item.published,
                     rank=item.rank, provider=engine, rank_reason=f"engine rank {item.rank}", engines=[engine],
                 ) for item in normalized.results],
-                error=provider.get("error") or (None if normalized.status == "ok" else {"message": "Engine returned no response."}),
+                error=provider.get("error")
+                or (None if normalized.status == "ok" else {"message": "Engine returned no response."}),
                 latency_ms=int(provider["latency_ms"]) if provider.get("latency_ms") is not None else int(elapsed),
                 query=query,
             ))
