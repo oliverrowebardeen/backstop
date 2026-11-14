@@ -12,7 +12,7 @@ All of these lanes run on Claude inside Paradev. Open one Paradev lane per row b
 | S2 | Hit matrix and judge | 11:20 to 12:15 | `evals/matrix.py`, `evals/judge.py`, `evals/handcheck.py` |
 | S3 | Rescue table, frontier, heatmap | 12:15 to 1:15 | `analysis/` |
 | S4 | Eval runner and scoring | 12:30 to 3:15 | `evals/run_eval.py`, `evals/score.py` |
-| S5 | Pitch pack | 2:30 to 4:10 | `pitch/` |
+| S5 | Pitch pack | 2:00 to 4:10 | `pitch/` |
 
 S2 and S4 are the heavy lanes. Give them your strongest model. S1, S3 and S5 can run on a lighter one.
 
@@ -120,6 +120,7 @@ Build:
 2. `evals/score.py`: grades each final answer with `grade_answer`, totals the logs with `so.eventlog.summarize`, and writes `out/results.json` in the section 6.12 format.
    - Checker metrics: join each `check` event on a first-engine search with the matrix row for that question and engine. Compute miss recall and false alarm rate.
    - Judge model cost is excluded from every setup's cost.
+   - Compute `cost_per_correct` and `cost_per_search_call` for each setup, as defined in section 6.12.
    - Also writes `out/results.md`: the table in plain markdown, with counts beside every percentage.
 3. A paired comparison in `out/results.md`: for `second_opinion` against each baseline, how many questions flipped from wrong to correct and from correct to wrong.
 
@@ -137,11 +138,27 @@ python -m evals.run_eval --limit 20 && python -m evals.score
 
 ## S5: Pitch pack
 
-Starts at 2:30 with placeholders. Fills numbers when results land.
+Starts at 2:00 with placeholders. Fills numbers when results land.
+
+The judging weights are use of Telem 40 percent, venture potential 20, innovation 20, technical execution 20. Every pitch file must cover two things the old plan did not:
+
+- **How we use Telem:** six pinned engines through one API, Telem's own routing as the baseline, Telem fetch for page reads, goals and sessions on every call. Say plainly that the hit matrix could not have been built in minutes without it.
+- **How we use Tavily:** it is the first engine on every search, and Tavily Extract reads the page when a snippet is too thin to answer from. Say both on stage and in the Devpost write-up.
+- **Why this is a company:** the customer is any team running research or diligence agents, where a confident wrong number costs money. The model is usage-based pricing per verified search. The edge is the rescue data, which improves with every search. Do not pitch it as a feature for Telem to absorb. Telem is the rails and we are the quality layer on top.
+
+The business slide and the Devpost "who pays" section use this structure. Fill the bracketed numbers from `out/results.json`.
+
+- **Customer:** teams running research agents in work where a wrong fact costs money. Finance, diligence, legal. Buyers in these fields already pay for agent search: Parallel's named customers include Harvey, banks and hedge funds.
+- **Urgent problem:** the agent states a wrong number with full confidence and nobody knows the search failed.
+- **Product:** verified search. One line to swap in. Every search returns a verdict, and every answer has an exportable audit trail.
+- **Business model:** usage-based, priced per verified search. Unit economics: we charge about what three-engine search costs, [telem_default cost_per_search_call], and deliver it for [second_opinion cost_per_search_call]. The difference is gross margin. State the margin as a percentage.
+- **Edge:** every checked search adds a row to the rescue data: which engine missed, and which one caught it. A single engine cannot grade its own misses, and a router chooses before results exist. The data improves with volume.
+- **Market:** agent search is funded and consolidating. Tavily was bought by Nebius for a reported $275 million. Exa raised $250 million at a $2.2 billion valuation in May 2026. Parallel raised $100 million at $2 billion in April 2026. All of them sell raw search. None sells verified search.
+- **Next:** the same check-and-rescue layer for every tool an agent calls, not just search.
 
 Build, all in `pitch/`:
 
-1. `devpost.md`: title, one-line tagline, what it does, how we built it, what we measured, what is next. Under 400 words. The ask is a sequential routing mode for Telem.
+1. `devpost.md`: title, one-line tagline, what it does, how we use Telem, what we measured, who pays, what is next. Under 400 words.
 2. `script_90s.md`: the table pitch.
    - 0 to 10 seconds: the hook. "Telem checks every page it fetches and retries when the check fails. Search gets no check. We built it."
    - 10 to 55 seconds: the live race on a golden question.
@@ -151,10 +168,10 @@ Build, all in `pitch/`:
    - Is this just routing? Routing picks engines before results. This decides after.
    - How do you know the answer is missing without knowing the answer?
    - What does the check cost in money and time?
-   - Could Telem build this? Yes. Here is the spec and the data that says they should.
+   - Could Telem build this? They could. Our edge is the rescue data, which grows with every search we check, and the layer works on top of any router. Telem is the best one to build on today.
    - Did you test on the same questions you tuned on? No. Learn and test are separate.
    - What about prior work? Name the Google sufficient-context study and the 2026 paper on oracle unions across search providers. Ours is live, needs no gold answer, and picks the next engine from measured data.
-5. `slides.md`: four slides at most. Problem, how it works, results table, frontier chart.
+5. `slides.html`: a single-file deck, five slides at most, for the 3 minute finalist presentation. Customer and problem, how it works on Telem, results table, frontier chart, the business. Large type, one idea per slide.
 6. `fill_numbers.py`: replaces `{{placeholders}}` in these files from `out/results.json`.
 
 Rules:

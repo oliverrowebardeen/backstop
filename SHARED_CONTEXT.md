@@ -23,7 +23,38 @@ The claim we must be able to defend with held-out numbers:
 - SearchHack, Saturday Nov 14, 2026. Build window 11:00 to 4:15 PT.
 - Feature freeze 3:30. Devpost submission by 4:10. Judging at 4:30.
 - No project code before 11:00.
-- Judged on innovation, technical execution, search intelligence, impact. The judges are investors.
+- Judging weights, announced at kickoff: use of Telem AI 40 percent, startup and venture potential 20, innovation 20, technical execution 20. The judges are investors.
+- "Use of Telem AI" means strong query understanding, retrieval, ranking and grounded results, and something that would be hard to build without Telem.
+- "Venture potential" means a clear customer with an urgent problem, a sizable market, a credible business model and an edge over competitors.
+- Finalists present for 3 minutes at 5:30, with slides.
+
+### What the weights mean for every lane
+
+Telem use is 40 percent of the score, so it must be deep and visible:
+
+1. Every web search goes through Telem. No other search API is called for search.
+2. Use the breadth of the API: pinned engines with `providers_include`, `auto_routing="accuracy"` for the baseline, Telem fetch for page reads, `published_after` for stale retries.
+3. Pass `goal` on every search. Open one Telem session per run and pass `session` on every call in that run, so each run shows up grouped in Telem's console.
+4. The UI shows which Telem engines were called as chips, and a running count of Telem calls.
+5. Final answers cite their source URLs.
+6. The hit matrix is our proof of "hard to build without Telem": six engines, one API, one result format, about 2,000 calls in minutes.
+
+### Tavily use (required by the event)
+
+Tavily co-hosts and we must use it. We use it in two places:
+
+1. **First engine on every search.** `FIRST_ENGINE = "tavily"`, called through Telem. Every Second Opinion search starts on Tavily.
+2. **Page reads in the `SHALLOW` rescue.** These call Tavily Extract directly with our own Tavily key, and fall back to Telem fetch if Extract fails. The agent's own `read_page` tool uses Telem fetch.
+
+Tavily Extract facts to verify at https://docs.tavily.com before coding: `pip install tavily-python`, key in `TAVILY_API_KEY`, `AsyncTavilyClient().extract(urls=[...])` returning `results` with `url` and `raw_content`, and `failed_results`.
+
+`so/tavily_client.py` (writer O0) exposes one function with the same return type as `fetch_page`:
+
+```python
+async def tavily_extract(url: str) -> PageText
+```
+
+It is cached and budgeted like the Telem wrapper. `fetch` events carry an extra field, `via`, set to `tavily` or `telem`. The UI shows which one read the page.
 - Team: Oliver and Shikhar. Each runs several coding agents in parallel lanes.
 
 ## 3. Vocabulary
@@ -86,6 +117,7 @@ second-opinion/
     contracts.py     pydantic models for section 6  O0, frozen at 11:15
     config.py        env, engine list, price table  O0
     telem_client.py  cached Telem wrapper           O0
+    tavily_client.py Tavily Extract wrapper         O0
     llm.py           model wrapper                  O0
     eventlog.py      JSONL event writer             O0
     checker.py  checker_eval.py                     O1
@@ -213,7 +245,7 @@ The checker sees the query, the goal, the top 5 results and today's date. It nev
 | Verdict | Action |
 |---|---|
 | `HIT` | Return results. Tell the agent to stop. |
-| `SHALLOW` | Fetch `best_url` and re-check on the page text |
+| `SHALLOW` | Read `best_url` with Tavily Extract (Telem fetch as fallback) and re-check on the page text |
 | `STALE` | Retry on the next engine from the rescue table, with `published_after` set and the checker's `rewrite` |
 | `WRONG_ENTITY` | Retry on the next engine from the rescue table, using the checker's `rewrite` |
 | `DEAD` | Retry once on the next engine from the rescue table with the checker's `rewrite` |
@@ -268,7 +300,7 @@ File: `out/logs/<run_id>.jsonl`, one event per line. Writer: whoever runs the ag
 | `search` | `query`, `goal`, `engines`, `n_results`, `latency_ms`, `cost_usd`, `cached` |
 | `check` | `verdict`, `confidence`, `why`, `evidence_rank` |
 | `rescue` | `action` (`RETRY_ENGINE`, `FETCH_PAGE`), `engine`, `query`, `reason` |
-| `fetch` | `url`, `ok`, `latency_ms`, `cost_usd` |
+| `fetch` | `url`, `ok`, `via` (`tavily` or `telem`), `latency_ms`, `cost_usd` |
 | `search_done` | `status`, `calls`, `fetches`, `cost_usd`, `latency_ms`, `note` |
 | `llm` | `role` (`agent`, `checker`, `judge`), `model`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms` |
 | `answer` | `final`, `status`, `citations` |
@@ -288,7 +320,9 @@ File: `out/results.json`. Writer: S4.
  "judge_agreement": {"n_checked": 30, "agree": 0}}
 ```
 
-Each setup block: `correct`, `wrong`, `declined`, `accuracy`, `wrong_rate`, `engine_calls_per_q`, `cost_per_q_search`, `cost_per_q_total`, `latency_p50_ms`, `latency_p95_ms`, `trap_n`, `trap_confident_wrong`.
+Each setup block: `correct`, `wrong`, `declined`, `accuracy`, `wrong_rate`, `engine_calls_per_q`, `cost_per_q_search`, `cost_per_q_total`, `cost_per_correct`, `cost_per_search_call`, `latency_p50_ms`, `latency_p95_ms`, `trap_n`, `trap_confident_wrong`.
+
+`cost_per_correct` is total cost divided by correct answers. `cost_per_search_call` is search plus checker cost divided by the number of search tool calls. Both feed the business slide.
 
 ### 6.13 Frontier and heatmap
 
@@ -372,6 +406,7 @@ Fallback, decided at 2:30: if miss recall on the learn split is under 70 percent
 
 ```
 TELEM_API_KEY=
+TAVILY_API_KEY=
 LLM_PROVIDER=anthropic          # or openai
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
