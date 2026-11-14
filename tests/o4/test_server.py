@@ -39,7 +39,10 @@ def settings(root: Path, **overrides) -> ServerSettings:
     return ServerSettings(**(values | overrides))
 
 
-def test_replay_preserves_all_events_and_original_timing(root):
+@pytest.mark.parametrize("name,right,event_count", [
+    ("stripe", "second_opinion", 25), ("ranked", "ranked_hit", 21),
+])
+def test_replay_preserves_all_events_and_original_timing(root, name, right, event_count):
     waits = []
 
     async def sleep(delay):
@@ -48,19 +51,19 @@ def test_replay_preserves_all_events_and_original_timing(root):
 
     with authenticated_client(create_app(settings=settings(root), replay_sleep=sleep)) as client:
         pairs = client.get("/replays").json()
-        assert len(pairs) == 1
-        assert pairs[0]["fixture"] is True
-        response = client.get("/replay/fixture-stripe")
+        assert len(pairs) == 2
+        assert all(pair["fixture"] is True for pair in pairs)
+        response = client.get(f"/replay/fixture-{name}")
         assert response.headers["content-type"].startswith("text/event-stream")
         rows = messages(response)
         assert rows[0][0] == "replay"
         assert rows[-1][0] == "complete"
-        for side, setup in (("left", "single"), ("right", "second_opinion")):
+        for side, setup in (("left", "single"), ("right", right)):
             actual = [data["event"] for kind, data in rows if kind == "log" and data["side"] == side]
             expected = [event.model_dump() for event in read_events(root / f"tests/o4/fixtures/{setup}.jsonl")]
             assert actual == expected
         assert sum(waits) == pytest.approx(3.7, abs=.1)
-        assert len(waits) == 25
+        assert len(waits) == event_count
 
 
 def test_replay_catalog_ignores_traversal_and_non_pair_manifests(root):
@@ -71,7 +74,7 @@ def test_replay_catalog_ignores_traversal_and_non_pair_manifests(root):
     with pytest.raises(ValueError, match="unsafe.json"):
         replay_catalog(directory, root / "tests/o4/fixtures")
     (directory / "unsafe.json").unlink()
-    assert list(replay_catalog(directory, root / "tests/o4/fixtures")) == ["fixture-stripe"]
+    assert list(replay_catalog(directory, root / "tests/o4/fixtures")) == ["fixture-ranked", "fixture-stripe"]
 
 
 def test_unknown_runs_and_replays_are_404(root):

@@ -45,7 +45,7 @@
         <p id="replay-only" class="mode">Replay-only mode. Live races are disabled on this server.</p>
         <form id="race-form"><label class="sr-only" for="question">Ask both agents a question</label><input id="question" name="question" readonly value="What was Stripe's valuation in its 2023 round?" maxlength="2000" required autocomplete="off"><button class="button" id="run-button" type="submit" hidden disabled>Run live <span aria-hidden="true">↗</span></button></form>
         <div id="credentials" hidden><label for="api-key">Backstop API key</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help"><p id="key-help">Required for live races. Kept only in this page until you close or reload it.</p></div>
-        <div class="race-toolbar"><p id="race-message" role="status">The recorded golden question plays when this section comes into view.</p><div><button class="quiet-button" id="replay-button" disabled>Play golden run ↺</button><button class="quiet-button" id="stop-button" hidden>Stop run ■</button></div></div>
+        <div class="race-toolbar"><p id="race-message" role="status">The recorded golden question plays when this section comes into view.</p><div><button class="quiet-button" id="race-theme" aria-pressed="false" aria-label="Toggle race light mode">Light mode</button><button class="quiet-button" id="replay-button" disabled>Play golden run ↺</button><button class="quiet-button" id="stop-button" hidden>Stop run ■</button></div></div>
         <div class="columns" id="columns"></div>
         <p class="race-footnote">Same model. Same question. Only the search tool changes. <span>Costs include the checker.</span></p>
       </div>

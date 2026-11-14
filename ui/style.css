@@ -11,3 +11,78 @@
 .answer-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.answer-details{margin-top:10px;font-size:11px;color:#c4c8b9}.answer-details summary{cursor:pointer;text-underline-offset:3px}.answer-details summary:hover{text-decoration:underline}.answer-full{margin-top:10px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 
 #replay-only{margin-top:24px}#credentials{margin-top:16px;max-width:560px}#credentials label{display:block;font-size:12px;margin-bottom:6px}#credentials input{border:1px solid #787e6b;font-size:16px;padding:12px}#key-help{font-size:12px;color:#d3d5c8;margin-top:6px}
+
+/* Race evidence uses the same hierarchy in both themes. */
+.race {
+  --race-bg: #232620;
+  --race-panel: #2c3027;
+  --race-text: #f4f2eb;
+  --race-muted: #c4c8b9;
+  --race-rule: #737b65;
+  --race-accent: #edb697;
+  --race-evidence: #a8ce9b;
+  --race-evidence-bg: #303c2c;
+  color-scheme: dark;
+  color: var(--race-text);
+  background: var(--race-bg);
+}
+.race[data-theme="light"] {
+  --race-bg: #f4f2eb;
+  --race-panel: #fffefa;
+  --race-text: #262821;
+  --race-muted: #555c49;
+  --race-rule: #8c927e;
+  --race-accent: #923c26;
+  --race-evidence: #345627;
+  --race-evidence-bg: #e7edde;
+  color-scheme: light;
+}
+.race .eyebrow, .race h2 em, .race .mode, .race .race-toolbar,
+.race .column-tag, .race .counters dt, .race .step-num, .race .step-note,
+.race .answer-label, .race .answer-details, .race .session, .race .race-footnote,
+.race .steps .empty, .race #key-help { color: var(--race-muted); }
+.race form, .race .run-status, .race .counters, .race .steps li,
+.race .chip, .race .verdict, .race .answer, .race .session,
+.race #credentials input { border-color: var(--race-rule); }
+.race input { background: var(--race-panel); color: var(--race-text); }
+.race input:disabled { opacity: 1; }
+.race .race-column { border-top-color: var(--race-text); }
+.race .race-column.ours, .race .ours .run-status, .race .ours .verdict { border-color: var(--race-accent); }
+.race .ours .column-name, .race .ours .column-tag, .race .ours .counters dd,
+.race .ours .run-status, .race .ours .verdict { color: var(--race-accent); }
+.race .verdict { color: var(--race-text); }
+.race .race-toolbar { flex-wrap: wrap; font-size: 14px; }
+.race .race-toolbar > div { flex-wrap: wrap; }
+.race .race-toolbar .quiet-button, .race .mode, .race .run-status { font-size: 13px; }
+.race .counters dd { font-size: clamp(40px, 3.9vw, 56px); }
+.race .counters dt { font-size: 12px; }
+.race .steps { height: 360px; scrollbar-color: var(--race-rule) transparent; }
+.race .steps li { padding: 18px 4px 18px 0; }
+.race .step-query { font-size: 18px; line-height: 1.4; gap: 12px; overflow-wrap: anywhere; }
+.race .step-num { font-size: 12px; flex: 0 0 22px; padding-top: 4px; }
+.race .step-chips { padding-left: 34px; gap: 8px; }
+.race .chip, .race .verdict { font-size: 13px; padding: 4px 8px; }
+.race .step-note { margin-left: 34px; font-size: 16px; }
+.engine-choice, .rescue-action { margin: 8px 0 0 34px; color: var(--race-muted); font-size: 16px; }
+.query-rewrite { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; margin: 12px 0 0 34px; font-size: 17px; }
+.query-rewrite dt { color: var(--race-muted); font: 13px/1.9 var(--mono); }
+.query-rewrite dd { overflow-wrap: anywhere; }
+.query-rewrite dd:last-child { font-weight: 600; }
+.checker-evidence { display: grid; gap: 5px; margin: 14px 0 0 34px; padding: 14px 16px; border-left: 3px solid var(--race-evidence); background: var(--race-evidence-bg); }
+.evidence-label { font-size: 22px; line-height: 1.3; }
+.evidence-link { font-size: 16px; color: var(--race-evidence); overflow-wrap: anywhere; }
+.evidence-unavailable { font-size: 14px; color: var(--race-muted); }
+.race .sources { gap: 10px 18px; font-size: 16px; }
+.race .sources a { color: var(--race-text); }
+.citation { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.verified-citation { color: var(--race-evidence); border: 1px solid var(--race-evidence); padding: 3px 7px; font-size: 14px; }
+.race .answer-details, .race .answer-full { font-size: 15px; }
+.race .session { font-size: 11px; }
+@media (max-width: 800px) {
+  .race .counters { grid-template-columns: 1fr 1.4fr; }
+  .race .counters > div:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 540px) {
+  .race .step-chips { padding-left: 0; }
+  .race .step-note, .engine-choice, .rescue-action, .query-rewrite, .checker-evidence { margin-left: 0; }
+}

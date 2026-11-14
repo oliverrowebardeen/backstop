@@ -1,4 +1,4 @@
-import {newRun, applyEvent, failRun, VERDICTS, safeURL} from './race-state.js';
+import {newRun, applyEvent, failRun, citationVerified, VERDICTS, safeURL} from './race-state.js';
 import {raceControls, liveHeaders} from './race-access.js';
 import {proofMetrics, efficientFrontier} from './proof.js';
 
@@ -40,12 +40,35 @@ function render(side) {
       const row = element('li'), title = element('div', 'step-query');
       title.append(element('span', 'step-num', String(i + 1).padStart(2, '0')), element('span', '', step.query));
       row.append(title);
+      if (step.choice) {
+        const choice = [step.choice.engine ? `First engine: ${step.choice.engine}` : null,
+          step.choice.questionType ? `Question type: ${step.choice.questionType}` : null].filter(Boolean).join(' · ');
+        row.append(element('p', 'engine-choice', choice));
+      }
+      if (step.rewrite) {
+        const rewrite = element('dl', 'query-rewrite');
+        for (const [label, query] of [['From', step.rewrite.from], ['To', step.rewrite.to]]) {
+          rewrite.append(element('dt', '', label), element('dd', '', query));
+        }
+        row.append(rewrite, element('p', 'rescue-action', step.action));
+      }
       const chips = element('div', 'step-chips');
       step.engines.forEach(engine => chips.append(element('span', 'chip', engine)));
       if (step.verdict) chips.append(element('span', 'verdict', VERDICTS[step.verdict] || step.verdict));
       if (step.cached) chips.append(element('span', 'chip', 'Cached'));
       if (chips.childNodes.length) row.append(chips);
       if (step.why) row.append(element('p', 'step-note', step.why));
+      if (step.evidence) {
+        const evidence = element('div', 'checker-evidence');
+        evidence.append(element('strong', 'evidence-label', step.evidence.label));
+        const url = safeURL(step.evidence.url);
+        if (url) {
+          const source = element('a', 'evidence-link', `${url.hostname.replace(/^www\./, '')}${url.pathname === '/' ? '' : url.pathname} ↗`);
+          source.href = url.href; source.target = '_blank'; source.rel = 'noopener noreferrer';
+          evidence.append(source);
+        } else evidence.append(element('span', 'evidence-unavailable', 'Source URL not recorded.'));
+        row.append(evidence);
+      }
       return row;
     }));
     steps.scrollTop = steps.scrollHeight;
@@ -57,10 +80,17 @@ function render(side) {
   find('.answer-text').textContent = lead || fullAnswer;
   find('.answer-full').textContent = fullAnswer;
   find('.answer-details').hidden = !state.answer;
-  find('.sources').replaceChildren(...(state.answer?.citations || []).map((url, i) => {
+  find('.sources').replaceChildren(...(state.failure ? [] : state.answer?.citations || []).map((url, i) => {
     const safe = safeURL(url); if (!safe) return null;
+    const citation = element('div', 'citation');
     const link = element('a', '', `[${i + 1}] ${safe.hostname.replace(/^www\./, '')} ↗`);
-    link.href = safe.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; return link;
+    link.href = safe.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; citation.append(link);
+    if (citationVerified(state, url)) {
+      const badge = element('span', 'verified-citation', 'Checker-verified');
+      badge.title = 'This source received a HIT verdict during this run.';
+      citation.append(badge);
+    }
+    return citation;
   }).filter(Boolean));
   $('#export-audit').disabled = !states.left?.events.length && !states.right?.events.length;
 }
@@ -125,6 +155,12 @@ function playReplay() {
   source.onerror = () => { source.close(); if (active) fail('The recording disconnected. You can replay it or run a question.'); };
 }
 $('#replay-button').addEventListener('click', playReplay);
+$('#race-theme').addEventListener('click', () => {
+  const light = $('#race').dataset.theme !== 'light';
+  $('#race').dataset.theme = light ? 'light' : 'dark';
+  $('#race-theme').textContent = light ? 'Dark mode' : 'Light mode';
+  $('#race-theme').setAttribute('aria-pressed', String(light));
+});
 $('#stop-button').addEventListener('click', () => { closeConnections(); fail('Stopped. The received events are still available to export.'); });
 
 async function consumeStream(response) {

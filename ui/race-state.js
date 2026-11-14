@@ -13,7 +13,40 @@ export const VERDICTS = {
 export function newRun(setup, firstEngine) {
   return {setup, firstEngine, events: [], seen: new Set(), runId: null, session: null, engineCalls: 0,
     telemCalls: 0, cost: 0, elapsed: 0, startedAt: null, finished: false,
-    steps: [], answer: null, failure: null, status: 'Ready'};
+    steps: [], currentSearch: null, currentCheck: null, sourceChecks: new Map(),
+    answer: null, failure: null, status: 'Ready'};
+}
+
+function textField(value) { return typeof value === 'string' && value.trim() ? value : null; }
+
+function sourceIdentity(value) {
+  const url = safeURL(value);
+  if (!url) return null;
+  url.hash = '';
+  return url.href;
+}
+
+/**
+ * A source badge records a checker HIT, not verification of the entire answer.
+ * @param {ReturnType<typeof newRun>} state
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function citationVerified(state, url) {
+  return state.sourceChecks.get(sourceIdentity(url)) === true;
+}
+
+function recordCheck(state, step, data) {
+  const rank = Number.isInteger(data.evidence_rank) && data.evidence_rank > 0 &&
+    (!Number.isInteger(step.resultCount) || data.evidence_rank <= step.resultCount) ? data.evidence_rank : null;
+  const url = safeURL(data.best_url || (step.kind === 'fetch' && step.ok ? step.url : null));
+  const identity = sourceIdentity(url?.href);
+  if (identity) state.sourceChecks.set(identity, data.verdict === 'HIT');
+  step.evidence = data.verdict === 'HIT' ? {
+    rank, url: url?.href || null,
+    label: step.kind === 'fetch' ? 'Answer on this page' : rank ? `Answer in result ${rank}` : 'Checker found evidence',
+  } : null;
+  Object.assign(step, {verdict: data.verdict, why: data.why});
 }
 
 /** A terminal stream failure can arrive after the agent's cleanup totals. */
@@ -48,26 +81,38 @@ export function applyEvent(state, event) {
     state.engineCalls += data.engines.length;
     state.telemCalls += 1;
     state.cost += data.cost_usd || 0;
-    state.steps.push({kind: 'search', query: data.query, goal: data.goal,
+    const engine = textField(data.first_engine);
+    const questionType = textField(data.question_type);
+    const step = {kind: 'search', query: data.query, goal: data.goal, resultCount: data.n_results,
       engines: [...data.engines].sort((a, b) => Number(b === state.firstEngine) - Number(a === state.firstEngine)),
-      verdict: null, why: '', cached: data.cached});
+      choice: engine || questionType ? {engine, questionType} : null,
+      verdict: null, why: '', cached: data.cached};
+    state.steps.push(step);
+    state.currentSearch = step;
+    state.currentCheck = step;
   } else if (event.type === 'check') {
-    const step = [...state.steps].reverse().find(item => ['search', 'fetch'].includes(item.kind));
-    if (step) Object.assign(step, {verdict: data.verdict, why: data.why});
+    if (state.currentCheck) recordCheck(state, state.currentCheck, data);
   } else if (event.type === 'rescue') {
-    state.steps.push({kind: 'rescue', query: data.action === 'FETCH_PAGE' ? 'Read the source page' : `Retry with ${data.engine}`,
-      why: data.reason, engines: [], verdict: null});
+    const from = textField(state.currentSearch?.query), to = textField(data.query);
+    const rewrite = from && to && from.trim() !== to.trim() ? {from, to} : null;
+    const action = data.action === 'FETCH_PAGE' ? 'Read the source page' : textField(data.engine) ? `Retry with ${data.engine}` : 'Retry search';
+    state.steps.push({kind: 'rescue', query: rewrite ? 'Rewrote query' : action,
+      rewrite, action, why: data.reason, engines: [], verdict: state.currentCheck?.verdict || null});
   } else if (event.type === 'fetch') {
     state.cost += data.cost_usd || 0;
     if (data.via === 'telem') state.telemCalls += 1;
-    state.steps.push({kind: 'fetch', query: data.via === 'tavily' ? 'read by Tavily Extract' : 'read by Telem fetch',
-      url: data.url, why: data.ok ? 'Page read completed.' : 'Page read did not return usable text.',
-      engines: [], verdict: null});
+    const step = {kind: 'fetch', query: data.via === 'tavily' ? 'read by Tavily Extract' : 'read by Telem fetch',
+      url: data.url, ok: data.ok, why: data.ok ? 'Page read completed.' : 'Page read did not return usable text.',
+      engines: [], verdict: null};
+    state.steps.push(step);
+    state.currentCheck = step;
   } else if (event.type === 'llm' && data.role !== 'judge') {
     state.cost += data.cost_usd || 0;
   } else if (event.type === 'search_done') {
-    const step = [...state.steps].reverse().find(item => item.kind === 'search');
+    const step = state.currentSearch;
     if (step && !step.verdict) step.verdict = data.status;
+    state.currentSearch = null;
+    state.currentCheck = null;
   } else if (event.type === 'answer') {
     state.answer = data;
   } else if (event.type === 'run_end') {

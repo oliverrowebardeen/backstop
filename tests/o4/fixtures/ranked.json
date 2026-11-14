@@ -1,0 +1,6 @@
+{
+  "title": "A rewrite finds evidence in result 2",
+  "fixture": true,
+  "left": "single.jsonl",
+  "right": "ranked_hit.jsonl"
+}
