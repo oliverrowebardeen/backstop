@@ -8,6 +8,7 @@ from so import config, telem_client
 
 @pytest.fixture(autouse=True)
 def isolated_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEM_API_KEY", "test-placeholder")
     monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(config, "SO_CACHE", "readwrite")
     monkeypatch.setattr(config, "SEARCH_BUDGET", config.Budget(1))
@@ -17,6 +18,10 @@ def isolated_cache(tmp_path, monkeypatch):
 def fake_client(monkeypatch):
     class Client:
         calls = []
+        options = []
+
+        def __init__(self, **kwargs):
+            self.options.append(kwargs)
 
         async def __aenter__(self):
             return self
@@ -83,3 +88,15 @@ async def test_concurrent_identical_calls_pay_once(fake_client):
     results = await asyncio.gather(*(telem_client.search_engines("q", ["tavily"]) for _ in range(8)))
     assert len(fake_client.calls) == 1
     assert sum(result["tavily"].cached for result in results) == 7
+
+
+async def test_provider_endpoint_timeout_and_content_overrides(fake_client, monkeypatch):
+    monkeypatch.setattr(config, "TELEM_FETCH_PROVIDER", "custom-fetch")
+    monkeypatch.setattr(config, "TELEM_BASE_URL", "https://telem.example")
+    monkeypatch.setattr(config, "TELEM_TIMEOUT_S", 7)
+    monkeypatch.setattr(config, "PAGE_TEXT_CHARS", 123)
+    page = await telem_client.fetch_page("https://example.com", session="s")
+    assert fake_client.options[0]["base_url"] == "https://telem.example"
+    assert fake_client.options[0]["timeout"] == 7
+    assert fake_client.calls[0]["providers"] == ["custom-fetch"]
+    assert len(page.text) == 123

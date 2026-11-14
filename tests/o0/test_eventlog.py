@@ -54,3 +54,10 @@ def test_trailing_partial_line_is_ignored_but_corruption_is_rejected(tmp_path):
         file.write('\n')
     with pytest.raises(json.JSONDecodeError):
         read_log(log.path)
+
+
+def test_default_log_directory_comes_from_config(tmp_path, monkeypatch):
+    from so import config
+    monkeypatch.setattr(config, "SO_LOG_DIR", tmp_path)
+    log = EventLog("single-q-config", "q", "single")
+    assert log.path.parent == tmp_path

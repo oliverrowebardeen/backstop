@@ -7,6 +7,7 @@ from pathlib import Path
 import threading
 from typing import Any
 
+from so import config
 from so.contracts import Event, EventType, Setup
 
 
@@ -14,11 +15,11 @@ class EventLog:
     """Write each validated event immediately, with a monotonically increasing seq."""
 
     def __init__(self, run_id: str, question_id: str, setup: Setup, *,
-                 log_dir: str | Path = "out/logs") -> None:
+                 log_dir: str | Path | None = None) -> None:
         if not run_id or Path(run_id).name != run_id or run_id in {".", ".."}:
             raise ValueError("run_id must be a filename component")
         self.run_id, self.question_id, self.setup = run_id, question_id, setup
-        self.path = Path(log_dir) / f"{run_id}.jsonl"
+        self.path = Path(log_dir if log_dir is not None else config.SO_LOG_DIR) / f"{run_id}.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         existing = read_log(self.path) if self.path.exists() else []
         self._seq = max((row["seq"] for row in existing), default=0)

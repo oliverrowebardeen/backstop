@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
+from so import config
+
 Setup = Literal["single", "telem_default", "second_opinion"]
 Verdict = Literal["HIT", "STALE", "WRONG_ENTITY", "SHALLOW", "DEAD"]
 EventType = Literal["run_start", "search", "check", "rescue", "fetch", "search_done", "llm", "answer", "run_end"]
@@ -79,7 +81,7 @@ class RescueTable(BaseModel):
     miss_counts: dict[str, int] = Field(default_factory=dict)
     rescue: dict[str, dict[str, RescueRate]] = Field(default_factory=dict)
     order_after: dict[str, list[str]] = Field(default_factory=dict)
-    fallback_order: list[str] = Field(default_factory=lambda: ["exa", "perplexity", "brave", "parallel", "ceramic"])
+    fallback_order: list[str] = Field(default_factory=lambda: list(config.fallback_order))
 
 
 class CheckerVerdict(BaseModel):

@@ -21,7 +21,7 @@ _SUCCESS = {"ok", "success", "succeeded"}
 
 def _snippet(row: dict[str, Any]) -> str:
     value = row.get("summary") or row.get("excerpt") or ""
-    return (" ".join(value) if isinstance(value, list) else value)[:500]
+    return (" ".join(value) if isinstance(value, list) else value)[:config.RESULT_SNIPPET_CHARS]
 
 
 def _normalize(raw: dict[str, Any], elapsed_ms: float, engines: list[str] | None) -> dict[str, EngineRun]:
@@ -55,7 +55,7 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
     if not query.strip() or not 1 <= num_results <= 20:
         raise ValueError("Search needs a nonempty query and 1 to 20 results")
     request: dict[str, Any] = dict(query=query, num_results=num_results,
-                                  goal=goal or query, tier="default")
+                                  goal=goal or query, tier=config.TELEM_TIER)
     if engines is not None:
         request["providers_include"] = engines
     else:
@@ -70,13 +70,14 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
                 update={"cached": True, "session_id": session})
                 for name, value in cached["normalized"].items()}
         # Auto-routing can select any available web engine. Reserve all known prices.
-        possible = engines if engines is not None else list(set(config.PRICE_USD) | {"exa"})
+        possible = engines if engines is not None else config.TELEM_ROUTING_ENGINES
         estimate = sum(config.PRICE_USD.get(e, config.DEFAULT_PRICE_USD) for e in possible)
         async with config.semaphore("telem", config.TELEM_MAX_CONCURRENCY):
             config.SEARCH_BUDGET.reserve(estimate)
             start = time.perf_counter()
             try:
-                async with AsyncTelem() as client:
+                async with AsyncTelem(api_key=config.api_key("telem"), base_url=config.TELEM_BASE_URL,
+                                      timeout=config.TELEM_TIMEOUT_S) as client:
                     response = await config.retry(lambda: client.search(**request, session=session))
                 raw = response.model_dump(mode="json")
             except BaseException:
@@ -91,7 +92,7 @@ async def _search(query: str, engines: list[str] | None, *, num_results: int,
             return runs
 
 
-async def search_engines(query: str, engines: list[str], *, num_results: int = 5,
+async def search_engines(query: str, engines: list[str], *, num_results: int = config.TELEM_NUM_RESULTS,
                          goal: str | None = None, published_after: str | None = None,
                          session: str | None = None) -> dict[str, EngineRun]:
     """Search only the named engines; keep failed engines in the returned mapping."""
@@ -104,14 +105,14 @@ async def search_engines(query: str, engines: list[str], *, num_results: int = 5
 async def search_default(query: str, *, goal: str | None = None,
                          session: str | None = None) -> dict[str, EngineRun]:
     """Ask Telem to choose engines using accuracy routing."""
-    return await _search(query, None, num_results=5, goal=goal,
+    return await _search(query, None, num_results=config.TELEM_NUM_RESULTS, goal=goal,
                          published_after=None, session=session)
 
 
 async def fetch_page(url: str, *, session: str | None = None) -> PageText:
     """Read one page through Telem's fetch API in the caller's session."""
-    request = dict(urls=[url], providers=["tavily"], inline_content=True,
-                   inline_max_chars=6000, content_format="text")
+    request = dict(urls=[url], providers=[config.TELEM_FETCH_PROVIDER], inline_content=True,
+                   inline_max_chars=config.PAGE_TEXT_CHARS, content_format=config.PAGE_CONTENT_FORMAT)
     key = config.cache_key("telem-fetch-v1", request)
     async with config.semaphore(key, 1):
         cached = config.read_cache(key)
@@ -123,7 +124,8 @@ async def fetch_page(url: str, *, session: str | None = None) -> PageText:
             config.SEARCH_BUDGET.reserve(estimate)
             start = time.perf_counter()
             try:
-                async with AsyncTelem() as client:
+                async with AsyncTelem(api_key=config.api_key("telem"), base_url=config.TELEM_BASE_URL,
+                                      timeout=config.TELEM_TIMEOUT_S) as client:
                     response = await config.retry(lambda: client.fetch(**request, session=session))
                 raw = response.model_dump(mode="json")
             except BaseException:
@@ -131,7 +133,7 @@ async def fetch_page(url: str, *, session: str | None = None) -> PageText:
                 raise
             row = next(iter(raw.get("results") or []), {})
             ok = row.get("status") in _SUCCESS
-            page = PageText(url=url, ok=ok, text=(row.get("content") or "")[:6000] if ok else "",
+            page = PageText(url=url, ok=ok, text=(row.get("content") or "")[:config.PAGE_TEXT_CHARS] if ok else "",
                             latency_ms=(time.perf_counter() - start) * 1000,
                             cost_usd=estimate if ok else 0, session_id=raw.get("session_id") or session)
             config.write_cache(key, {"request": request, "raw": raw, "normalized": page.model_dump(mode="json")})
