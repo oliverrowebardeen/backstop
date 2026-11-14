@@ -11,7 +11,7 @@ import argparse
 import asyncio
 import json
 import math
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from time import perf_counter
 from typing import Any
@@ -23,6 +23,10 @@ from so import config
 from so.contracts import CheckerVerdict, EngineRun, PageText, Result, RunContext, SearchOutcome
 from so.memory import RunMemory
 from so.policy import Action, freshness_cutoff, load_rescue_table, next_action
+
+
+EngineSearch = Callable[..., Awaitable[dict[str, EngineRun]]]
+"""Signature of so.telem_client.search_engines; injectable for alternate Telem clients."""
 
 
 class SearchError(RuntimeError):
@@ -265,18 +269,24 @@ def _error_text(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
-async def search(query: str, goal: str, ctx: RunContext, *, limits: SearchLimits | None = None) -> SearchOutcome:
+async def search(query: str, goal: str, ctx: RunContext, *, limits: SearchLimits | None = None,
+                 engine_search: EngineSearch | None = None) -> SearchOutcome:
     """Return verified evidence, or an explicit instruction to avoid guessing.
 
-    `limits` overrides the so.config defaults for this call only. Raises
+    `limits` overrides the so.config defaults for this call only. `engine_search`
+    replaces so.telem_client.search_engines (same signature), which the drop-in
+    client uses to route calls through its own Telem client. Raises
     TelemUnavailable only when Telem returns nothing usable at all.
     """
     trace = _Trace(ctx.log)
-    return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config())
+    return await _search(query, goal, ctx, trace, limits or SearchLimits.from_config(), engine_search)
 
 
-async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits: SearchLimits) -> SearchOutcome:
-    from so.telem_client import search_engines
+async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits: SearchLimits,
+                  engine_search: EngineSearch | None = None) -> SearchOutcome:
+    if engine_search is None:
+        from so.telem_client import search_engines as engine_search
+    search_engines = engine_search
 
     started = perf_counter()
     table = load_rescue_table()
