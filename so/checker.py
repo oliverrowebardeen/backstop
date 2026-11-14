@@ -6,8 +6,9 @@ definitions). `check_page` re-checks a page read on the SHALLOW path. Each
 makes one call on CHECKER_MODEL and never sees gold answers.
 
 The model's JSON is validated, then hardened so a wrong HIT is unlikely:
-a HIT must point at a real result and clear HIT_MIN_CONFIDENCE, otherwise it
-becomes SHALLOW on that result so the page gets read instead of trusted.
+a HIT must point at a real result and clear CHECKER_HIT_MIN_CONFIDENCE,
+otherwise it becomes SHALLOW on that result so the page gets read instead of
+trusted.
 
 Errors are explicit. A malformed or truncated reply is retried once; a second
 bad reply is logged and returns a DEAD verdict whose `why` is MALFORMED_WHY or
@@ -16,10 +17,10 @@ A reply cut off at the output cap is never parsed, even if it looks complete. A 
 fails after the llm wrapper's own retries raises `CheckerError`, and budget
 errors propagate unchanged.
 
-Settings (environment, read after so.config loads .env):
+Settings live in the Checker section of so.config, backed by the environment:
     CHECKER_HIT_MIN_CONFIDENCE  minimum confidence to accept a HIT, default 0.6
-    CHECKER_MAX_TOKENS          output cap per call (so.config), default 399
-    CHECKER_THINKING            model thinking mode (so.config), default disabled
+    CHECKER_THINKING            model thinking mode, default disabled
+    CHECKER_MAX_TOKENS          output cap per call, default 399
 
 Both functions return a `CheckedVerdict`: a `CheckerVerdict` that also carries
 the checker's own cost, tokens and latency. Those extra fields are excluded
@@ -30,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -39,6 +39,7 @@ from typing import Any
 
 from pydantic import Field
 
+from so import config
 from so.config import CHECKER_MODEL, PAGE_TEXT_CHARS, RESULT_SNIPPET_CHARS, TELEM_NUM_RESULTS, BudgetExceeded
 from so.contracts import CheckerVerdict, LLMResponse, PageText, Result, RunContext
 
@@ -53,16 +54,6 @@ PAGE_CHARS = PAGE_TEXT_CHARS
 WHY_CHARS = 300
 REWRITE_CHARS = 300
 
-
-def _unit_interval(name: str, default: str) -> float:
-    value = float(os.getenv(name, default))
-    if not 0 <= value <= 1:
-        raise ValueError(f"{name} must be between 0 and 1, got {value}")
-    return value
-
-
-# A HIT below this confidence is treated as "probably the right page" and read.
-HIT_MIN_CONFIDENCE = _unit_interval("CHECKER_HIT_MIN_CONFIDENCE", "0.6")
 MALFORMED_WHY = "checker output malformed"
 TRUNCATED_WHY = "checker output truncated"
 # Stop reasons meaning the reply hit the output cap (Anthropic, OpenAI).
@@ -231,7 +222,7 @@ def parse_verdict(text: str, results: Sequence[Result], query: str) -> CheckerVe
     page = results[rank - 1].url if rank is not None else None
 
     if verdict == "HIT":
-        if page is not None and confidence >= HIT_MIN_CONFIDENCE:
+        if page is not None and confidence >= config.CHECKER_HIT_MIN_CONFIDENCE:
             return CheckerVerdict(verdict="HIT", confidence=confidence, why=why, evidence_rank=rank,
                                   best_url=page, rewrite=None)
         # An unsupported or unsure HIT: read the page it pointed at rather than trust it.
@@ -259,7 +250,7 @@ def parse_page_verdict(text: str, url: str, query: str) -> CheckerVerdict:
     confidence = _confidence(raw.get("confidence"))
     why = _why(raw.get("why"))
     rewrite = _text(raw.get("rewrite"), REWRITE_CHARS) or query
-    if verdict == "HIT" and confidence >= HIT_MIN_CONFIDENCE:
+    if verdict == "HIT" and confidence >= config.CHECKER_HIT_MIN_CONFIDENCE:
         return CheckerVerdict(verdict="HIT", confidence=confidence, why=why, best_url=url, rewrite=None)
     if verdict in ("HIT", "SHALLOW"):
         why = _one_line(f"Page does not clearly state it: {why}", WHY_CHARS)

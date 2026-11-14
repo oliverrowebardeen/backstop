@@ -49,6 +49,6 @@
 - O4 not done: none within lane scope. Run one server worker. Recordings use the manifest format in server/README.md; real evaluation artifacts are read from the configured output paths.
 
 ## O1: Checker
-- Built: so/checker.py (`check`, `check_page`; returns a CheckerVerdict that also carries the call's cost, logs its own `llm` event when given `ctx`, raises CheckerError on a failed call) with prompts in so/prompts/, and so/checker_eval.py. Learn split, Tavily, 100 searches: miss recall 0.867, false alarms 0.100, HIT precision 0.940, 0 malformed or truncated replies, largest reply 121 output tokens, $0.00057 per check.
-- Run: `python -m so.checker_eval --split learn --show 5` (refuses any other split); `python -m tests.o1.live_examples` (15 hand-made cases, 15/15); `pytest tests/o1`.
-- Not done: fact-question miss recall is 0.714 (4 confident wrong HITs on 14 misses); finance false alarms are 3 of 6. Not tuned further, to avoid fitting 100 questions.
+- Built: so/checker.py (`check`, `check_page`; one Haiku call, prompts in so/prompts/, settings in the Checker section of so/config.py) and so/checker_eval.py. Learn split, Tavily, 100 searches (30 true misses, 70 true hits): miss recall 0.867 (target 0.85), false alarms 0.100 (target 0.25), HIT precision 0.940, 0 malformed or truncated replies, largest reply 121 output tokens, $0.00056 per check. 17 results were dropped before checking because they copy the benchmark itself (dataset viewers, answer sheets); the matrix judge dropped them too, so the checker is scored on the same results the truth was built from.
+- Run: `python -m so.checker_eval --split learn --show 5` (refuses any other split, exit 2); `python -m tests.o1.live_examples` (15 hand-made cases, 15/15); `pytest tests/o1`.
+- Not done: fact-question miss recall is 0.714 (4 confident wrong HITs on 14 misses) and finance false alarms are 3 of 6. Left untuned so the checker is not fitted to 100 questions.
