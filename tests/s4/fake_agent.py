@@ -65,8 +65,8 @@ class _Run:
         else:
             model, tin, tout, lat = (CHECKER_MODEL, 900 + _h("in", *key) % 600, 40 + _h("out", *key) % 60,
                                      250 + _h("lat", *key) % 400)
-        rate_in, rate_out = LLM_PRICE_USD[model]
-        cost = (tin * rate_in + tout * rate_out) / 1e6
+        rates = LLM_PRICE_USD[model]  # USD per million tokens
+        cost = (tin * rates["input"] + tout * rates["output"]) / 1e6
         self.cost_llm += cost
         self.latency += lat
         self.log.emit("llm", role=role, model=model, tokens_in=tin, tokens_out=tout, cost_usd=cost, latency_ms=lat)
