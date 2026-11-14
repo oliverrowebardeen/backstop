@@ -10,6 +10,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -39,30 +40,70 @@ def load_env(path: Path = ROOT / ".env") -> None:
             os.environ.setdefault(key, " ".join(parts))
 
 
-load_env()
-ENGINES = ["tavily", "exa", "brave", "perplexity", "parallel", "ceramic"]
-FIRST_ENGINE = "tavily"
-SUBSTITUTES = ["seltz", "you", "linkup"]
-fallback_order = ["exa", "perplexity", "brave", "parallel", "ceramic"]
+def _csv(name: str, default: str) -> list[str]:
+    return list(dict.fromkeys(item.strip() for item in os.getenv(name, default).split(",") if item.strip()))
+
+
+def api_key(provider: str) -> str:
+    """Read a configured credential without exposing its value in errors."""
+    name = f"{provider.upper()}_API_KEY"
+    value = os.getenv(name, "")
+    if not value:
+        raise ValueError(f"{name} is required")
+    return value
+
+
+load_env(Path(os.getenv("SO_ENV_FILE", str(ROOT / ".env"))))
+ENGINES = _csv("ENGINES", "tavily,exa,brave,perplexity,parallel,ceramic")
+FIRST_ENGINE = os.getenv("FIRST_ENGINE", "tavily")
+SUBSTITUTES = _csv("SUBSTITUTES", "seltz,you,linkup")
+fallback_order = _csv("FALLBACK_ORDER", "exa,perplexity,brave,parallel,ceramic")
 FALLBACK_ORDER = fallback_order
 PRICE_USD = {"tavily": 0.005, "brave": 0.005, "you": 0.005,
              "parallel": 0.001, "ceramic": 0.00005, "tinyfish": 0.0,
              "perplexity": 0.005, "seltz": 0.005, "linkup": 0.005,
              "serpapi": 0.006}
-DEFAULT_PRICE_USD = 0.005
-TELEM_FETCH_PRICE_USD = 0.001  # Pin Telem fetch to Tavily for a known page price.
+PRICE_USD.update(json.loads(os.getenv("PRICE_USD_JSON", "{}")))
+DEFAULT_PRICE_USD = float(os.getenv("DEFAULT_PRICE_USD", "0.005"))
+TELEM_FETCH_PROVIDER = os.getenv("TELEM_FETCH_PROVIDER", "tavily")
+TELEM_FETCH_PRICE_USD = float(os.getenv("TELEM_FETCH_PRICE_USD", "0.001"))
+TELEM_ROUTING_ENGINES = _csv("TELEM_ROUTING_ENGINES", ",".join(dict.fromkeys(ENGINES + SUBSTITUTES + list(PRICE_USD))))
+TELEM_BASE_URL = os.getenv("TELEM_BASE_URL", "https://router.telem.ai")
+TELEM_TIMEOUT_S = float(os.getenv("TELEM_TIMEOUT_S", "60"))
+TELEM_TIER = os.getenv("TELEM_TIER", "default")
+TELEM_NUM_RESULTS = int(os.getenv("TELEM_NUM_RESULTS", "5"))
+RESULT_SNIPPET_CHARS = int(os.getenv("RESULT_SNIPPET_CHARS", "500"))
+PAGE_TEXT_CHARS = int(os.getenv("PAGE_TEXT_CHARS", "6000"))
+PAGE_CONTENT_FORMAT = os.getenv("PAGE_CONTENT_FORMAT", "text")
 # Basic Extract: 1 credit per 5 successes; PAYG credit price is $0.008.
 # https://docs.tavily.com/documentation/api-credits
 TAVILY_CREDIT_USD = float(os.getenv("TAVILY_CREDIT_USD", "0.008"))
-TAVILY_EXTRACT_PRICE_USD = TAVILY_CREDIT_USD / 5
+TAVILY_EXTRACT_PRICE_USD = float(os.getenv("TAVILY_EXTRACT_PRICE_USD", str(TAVILY_CREDIT_USD / 5)))
+TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com")
+TAVILY_TIMEOUT_S = float(os.getenv("TAVILY_TIMEOUT_S", "30"))
+TAVILY_EXTRACT_DEPTH = os.getenv("TAVILY_EXTRACT_DEPTH", "basic")
 SO_CACHE = os.getenv("SO_CACHE", "readwrite")
 if SO_CACHE not in {"readwrite", "off"}:
     raise ValueError("SO_CACHE must be readwrite or off")
 CACHE_DIR = Path(os.getenv("SO_CACHE_DIR", str(ROOT / "cache")))
+OUT_DIR = Path(os.getenv("SO_OUT_DIR", str(ROOT / "out")))
+SO_OUT_DIR = OUT_DIR
+SO_LOG_DIR = Path(os.getenv("SO_LOG_DIR", str(OUT_DIR / "logs")))
 TELEM_MAX_CONCURRENCY = int(os.getenv("TELEM_MAX_CONCURRENCY", "16"))
 TELEM_BUDGET_USD = float(os.getenv("TELEM_BUDGET_USD", "25"))
 LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "8"))
 LLM_BUDGET_USD = float(os.getenv("LLM_BUDGET_USD", "25"))
+LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "90"))
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+ANTHROPIC_MESSAGES_URL = os.getenv("ANTHROPIC_MESSAGES_URL", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages")
+OPENAI_CHAT_URL = os.getenv("OPENAI_CHAT_URL", OPENAI_BASE_URL.rstrip("/") + "/chat/completions")
+ANTHROPIC_API_VERSION = os.getenv("ANTHROPIC_API_VERSION", "2023-06-01")
+LLM_MAX_TOKENS = {"checker": 399, "agent": 2048, "judge": 1024}
+LLM_MAX_TOKENS.update(json.loads(os.getenv("LLM_MAX_TOKENS_JSON", "{}")))
+LLM_TOKEN_RESERVE_OVERHEAD = int(os.getenv("LLM_TOKEN_RESERVE_OVERHEAD", "1024"))
+API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "3"))
+API_RETRY_BACKOFF_S = float(os.getenv("API_RETRY_BACKOFF_S", "0.5"))
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
 CHECKER_MODEL = os.getenv("CHECKER_MODEL", "claude-haiku-5-5")
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5-5")
@@ -79,7 +120,7 @@ class BudgetExceeded(RuntimeError):
 
 class Budget:
     def __init__(self, limit: float) -> None:
-        if limit < 0:
+        if not math.isfinite(limit) or limit < 0:
             raise ValueError("Budget must be nonnegative")
         self.limit = limit
         self.spent = 0.0
@@ -87,7 +128,7 @@ class Budget:
         self._lock = threading.Lock()
 
     def reserve(self, amount: float) -> None:
-        if amount < 0:
+        if not math.isfinite(amount) or amount < 0:
             raise ValueError("Reservation must be nonnegative")
         with self._lock:
             if self.spent + self.reserved + amount > self.limit + 1e-12:
@@ -145,14 +186,14 @@ def write_cache(key: str, value: dict[str, Any]) -> None:
 
 async def retry(call: Callable[[], Awaitable[T]]) -> T:
     """Initial attempt plus at most three retries for 429 or 5xx."""
-    for attempt in range(4):
+    for attempt in range(API_MAX_RETRIES + 1):
         try:
             return await call()
         except Exception as exc:
             status = getattr(exc, "status_code", None)
             if status is None:
                 status = getattr(getattr(exc, "response", None), "status_code", None)
-            if attempt == 3 or status is None or not (status == 429 or 500 <= status < 600):
+            if attempt == API_MAX_RETRIES or status is None or not (status == 429 or 500 <= status < 600):
                 raise
-            await asyncio.sleep(0.5 * 2**attempt)
+            await asyncio.sleep(API_RETRY_BACKOFF_S * 2**attempt)
     raise AssertionError("Retry loop exhausted")
