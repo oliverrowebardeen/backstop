@@ -4,8 +4,7 @@
 
 Reads every finished log in out/logs/ (a log with run_end) through so.eventlog,
 grades the final answer with evals.judge.grade_answer (cached on disk), and
-totals costs from the log. With SO_FAKE=1 everything is read from and written
-to out/fake/.
+totals costs from the log.
 
 Definitions (sections 6.12 and 7):
 - Setup blocks cover test, non-trap questions. Traps are reported separately.
@@ -40,10 +39,10 @@ from pathlib import Path
 import numpy as np
 
 from data.load import load_questions, load_traps
-from evals.deps import OUT
+from evals import deps
 from evals.retrieval import checker_metrics as offline_checker_metrics
 from evals.retrieval import coverage_by_setup, judge_runs
-from evals.run_eval import LOG_DIR, MANIFEST, SETUPS, finished_runs
+from evals.run_eval import MANIFEST_NAME, SETUPS, default_log_dir, finished_runs
 from so import eventlog
 from so.config import ENGINES, FIRST_ENGINE, LLM_MAX_CONCURRENCY
 from so.contracts import Results
@@ -51,9 +50,9 @@ from so.contracts import Results
 GRADES = ("correct", "wrong", "declined")
 OURS = "second_opinion"
 BASELINES = [s for s in SETUPS if s != OURS]
-RESULTS_JSON = OUT / "results.json"
-RESULTS_MD = OUT / "results.md"
-AGREEMENT = OUT / "judge_agreement.json"
+RESULTS_JSON = "results.json"
+RESULTS_MD = "results.md"
+AGREEMENT = "judge_agreement.json"
 assert OURS in SETUPS
 
 
@@ -193,10 +192,12 @@ def _provenance(runs: dict) -> dict:
             "telem_base_url": config.TELEM_BASE_URL, "scored_at_commit": commit}
 
 
-async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
+async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dict:
     from evals.judge import SPEND
+    log_dir = default_log_dir() if log_dir is None else log_dir
+    out_dir = deps.OUT if out_dir is None else out_dir
     questions = {q.id: q for q in load_questions(split="test") + [t for t in load_traps() if t.split == "test"]}
-    manifest_path = Path(out_dir) / MANIFEST.name
+    manifest_path = Path(out_dir) / MANIFEST_NAME
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     scope = set(manifest.get("test_ids", [])) | set(manifest.get("trap_ids", [])) or set(questions)
     scope &= set(questions)
@@ -240,7 +241,7 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
                            "(offline judge on the exact, contamination-filtered result lists)",
                  "cohort": "test questions every setup finished and the judge graded"}
 
-    agree_path = Path(out_dir) / AGREEMENT.name
+    agree_path = Path(out_dir) / AGREEMENT
     if agree_path.exists():
         a = json.loads(agree_path.read_text())
         judge_agreement = {"n_checked": int(a["n_checked"]), "agree": int(a["agree"]),
@@ -407,12 +408,13 @@ def render_md(r: dict) -> str:
 def main(argv=None) -> None:
     argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args(argv)
     results = asyncio.run(score())
-    OUT.mkdir(parents=True, exist_ok=True)
-    RESULTS_JSON.write_text(json.dumps(results, indent=2))
+    out = deps.OUT
+    out.mkdir(parents=True, exist_ok=True)
+    (out / RESULTS_JSON).write_text(json.dumps(results, indent=2))
     md = render_md(results)
-    RESULTS_MD.write_text(md)
+    (out / RESULTS_MD).write_text(md)
     print(md)
-    print(f"wrote {RESULTS_JSON} and {RESULTS_MD}")
+    print(f"wrote {out / RESULTS_JSON} and {out / RESULTS_MD}")
 
 
 if __name__ == "__main__":

@@ -19,8 +19,8 @@ run_end event, no error and an answer. Logs without one (a crash, a kill, an
 agent error) are ignored; the rerun
 writes a fresh log with a new run_id.
 
-Logs are read with so.eventlog. The agent is so.agent; with SO_FAKE=1 it is the
-test double in tests/s4/ and everything is written under out/fake/.
+Logs are read with so.eventlog. The agent is so.agent unless AGENT is set to
+another module with the same run_question; outputs go under evals.deps.OUT.
 """
 from __future__ import annotations
 
@@ -37,25 +37,31 @@ from pathlib import Path
 from typing import get_args
 
 from data.load import load_questions, load_traps
-from evals import contamination
-from evals.deps import FAKE, OUT
+from evals import contamination, deps
 from so import eventlog
 from so.config import LLM_MAX_CONCURRENCY
 from so.contracts import Setup
 from so.telem_client import RESULT_FILTER
 
 SETUPS: list[str] = list(get_args(Setup))
-LOG_DIR = OUT / "logs"
-MANIFEST = OUT / "eval_manifest.json"
+MANIFEST_NAME = "eval_manifest.json"
 # Per run: how many search results the benchmark-contamination filter removed.
-CONTAMINATION_LOG = OUT / "eval_contamination.jsonl"
+CONTAMINATION_NAME = "eval_contamination.jsonl"
+# The module whose run_question the eval drives. None means so.agent (imported on first use).
+AGENT = None
+
+
+def default_log_dir() -> Path:
+    return deps.OUT / "logs"
+
+
+def manifest_path() -> Path:
+    return deps.OUT / MANIFEST_NAME
 
 
 def load_agent():
-    """The single switch between the real agent and the SO_FAKE=1 test double."""
-    if FAKE:
-        from tests.s4 import fake_agent
-        return fake_agent
+    if AGENT is not None:
+        return AGENT
     from so import agent
     return agent
 
@@ -139,8 +145,9 @@ def _record_contamination(path: Path, row: dict) -> None:
         print(f"  ! could not record contamination counts in {path}: {e}", file=sys.stderr)
 
 
-def write_manifest(test, traps, setups, limit, max_test, traps_only, path: Path = MANIFEST) -> dict:
+def write_manifest(test, traps, setups, limit, max_test, traps_only, path: Path | None = None) -> dict:
     """Record what this eval covers. --traps-only keeps the earlier test set."""
+    path = manifest_path() if path is None else Path(path)
     old = json.loads(path.read_text()) if path.exists() else {}
     keep = traps_only and bool(old)
     m = {
@@ -180,10 +187,10 @@ async def _call_agent(agent, q, setup: str, log_dir: Path):
     return await asyncio.to_thread(fn, q, setup, log_dir=str(log_dir))
 
 
-async def run(test, traps, setups: list[str], log_dir: Path = LOG_DIR,
+async def run(test, traps, setups: list[str], log_dir: Path | None = None,
               concurrency: int = LLM_MAX_CONCURRENCY) -> dict:
     agent = load_agent()
-    log_dir = Path(log_dir)
+    log_dir = default_log_dir() if log_dir is None else Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     done = finished_runs(log_dir)
     prior_spend = sum(run_cost(p) for p in done.values())
@@ -224,7 +231,7 @@ async def run(test, traps, setups: list[str], log_dir: Path = LOG_DIR,
                     await _call_agent(agent, q, setup, log_dir)
                 finally:
                     RESULT_FILTER.reset(token)
-                _record_contamination(Path(log_dir).parent / CONTAMINATION_LOG.name,
+                _record_contamination(Path(log_dir).parent / CONTAMINATION_NAME,
                                       {"question_id": q.id, "setup": setup, **seen})
                 path = _finished_since(log_dir, q.id, setup, started - 1)
                 if path is None:
@@ -270,7 +277,7 @@ def main(argv=None) -> None:
     m = write_manifest(test, traps, setups, args.limit, args.max_test, args.traps_only)
     if m.get("note"):
         print(f"note: {m['note']}")
-    asyncio.run(run(test, traps, setups, LOG_DIR, args.concurrency))
+    asyncio.run(run(test, traps, setups, default_log_dir(), args.concurrency))
 
 
 if __name__ == "__main__":

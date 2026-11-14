@@ -1,4 +1,4 @@
-"""Test double for so.agent.run_question (section 6.10), used only with SO_FAKE=1.
+"""Test double for so.agent.run_question (section 6.10); tests install it as evals.run_eval.AGENT.
 
 Writes a full section 6.11 log through the real so.eventlog.EventLog, so every
 event is validated against so.contracts.Event. Prices, models and engines come

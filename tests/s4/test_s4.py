@@ -63,23 +63,29 @@ def test_finished_runs_newest_wins(tmp_path):
 
 
 def test_run_skips_finished_and_reruns_half_finished(tmp_path):
+    from evals.run_eval import default_log_dir
+    logs = default_log_dir()  # evals.deps.OUT / "logs", under tmp_path (tests/s4/conftest.py)
+    assert logs.is_relative_to(tmp_path)
+    logs.mkdir(parents=True)
     qs = load_questions(split="test")[:3]
     # a crashed earlier attempt for qs[0]
-    write_log(tmp_path / f"single-{qs[0].id}-deadbeef.jsonl", [ev("run_start", qid=qs[0].id, question="q")])
-    state = asyncio.run(run(qs, [], ["single"], tmp_path, concurrency=2))
+    write_log(logs / f"single-{qs[0].id}-deadbeef.jsonl", [ev("run_start", qid=qs[0].id, question="q")])
+    state = asyncio.run(run(qs, [], ["single"], concurrency=2))
     assert state["done"] == 3 and not state["failures"]
-    assert set(finished_runs(tmp_path)) == {(q.id, "single") for q in qs}
-    assert len(list(tmp_path.glob(f"single-{qs[0].id}-*.jsonl"))) == 2  # old one kept, ignored
-    again = asyncio.run(run(qs, [], ["single"], tmp_path, concurrency=2))
+    assert set(finished_runs(logs)) == {(q.id, "single") for q in qs}
+    assert len(list(logs.glob(f"single-{qs[0].id}-*.jsonl"))) == 2  # old one kept, ignored
+    assert len((logs.parent / "eval_contamination.jsonl").read_text().splitlines()) == 3
+    again = asyncio.run(run(qs, [], ["single"], concurrency=2))
     assert again["done"] == 0
 
 
 def test_run_catches_agent_errors(tmp_path, monkeypatch):
+    logs = tmp_path / "logs"
     qs = load_questions(split="test")[:3]
     monkeypatch.setenv("FAKE_AGENT_FAIL", qs[1].id)
-    state = asyncio.run(run(qs, [], ["second_opinion"], tmp_path, concurrency=3))
+    state = asyncio.run(run(qs, [], ["second_opinion"], logs, concurrency=3))
     assert [f[0] for f in state["failures"]] == [qs[1].id]
-    assert set(finished_runs(tmp_path)) == {(qs[0].id, "second_opinion"), (qs[2].id, "second_opinion")}
+    assert set(finished_runs(logs)) == {(qs[0].id, "second_opinion"), (qs[2].id, "second_opinion")}
 
 
 # ---------------------------------------------------------------- cost_per_search_call

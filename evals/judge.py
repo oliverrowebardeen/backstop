@@ -13,10 +13,10 @@ import json
 import re
 from pathlib import Path
 
-from evals.deps import JUDGE_CACHE, get, llm
+from evals import deps
+from evals.deps import get
 from so import config
 
-CACHE = JUDGE_CACHE
 SPEND = {"judge_usd": 0.0, "judge_calls": 0, "judge_cached": 0}
 
 HIT_SYSTEM = """You grade search results for an evaluation. You are given a question,
@@ -129,7 +129,8 @@ def _validate(out: object, kind: str, n_results: int) -> dict:
 async def _call(system: str, user: str, kind: str, schema: dict, n_results: int = 0) -> dict:
     use_cache = config.SO_CACHE != "off"
     cache_key = _key(kind, provenance(), schema, system, user)
-    path = CACHE / f"{cache_key}.json"
+    cache_dir = deps.JUDGE_CACHE
+    path = cache_dir / f"{cache_key}.json"
     if use_cache and path.exists():
         try:
             cached = _validate(json.loads(path.read_text()), kind, n_results)
@@ -139,7 +140,7 @@ async def _call(system: str, user: str, kind: str, schema: dict, n_results: int 
             path.unlink(missing_ok=True)  # a bad cache entry is re-judged, never used
     last_err: Exception | None = None
     for _ in range(3):
-        resp = await llm.complete("judge", system, [{"role": "user", "content": user}], json_schema=schema)
+        resp = await deps.llm.complete("judge", system, [{"role": "user", "content": user}], json_schema=schema)
         SPEND["judge_usd"] += float(get(resp, "cost_usd", 0) or 0)
         SPEND["judge_calls"] += 1
         stop = get(resp, "stop_reason")
@@ -155,7 +156,7 @@ async def _call(system: str, user: str, kind: str, schema: dict, n_results: int 
     else:
         raise JudgeError(f"judge returned no valid {kind} verdict after 3 attempts: {last_err}")
     if use_cache:
-        CACHE.mkdir(parents=True, exist_ok=True)
+        cache_dir.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({**out, "_provenance": provenance(),
                                     "_cost_usd": float(get(resp, "cost_usd", 0) or 0)}))
     return out

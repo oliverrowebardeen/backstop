@@ -16,17 +16,16 @@ import random
 import textwrap
 
 from data.load import load_all
+from evals import deps
 from evals.contamination import filter_results
-from evals.deps import OUT
-from evals.matrix import MATRIX, RESULTS, _read_jsonl
+from evals.matrix import _read_jsonl, matrix_path, results_path
 
-AGREEMENT = OUT / "judge_agreement.json"
 N = 30
 SEED = 14
 
 
 def _sample() -> list[dict]:
-    rows = [r for r in _read_jsonl(MATRIX)
+    rows = [r for r in _read_jsonl(matrix_path())
             if not r["question_id"].startswith("trap-") and not r.get("engine_error")]
     rng = random.Random(SEED)
     hits = [r for r in rows if r["hit"]]
@@ -39,11 +38,16 @@ def _sample() -> list[dict]:
     return sample
 
 
+def agreement_path():
+    return deps.OUT / "judge_agreement.json"
+
+
 def _load_state(labeler: str) -> dict:
-    if AGREEMENT.exists():
-        state = json.loads(AGREEMENT.read_text())
+    path = agreement_path()
+    if path.exists():
+        state = json.loads(path.read_text())
         if state.get("labeler", labeler) != labeler:
-            raise SystemExit(f"{AGREEMENT} was labelled by {state['labeler']!r}; "
+            raise SystemExit(f"{path} was labelled by {state['labeler']!r}; "
                              f"move it aside before labelling as {labeler!r}.")
         return state
     return {"n_checked": 0, "agree": 0, "labeler": labeler, "labels": []}
@@ -54,7 +58,7 @@ def _save(state: dict) -> None:
     state["n_checked"] = len(labels)
     state["agree"] = sum(1 for l in labels if l["labeler_hit"] == l["judge_hit"])
     state["agreement_rate"] = round(state["agree"] / state["n_checked"], 3) if labels else None
-    AGREEMENT.write_text(json.dumps(state, indent=2))
+    agreement_path().write_text(json.dumps(state, indent=2))
 
 
 def report(state: dict) -> None:
@@ -76,7 +80,7 @@ def main() -> None:
         report(state)
         return
     qs = {q.id: q for q in load_all()}
-    results = {(r["question_id"], r["engine"]): r["results"] for r in _read_jsonl(RESULTS)}
+    results = {(r["question_id"], r["engine"]): r["results"] for r in _read_jsonl(results_path())}
     done = {(l["question_id"], l["engine"]) for l in state["labels"]}
     sample = [r for r in _sample() if (r["question_id"], r["engine"]) not in done]
     print(f"{len(done)} already labelled, {len(sample)} to go. Answer y / n (s = skip, q = quit).\n")

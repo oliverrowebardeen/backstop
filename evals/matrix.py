@@ -23,12 +23,22 @@ import time
 from collections import defaultdict
 
 from data.load import load_all
-from evals import contamination, judge
-from evals.deps import ENGINES, OUT, get, telem_client
+from evals import contamination, deps, judge
+from evals.deps import ENGINES, get
 
-MATRIX = OUT / "matrix.jsonl"
-DEFAULT_MATRIX = OUT / "default_matrix.jsonl"
-RESULTS = OUT / "matrix_results.jsonl"
+
+def matrix_path():
+    return deps.OUT / "matrix.jsonl"
+
+
+def default_matrix_path():
+    return deps.OUT / "default_matrix.jsonl"
+
+
+def results_path():
+    return deps.OUT / "matrix_results.jsonl"
+
+
 TOP_K = 5  # section 6.5 hit rule: top 5 results per engine (--top-k overrides)
 
 SPEND = {"search_usd": 0.0, "search_calls": 0, "cached_calls": 0, "errors": 0}
@@ -86,7 +96,7 @@ async def _judge_row(q, results: list) -> dict:
 
 
 async def _engines_for_question(q, engines: list[str]) -> None:
-    runs = await telem_client.search_engines(q.question, engines, num_results=TOP_K, goal=q.question)
+    runs = await deps.telem_client.search_engines(q.question, engines, num_results=TOP_K, goal=q.question)
     for engine in engines:
         run = runs.get(engine)
         if run is None or get(run, "status") != "ok":
@@ -97,15 +107,15 @@ async def _engines_for_question(q, engines: list[str]) -> None:
         _count_spend(run)
         results = list(get(run, "results") or [])[:TOP_K]
         verdict = await _judge_row(q, results)
-        await _append(RESULTS, {"question_id": q.id, "engine": engine, "results": _results_dump(results)})
-        await _append(MATRIX, {
+        await _append(results_path(), {"question_id": q.id, "engine": engine, "results": _results_dump(results)})
+        await _append(matrix_path(), {
             "question_id": q.id, "engine": engine, **verdict, "n_results": len(results),
             "latency_ms": get(run, "latency_ms", 0), "cost_usd": get(run, "cost_usd", 0),
         })
 
 
 async def _default_for_question(q) -> None:
-    runs = await telem_client.search_default(q.question, goal=q.question)
+    runs = await deps.telem_client.search_default(q.question, goal=q.question)
     ok = {e: r for e, r in runs.items() if get(r, "status") == "ok"}
     if not ok:
         SPEND["errors"] += 1
@@ -117,8 +127,8 @@ async def _default_for_question(q) -> None:
     for e, r in ok.items():
         combined.extend(list(get(r, "results") or [])[:TOP_K])
     verdict = await _judge_row(q, combined)
-    await _append(RESULTS, {"question_id": q.id, "engine": "telem_default", "results": _results_dump(combined)})
-    await _append(DEFAULT_MATRIX, {
+    await _append(results_path(), {"question_id": q.id, "engine": "telem_default", "results": _results_dump(combined)})
+    await _append(default_matrix_path(), {
         "question_id": q.id, "engine": "telem_default", **verdict, "n_results": len(combined),
         # Telem queries its engines in parallel: wall clock is the slowest one.
         "latency_ms": max(float(get(r, "latency_ms", 0) or 0) for r in runs.values()),
@@ -128,13 +138,13 @@ async def _default_for_question(q) -> None:
 
 
 async def run(limit: int | None, concurrency: int, skip_default: bool, record_errors: bool = False) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
+    deps.OUT.mkdir(parents=True, exist_ok=True)
     qs = load_all()
     if limit:
         # Spread the smoke test over both categories and traps.
         qs = sorted(qs, key=lambda q: hashlib.sha1(q.id.encode()).hexdigest())[:limit]
-    done_pairs = {(r["question_id"], r["engine"]) for r in _read_jsonl(MATRIX)}
-    done_default = {r["question_id"] for r in _read_jsonl(DEFAULT_MATRIX)}
+    done_pairs = {(r["question_id"], r["engine"]) for r in _read_jsonl(matrix_path())}
+    done_default = {r["question_id"] for r in _read_jsonl(default_matrix_path())}
     todo = []
     for q in qs:
         missing = [e for e in ENGINES if (q.id, e) not in done_pairs]
@@ -163,7 +173,7 @@ async def run(limit: int | None, concurrency: int, skip_default: bool, record_er
                 if record_errors:
                     # A persistent engine failure is a miss with zero results; say why.
                     for engine in missing:
-                        await _append(MATRIX, {
+                        await _append(matrix_path(), {
                             "question_id": q.id, "engine": engine, "hit": False, "hit_rank": None,
                             "judge_reason": f"engine error after retries: {name}: {str(e)[:160]}",
                             "n_contaminated": 0, "n_results": 0, "latency_ms": 0, "cost_usd": 0,
@@ -188,7 +198,7 @@ async def rejudge(concurrency: int) -> None:
     from the judge cache at no cost. Files are rewritten atomically.
     """
     qs = {q.id: q for q in load_all()}
-    stored = {(r["question_id"], r["engine"]): r["results"] for r in _read_jsonl(RESULTS)}
+    stored = {(r["question_id"], r["engine"]): r["results"] for r in _read_jsonl(results_path())}
     sem = asyncio.Semaphore(concurrency)
 
     async def redo(row):
@@ -200,7 +210,7 @@ async def rejudge(concurrency: int) -> None:
                 raise RuntimeError(f"no stored results for {row['question_id']} {row['engine']}")
             return {**row, **await _judge_row(qs[row["question_id"]], results)}
 
-    for path in (MATRIX, DEFAULT_MATRIX):
+    for path in (matrix_path(), default_matrix_path()):
         rows = _read_jsonl(path)
         new = await asyncio.gather(*(redo(r) for r in rows))
         tmp = path.with_suffix(".jsonl.tmp")
@@ -217,7 +227,7 @@ async def rejudge(concurrency: int) -> None:
 def summary() -> dict:
     split_of = {q.id: q.split for q in load_all()}
     cat_of = {q.id: q.category for q in load_all()}
-    rows = _read_jsonl(MATRIX) + _read_jsonl(DEFAULT_MATRIX)
+    rows = _read_jsonl(matrix_path()) + _read_jsonl(default_matrix_path())
     agg = defaultdict(lambda: [0, 0])  # (engine, bucket) -> [hits, n]
     for r in rows:
         qid = r["question_id"]
@@ -236,7 +246,7 @@ def summary() -> dict:
             cells.append(f"{(h / n if n else 0):>7.1%} ({h:>3}/{n:<3})" if n else f"{'-':>18}")
         print(f"{e:15}" + "".join(f"{c:>18}" for c in cells))
     expected = len(load_all())
-    have = {r["question_id"] for r in _read_jsonl(MATRIX)}
+    have = {r["question_id"] for r in _read_jsonl(matrix_path())}
     print(f"\nquestions with matrix rows: {len(have)}/{expected}. "
           "Traps: hit = results contain evidence the premise is false.")
     return out

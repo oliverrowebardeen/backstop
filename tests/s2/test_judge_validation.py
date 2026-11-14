@@ -3,22 +3,9 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-import sys
-
 import pytest
 
-judge = None  # imported per test (see the fixture): importing evals at collection time
-              # would fix evals.deps' mode for every later test module.
-
-
-@pytest.fixture(autouse=True)
-def fresh_judge():
-    global judge
-    from evals import judge as module
-    judge = module
-    yield
-    for name in [m for m in sys.modules if m == "evals" or m.startswith("evals.")]:
-        del sys.modules[name]
+from evals import judge
 
 
 def reply(obj, stop="end_turn"):
@@ -26,14 +13,14 @@ def reply(obj, stop="end_turn"):
 
 
 @pytest.fixture()
-def scripted(monkeypatch, tmp_path):
-    monkeypatch.setattr(judge, "CACHE", tmp_path)
+def scripted(eval_fakes, monkeypatch, tmp_path):
+    monkeypatch.setattr(eval_fakes, "JUDGE_CACHE", tmp_path)
     queue = []
 
     async def complete(role, system, messages, **kw):
         return queue.pop(0)
 
-    monkeypatch.setattr(judge.llm, "complete", complete)
+    monkeypatch.setattr(eval_fakes, "llm", SimpleNamespace(complete=complete))
     return queue
 
 

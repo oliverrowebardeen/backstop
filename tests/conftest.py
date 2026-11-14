@@ -5,8 +5,7 @@ reads .env. Blanking the provider keys here (so.config.load_env never overrides 
 variable that is already set) makes any accidental live call raise
 "<PROVIDER>_API_KEY is required" immediately instead of billing Telem, Tavily or
 a model provider. A test that silently fell through to a real client, for
-example because another module imported evals before SO_FAKE was set, now fails
-loudly. Set BACKSTOP_LIVE_TESTS=1 to run deliberate live checks.
+example because a fixture forgot to inject a fake, now fails loudly. Set BACKSTOP_LIVE_TESTS=1 to run deliberate live checks.
 """
 import os
 from pathlib import Path

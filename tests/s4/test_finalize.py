@@ -5,7 +5,7 @@ from evals import finalize
 
 
 def test_order_scores_before_analysis():
-    names = [name for name, _ in finalize.STEPS]
+    names = [name for name, _ in finalize.steps()]
     assert names[0] == "score the eval"
     assert names.index("frontier chart") < names.index("findings")
 
@@ -16,10 +16,9 @@ def test_dry_run_runs_nothing(monkeypatch, capsys):
     assert "[1/5] score the eval" in capsys.readouterr().out
 
 
-def test_stops_at_first_failure(monkeypatch, tmp_path):
-    (tmp_path / "logs").mkdir()
-    (tmp_path / "logs" / "x.jsonl").write_text("{}\n")
-    monkeypatch.setattr(finalize, "OUT", tmp_path)
+def test_stops_at_first_failure(monkeypatch, eval_fakes):
+    (eval_fakes.OUT / "logs").mkdir(parents=True)
+    (eval_fakes.OUT / "logs" / "x.jsonl").write_text("{}\n")
     calls = []
 
     class Done:
@@ -35,7 +34,6 @@ def test_stops_at_first_failure(monkeypatch, tmp_path):
     assert len(calls) == 2  # score ran, frontier failed, nothing after
 
 
-def test_no_logs_is_a_clear_error(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(finalize, "OUT", tmp_path)
+def test_no_logs_is_a_clear_error(capsys):
     assert finalize.main([]) == 2
     assert "run python -m evals.run_eval first" in capsys.readouterr().err

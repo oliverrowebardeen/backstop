@@ -1,8 +1,4 @@
-"""Conformal threshold selection, held-out evaluation and leakage guards (lane A4). No network.
-
-Nothing from evals is imported at module level, so collecting this file cannot
-freeze evals.deps before another lane's conftest sets SO_FAKE.
-"""
+"""Conformal threshold selection, held-out evaluation and leakage guards (lane A4). No network."""
 from __future__ import annotations
 
 import pytest
