@@ -10,7 +10,7 @@ import pytest
 
 from data.load import load_questions
 from evals.run_eval import finished_runs, run
-from evals.score import checker_metrics, first_engine_checks, log_metrics, paired_flips, setup_block
+from evals.score import log_metrics, paired_flips, setup_block
 from so import eventlog
 from so.config import FIRST_ENGINE
 
@@ -164,21 +164,6 @@ def test_paired_flips():
     assert p["wrong->declined"] == 1
     assert p["correct->declined"] == 0 and p["declined->wrong"] == 0
     assert p["unchanged"] == 1
-
-
-# ---------------------------------------------------------------- checker join
-
-def test_first_engine_checks_and_metrics():
-    assert first_engine_checks(SO_EVENTS) == ["SHALLOW", "DEAD"]  # the exa re-check is not a first check
-    matrix = {("q1", FIRST_ENGINE): False, ("q1", "exa"): True,     # rescuable miss
-              ("q2", FIRST_ENGINE): False, ("q2", "exa"): False,    # dead miss
-              ("q3", FIRST_ENGINE): True, ("q4", FIRST_ENGINE): True}
-    joined = [("q1", "WRONG_ENTITY"), ("q2", "DEAD"), ("q3", "HIT"), ("q4", "SHALLOW"), ("q9", "HIT")]
-    c = checker_metrics(joined, matrix, [FIRST_ENGINE, "exa"])
-    assert c["n_searches"] == 4 and c["counts"]["unjoined"] == 1
-    assert c["miss_recall"] == 1.0
-    assert c["false_alarm_rate"] == 0.5
-    assert c["rescuable_vs_dead_acc"] == 1.0
 
 
 def test_errored_run_is_not_counted_as_finished(tmp_path):

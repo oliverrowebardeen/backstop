@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,8 @@ import numpy as np
 
 from data.load import load_questions, load_traps
 from evals.deps import OUT
+from evals.retrieval import checker_metrics as offline_checker_metrics
+from evals.retrieval import coverage_by_setup, judge_runs
 from evals.run_eval import LOG_DIR, MANIFEST, SETUPS, finished_runs
 from so import eventlog
 from so.config import ENGINES, FIRST_ENGINE, LLM_MAX_CONCURRENCY
@@ -50,7 +53,6 @@ OURS = "second_opinion"
 BASELINES = [s for s in SETUPS if s != OURS]
 RESULTS_JSON = OUT / "results.json"
 RESULTS_MD = OUT / "results.md"
-MATRIX = OUT / "matrix.jsonl"
 AGREEMENT = OUT / "judge_agreement.json"
 assert OURS in SETUPS
 
@@ -79,18 +81,6 @@ def search_call_cost(events: list[dict]) -> tuple[float, int]:
             in_call = False
             calls += 1
     return cost + _llm_cost(events, "checker"), calls
-
-
-def first_engine_checks(events: list[dict], first_engine: str = FIRST_ENGINE) -> list[str]:
-    """Verdicts of the first check after each search whose engines == [first_engine]."""
-    out, pending = [], False
-    for e in events:
-        if e["type"] == "search":
-            pending = list(e["data"].get("engines") or []) == [first_engine]
-        elif e["type"] == "check" and pending:
-            out.append(str(e["data"].get("verdict")))
-            pending = False
-    return out
 
 
 def log_metrics(events: list[dict], summary: dict) -> dict:
@@ -154,38 +144,6 @@ def setup_block(test_recs: list[dict], trap_recs: list[dict]) -> dict:
     }
 
 
-def checker_metrics(joined: list[tuple[str, str]], matrix: dict[tuple[str, str], bool],
-                    engines: list[str] = ENGINES, first_engine: str = FIRST_ENGINE) -> dict:
-    """joined: (question_id, verdict) for first-engine checks."""
-    c = Counter()
-    for qid, verdict in joined:
-        truth = matrix.get((qid, first_engine))
-        if truth is None:
-            c["unjoined"] += 1
-            continue
-        c["n"] += 1
-        flagged = verdict != "HIT"
-        if truth:
-            c["true_hits"] += 1
-            c["hits_flagged"] += flagged
-        else:
-            c["true_misses"] += 1
-            c["misses_flagged"] += flagged
-            others = [matrix[(qid, e)] for e in engines if e != first_engine and (qid, e) in matrix]
-            if others:
-                c["dead_scored"] += 1
-                c["dead_correct"] += (verdict == "DEAD") == (not any(others))
-    return {
-        "n_searches": c["n"],
-        "miss_recall": _rate(c["misses_flagged"], c["true_misses"]),
-        "false_alarm_rate": _rate(c["hits_flagged"], c["true_hits"]),
-        "rescuable_vs_dead_acc": _rate(c["dead_correct"], c["dead_scored"]),
-        "counts": {k: c[k] for k in ("true_misses", "misses_flagged", "true_hits", "hits_flagged",
-                                     "dead_scored", "dead_correct", "unjoined")},
-        "verdicts": dict(Counter(v for _, v in joined)),
-    }
-
-
 def paired_flips(ours: dict[str, str], base: dict[str, str]) -> dict:
     """Grade transitions base -> ours on questions both finished. Keys like 'wrong->correct'."""
     both = set(ours) & set(base)
@@ -196,20 +154,18 @@ def paired_flips(ours: dict[str, str], base: dict[str, str]) -> dict:
 
 # ---------------------------------------------------------------- io
 
-def _read_matrix(path: Path) -> dict[tuple[str, str], bool]:
-    if not path.exists():
-        return {}
-    rows = (json.loads(line) for line in path.read_text().splitlines() if line.strip())
-    return {(r["question_id"], r["engine"]): bool(r["hit"]) for r in rows}
-
-
-async def _grade_all(items, questions) -> dict[tuple[str, str], str]:
-    from evals.judge import grade_answer
+async def _grade_all(items, questions) -> dict[tuple[str, str], str | None]:
+    """Grade every answer. A persistent judge failure yields None (excluded and reported), never a label."""
+    from evals.judge import JudgeError, grade_answer
     sem = asyncio.Semaphore(LLM_MAX_CONCURRENCY)
 
     async def one(key, answer):
         async with sem:
-            return key, await grade_answer(questions[key[0]], answer or {"final": "", "status": "NOT_FOUND"})
+            try:
+                return key, await grade_answer(questions[key[0]], answer or {"final": "", "status": "NOT_FOUND"})
+            except JudgeError as e:
+                print(f"  ! could not grade {key[1]}/{key[0]}: {e}", file=sys.stderr)
+                return key, None
 
     return dict(await asyncio.gather(*(one(k, a) for k, a in items)))
 
@@ -224,17 +180,18 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
     runs = {k: p for k, p in finished_runs(log_dir).items() if k[0] in scope}
 
     recs: dict[tuple[str, str], dict] = {}
-    checks: list[tuple[str, str]] = []
     for (qid, setup), path in sorted(runs.items()):
         events = eventlog.read_log(path)
         recs[(qid, setup)] = log_metrics(events, eventlog.summarize(path))
-        if setup == OURS and not questions[qid].is_trap:
-            checks += [(qid, v) for v in first_engine_checks(events)]
     missing_answer = sorted(f"{s}/{q}" for (q, s), r in recs.items() if r["answer"] is None)
 
     grades = await _grade_all([(k, r["answer"]) for k, r in recs.items()], questions)
+    ungraded = sorted(f"{s}/{q}" for (q, s), g in grades.items() if g is None)
     for k, g in grades.items():
-        recs[k]["grade"] = g
+        if g is None:
+            recs.pop(k)  # excluded from every metric; counted in warnings below
+        else:
+            recs[k]["grade"] = g
 
     setups, by_setup = {}, {}
     for s in SETUPS:
@@ -243,11 +200,22 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
                                 [r for q, r in mine.items() if questions[q].is_trap])
         by_setup[s] = {q: r["grade"] for q, r in mine.items() if not questions[q].is_trap}
 
-    matrix_path = Path(out_dir) / MATRIX.name
-    matrix = _read_matrix(matrix_path)
-    checker = checker_metrics(checks, matrix)
-    if not matrix:
-        checker["note"] = f"no matrix at {matrix_path}; run python -m evals.matrix first"
+    # Offline truth for every logged search, judged on the exact list each search returned.
+    graded_test = {k: runs[k] for k in recs if not questions[k[0]].is_trap}
+    truth = await judge_runs(graded_test, questions)
+    checker = offline_checker_metrics(truth)
+    present = [s for s in SETUPS if any(ss == s for (_, ss) in graded_test)]
+    cohort = set.intersection(*[{q for (q, ss) in graded_test if ss == s} for s in present]) if present else set()
+    coverage = coverage_by_setup(truth, {s: cohort for s in present})
+    for s in present:
+        mine = [recs[(q, s)] for q in cohort]
+        n = len(mine) or 1
+        coverage[s]["cost_per_q_search"] = round(sum(r["cost_search"] for r in mine) / n, 6)
+        coverage[s]["cost_per_q_checker"] = round(sum(r["cost_checker"] for r in mine) / n, 6)
+    retrieval = {"cohort_n": len(cohort), "cohort_ids": sorted(cohort), "setups": coverage,
+                 "metric": "answer found in results: any search in the agent's run surfaced the gold answer "
+                           "(offline judge on the exact, contamination-filtered result lists)",
+                 "cohort": "test questions every setup finished and the judge graded"}
 
     agree_path = Path(out_dir) / AGREEMENT.name
     if agree_path.exists():
@@ -264,6 +232,7 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
         "n_traps": sum(questions[q].is_trap for q in scope),
         "setups": setups,
         "checker": checker,
+        "retrieval": retrieval,
         "judge_agreement": judge_agreement,
         "paired": {f"{OURS}_vs_{b}": paired_flips(by_setup[OURS], by_setup[b]) for b in BASELINES},
         "judge_cost_usd": {
@@ -287,9 +256,15 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
             for setup in setups}
     if manifest.get("note"):
         results["note"] = manifest["note"]
+    warnings = []
     if missing_answer:
-        results["warnings"] = [f"{len(missing_answer)} finished logs had no answer event and were graded "
-                               f"declined: {', '.join(missing_answer[:10])}"]
+        warnings.append(f"{len(missing_answer)} finished logs had no answer event and were graded "
+                        f"declined: {', '.join(missing_answer[:10])}")
+    if ungraded:
+        warnings.append(f"{len(ungraded)} answers could not be graded (judge returned no valid verdict) "
+                        f"and are excluded from every metric: {', '.join(ungraded[:10])}")
+    if warnings:
+        results["warnings"] = warnings
     Results.model_validate(results)  # the section 6.12 shape as frozen in so.contracts
     return results
 
@@ -350,19 +325,29 @@ def render_md(r: dict) -> str:
           row("Declined (NOT FOUND)", lambda x: pct(x["trap_declined"], x["trap_n"])),
           ""]
 
-    c, cc = r["checker"], r["checker"]["counts"]
-    L += [f"## Checker ({OURS}, first {FIRST_ENGINE} search of each call vs the hit matrix)", "",
+    c = r["checker"]
+    L += [f"## Checker ({OURS}, every check vs the exact list it saw)", "",
           "| Metric | Value |", "|---|---|",
-          f"| Searches joined | {c['n_searches']} (unjoined: {cc['unjoined']}) |",
-          f"| Miss recall (true misses labelled not-HIT) | {pct(cc['misses_flagged'], cc['true_misses'])} |",
-          f"| False alarm rate (true hits labelled not-HIT) | {pct(cc['hits_flagged'], cc['true_hits'])} |",
-          f"| Rescuable vs DEAD accuracy (on true misses) | {pct(cc['dead_correct'], cc['dead_scored'])} |",
-          "",
-          f"Truth label: the matrix row for (question, {FIRST_ENGINE}), which used the question text as the "
-          "query. The agent's query may differ, so this is an approximation. Traps are excluded.", ""]
-    if c.get("note"):
-        L += [f"Note: {c['note']}.", ""]
-
+          f"| Checked searches judged | {c['n_searches']} (not in cache: {c.get('searches_not_in_cache', 0)}, "
+          f"judge errors: {c.get('judge_errors', 0)}) |",
+          f"| Miss recall (true misses labelled not-HIT) | "
+          f"{pct(round(c['miss_recall'] * c.get('n_true_misses', 0)), c.get('n_true_misses', 0))} |",
+          f"| False alarm rate (true hits labelled not-HIT) | "
+          f"{pct(round(c['false_alarm_rate'] * c.get('n_true_hits', 0)), c.get('n_true_hits', 0))} |",
+          f"| Rescuable vs DEAD accuracy (on true misses) | "
+          f"{pct(round(c['rescuable_vs_dead_acc'] * c.get('n_true_misses', 0)), c.get('n_true_misses', 0))} |",
+          "", f"Truth: {c.get('method', 'offline judge')}. Traps are excluded.", ""]
+    rt = r.get("retrieval") or {}
+    if rt.get("setups"):
+        L += [f"## Retrieval coverage of the agent runs (common cohort: {rt['cohort_n']} test questions)", "",
+              "| Setup | Answer found in results | Search cost / q | Checker cost / q |", "|---|---|---|---|"]
+        for s in S:
+            v = rt["setups"].get(s)
+            if v:
+                found = pct(v["covered"], v["n_questions"]) if v["coverage"] is not None else "not judged"
+                L.append(f"| {s} | {found} | {usd(v['cost_per_q_search'])} | "
+                         f"{usd(v['cost_per_q_checker'])} |")
+        L += ["", f"Metric: {rt['metric']}.", ""]
     L += ["## Paired comparison (test questions both setups finished)", "",
           f"| {OURS} vs | Both finished | Wrong to correct | Correct to wrong | Wrong to declined "
           "| Declined to correct | Correct to declined | Declined to wrong | Unchanged |",

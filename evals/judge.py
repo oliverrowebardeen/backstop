@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 from evals.deps import JUDGE_CACHE, get, llm
+from so import config
 
 CACHE = JUDGE_CACHE
 SPEND = {"judge_usd": 0.0, "judge_calls": 0, "judge_cached": 0}
@@ -89,27 +90,74 @@ def _parse_json(text: str) -> dict:
         return json.loads(m.group(0))
 
 
-async def _call(system: str, user: str, cache_key: str, schema: dict) -> dict:
-    CACHE.mkdir(parents=True, exist_ok=True)
+class JudgeError(RuntimeError):
+    """The judge did not return a valid verdict after retries; no label is invented."""
+
+
+def provenance() -> dict:
+    """Which judge produced the labels: part of every cache key and reported with results."""
+    return {"provider": config.LLM_PROVIDER, "model": config.JUDGE_MODEL}
+
+
+def _validate(out: object, kind: str, n_results: int) -> dict:
+    """Check types, enums and evidence bounds; raise ValueError on anything else.
+
+    Structured output is requested but never trusted: provider replies and cached
+    entries both pass through here before they become a measured label.
+    """
+    if not isinstance(out, dict):
+        raise ValueError("judge reply is not a JSON object")
+    reason = out.get("reason", "")
+    if not isinstance(reason, str):
+        raise ValueError("reason must be a string")
+    if kind == "hit":
+        hit, rank = out.get("hit"), out.get("hit_rank")
+        if not isinstance(hit, bool):
+            raise ValueError(f"hit must be a boolean, got {hit!r}")
+        if hit:
+            if isinstance(rank, bool) or not isinstance(rank, int) or not 1 <= rank <= n_results:
+                raise ValueError(f"a hit needs hit_rank between 1 and {n_results}, got {rank!r}")
+        elif rank is not None:
+            raise ValueError(f"a miss must have hit_rank null, got {rank!r}")
+        return {"hit": hit, "hit_rank": rank if hit else None, "reason": reason}
+    grade = out.get("grade")
+    if grade not in ("correct", "wrong", "declined"):
+        raise ValueError(f"grade must be correct, wrong or declined, got {grade!r}")
+    return {"grade": grade, "reason": reason}
+
+
+async def _call(system: str, user: str, kind: str, schema: dict, n_results: int = 0) -> dict:
+    use_cache = config.SO_CACHE != "off"
+    cache_key = _key(kind, provenance(), schema, system, user)
     path = CACHE / f"{cache_key}.json"
-    if path.exists():
-        SPEND["judge_cached"] += 1
-        return json.loads(path.read_text())
-    last_err = None
+    if use_cache and path.exists():
+        try:
+            cached = _validate(json.loads(path.read_text()), kind, n_results)
+            SPEND["judge_cached"] += 1
+            return cached
+        except (ValueError, json.JSONDecodeError):
+            path.unlink(missing_ok=True)  # a bad cache entry is re-judged, never used
+    last_err: Exception | None = None
     for _ in range(3):
         resp = await llm.complete("judge", system, [{"role": "user", "content": user}], json_schema=schema)
         SPEND["judge_usd"] += float(get(resp, "cost_usd", 0) or 0)
         SPEND["judge_calls"] += 1
-        parsed = get(resp, "json") or get(resp, "parsed")
+        stop = get(resp, "stop_reason")
         try:
-            out = parsed if isinstance(parsed, dict) else _parse_json(get(resp, "text", ""))
+            if stop in ("max_tokens", "length", "refusal", "content_filter"):
+                raise ValueError(f"judge reply stopped early ({stop})")
+            parsed = get(resp, "json") or get(resp, "parsed")
+            out = _validate(parsed if isinstance(parsed, dict) else _parse_json(get(resp, "text", "")),
+                            kind, n_results)
             break
         except (ValueError, json.JSONDecodeError) as e:
             last_err = e
     else:
-        raise RuntimeError(f"judge failed 3 times: {last_err}")
-    out["_cost_usd"] = float(get(resp, "cost_usd", 0) or 0)
-    path.write_text(json.dumps(out))
+        raise JudgeError(f"judge returned no valid {kind} verdict after 3 attempts: {last_err}")
+    if use_cache:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({**out, "_provenance": provenance(),
+                                    "_cost_usd": float(get(resp, "cost_usd", 0) or 0)}))
     return out
 
 
@@ -147,11 +195,8 @@ async def judge_hit(question, results) -> tuple[bool, int | None, str]:
         system = HIT_SYSTEM
         user = (f"QUESTION: {question.question}\nGOLD ANSWER: {' | '.join(question.gold)}\n\n"
                 f"RESULTS:\n{listing}")
-    out = await _call(system, user, _key("hit", system, user), HIT_SCHEMA)
-    hit = bool(out.get("hit"))
-    rank = out.get("hit_rank")
-    rank = int(rank) if hit and isinstance(rank, (int, float)) and 1 <= int(rank) <= len(results) else None
-    return hit, rank, str(out.get("reason", ""))[:300]
+    out = await _call(system, user, "hit", HIT_SCHEMA, n_results=len(results))
+    return out["hit"], out["hit_rank"], out["reason"][:300]
 
 
 async def grade_answer(question, answer) -> str:
@@ -168,6 +213,5 @@ async def grade_answer(question, answer) -> str:
         system = GRADE_SYSTEM
         user = (f"QUESTION: {question.question}\nGOLD ANSWER: {' | '.join(question.gold)}\n\n"
                 f"ANSWER TO GRADE:\n{final}")
-    out = await _call(system, user, _key("grade", system, user), GRADE_SCHEMA)
-    grade = str(out.get("grade", "")).lower()
-    return grade if grade in ("correct", "wrong", "declined") else "wrong"
+    out = await _call(system, user, "grade", GRADE_SCHEMA)
+    return out["grade"]

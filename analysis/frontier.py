@@ -149,20 +149,30 @@ def simulate_so(pq: dict, order: list[str], max_rescues: int, chk: dict, chk_mea
                     "averaged over the checks made."}
 
 
-def measured_so(res: dict | None) -> dict | None:
-    try:
-        so = res["setups"]["second_opinion"]
-        cov, search = float(so["accuracy"]), float(so["cost_per_q_search"])
-    except (KeyError, ValueError, TypeError):
+def measured_runs(res: dict | None) -> dict | None:
+    """Retrieval coverage of each setup's agent runs from out/results.json, or None if absent.
+
+    Same metric as the combo points ("answer found in results", judged offline on the
+    exact lists the agents saw) on one cohort of test questions. Refuses a Second
+    Opinion point whose checker cost is unknown: a savings claim must count it.
+    """
+    rt = (res or {}).get("retrieval") or {}
+    setups = rt.get("setups") or {}
+    so = setups.get("second_opinion")
+    if not so or so.get("coverage") is None or not rt.get("cohort_ids"):
         return None
-    chk = so.get("cost_per_q_checker")
-    note = "measured in out/results.json; x = search + checker cost per question"
-    if chk is None:
-        note = "measured in out/results.json; checker cost missing, x is search cost only"
-    return {"kind": "second_opinion", "engines": [], "coverage": cov,
-            "cost_per_q": search + float(chk or 0.0), "n_questions": None, "simulated": False,
-            "label": "final accuracy", "note": note,
-            "coverage_is": "final answer accuracy (coverage is not defined for the full agent)"}
+    if so.get("cost_per_q_checker") is None:
+        raise SystemExit("out/results.json has no checker cost for second_opinion; refusing to plot a savings point")
+    points = {}
+    for setup, v in setups.items():
+        if v.get("coverage") is None:
+            continue
+        points[setup] = {"kind": setup, "engines": [], "coverage": float(v["coverage"]),
+                         "cost_per_q": round(float(v["cost_per_q_search"]) + float(v.get("cost_per_q_checker") or 0), 6),
+                         "n_questions": int(v["n_questions"]), "simulated": False,
+                         "label": "measured agent runs",
+                         "note": "agent runs; x = search + checker cost per question; " + rt.get("metric", "")}
+    return {"cohort_ids": set(rt["cohort_ids"]), "points": points}
 
 
 def main(argv=None) -> None:
@@ -172,6 +182,10 @@ def main(argv=None) -> None:
     ap.add_argument("--chars-per-token", type=float, default=DEFAULT_CHARS_PER_TOKEN)
     args = ap.parse_args(argv)
     ids = split_ids("test")
+    res = read_results_json()
+    measured = measured_runs(res)
+    if measured:  # one cohort for every point: the questions all three setups finished
+        ids = ids & measured["cohort_ids"]
     pq = per_question(need_matrix(), ids)
     combos = combo_points(pq)
     front = efficient(combos)
@@ -185,8 +199,9 @@ def main(argv=None) -> None:
                "cost_per_q": round(sum(c for _, c in (d["telem_default"] for d in drows.values())) / nd, 6),
                "n_questions": nd}
 
-    res = read_results_json()
-    so_pt = measured_so(res)
+    so_pt = measured["points"].get("second_opinion") if measured else None
+    if measured and "telem_default" in measured["points"]:
+        default = measured["points"]["telem_default"]  # agent runs, same metric and cohort as Second Opinion
     if so_pt is None:
         chk, chk_mean = checker_costs(ids, args.checker_tokens_out, args.chars_per_token)
         m = (res or {}).get("checker") or {}
@@ -198,7 +213,9 @@ def main(argv=None) -> None:
 
     points = combos + [default, so_pt]
     doc = {"split": "test", "non_trap_only": True, "generated_from": banner(),
-           "frontier_engines": [p["engines"] for p in front], "points": points}
+           "frontier_engines": [p["engines"] for p in front], "points": points,
+           "measured_runs": list(measured["points"].values()) if measured else [],
+           "combo_points_are": "one search per engine on the question text (hit matrix)"}
     Frontier.model_validate(doc)  # section 6.13 contract
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "frontier.json").write_text(json.dumps(doc, indent=2))
@@ -222,7 +239,8 @@ def plot(combos, front, default, so_pt) -> None:
             lw=3, marker="o", ms=6, zorder=3, label="efficient frontier")
     ax.scatter([default["cost_per_q"]], [default["coverage"]], s=260, color="#7a7a7a", zorder=5,
                edgecolor="black")
-    ax.annotate("Telem default", (default["cost_per_q"], default["coverage"]), xytext=(14, -26),
+    dlab = "Telem default" + ("\n(measured agent runs)" if default.get("label") == "measured agent runs" else "")
+    ax.annotate(dlab, (default["cost_per_q"], default["coverage"]), xytext=(14, -26),
                 textcoords="offset points", fontsize=20, color="#444444", fontweight="bold")
     ax.scatter([so_pt["cost_per_q"]], [so_pt["coverage"]], s=320, color="#e8590c", zorder=6,
                edgecolor="black")
@@ -230,7 +248,7 @@ def plot(combos, front, default, so_pt) -> None:
     ax.annotate(lab, (so_pt["cost_per_q"], so_pt["coverage"]), xytext=(30, -120), ha="left",
                 arrowprops={"arrowstyle": "-", "color": "#c2410c", "lw": 2},
                 textcoords="offset points", fontsize=20, color="#c2410c", fontweight="bold")
-    ax.set_xlabel("search cost per question", fontsize=22)
+    ax.set_xlabel("search cost per question (search + checker)", fontsize=22)
     ax.set_ylabel("answer found in results", fontsize=22)
     ax.xaxis.set_major_formatter(lambda x, _: f"${x:.3f}")
     ax.yaxis.set_major_formatter(lambda y, _: f"{y:.0%}")

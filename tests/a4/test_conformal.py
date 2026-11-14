@@ -95,17 +95,6 @@ def _events():
     ]
 
 
-def test_check_join_matches_evals_score():
-    # Imported here, not at module level: evals.deps reads SO_FAKE at import time and the
-    # s4 conftest sets it during collection, after this module is collected.
-    from evals.score import first_engine_checks
-
-    events = _events()
-    ours = conformal.first_engine_check_events(events, "tavily")
-    assert [d["verdict"] for d in ours] == first_engine_checks(events, "tavily") == ["SHALLOW", "HIT"]
-    assert [d["confidence"] for d in ours] == [0.8, 0.93]
-
-
 def _write_run(log_dir, qid, checks, setup="second_opinion"):
     log = EventLog(f"{setup}-{qid}-abc", qid, setup, log_dir=log_dir)
     log.emit("run_start", question="q")
@@ -118,13 +107,29 @@ def _write_run(log_dir, qid, checks, setup="second_opinion"):
              cost_usd_total=0.005, latency_ms=1.0)
 
 
-def test_test_points_join_with_matrix(tmp_path):
+def test_test_points_use_offline_truth_of_the_exact_list(tmp_path, monkeypatch):
+    import asyncio
+
+    from evals import retrieval
+
     _write_run(tmp_path, "t1", [("HIT", 0.95)])
     _write_run(tmp_path, "t2", [("SHALLOW", 0.8), ("HIT", 0.9)])
     _write_run(tmp_path, "l1", [("HIT", 0.95)])  # not a test id: ignored
     _write_run(tmp_path, "t3", [("HIT", 0.95)], setup="single")  # other setup: ignored
-    matrix = {("t1", "tavily"): True, ("t2", "tavily"): False}
-    pts, counts = conformal.test_points(tmp_path, matrix, {"t1", "t2", "t3"}, "tavily")
+    monkeypatch.setattr(retrieval, "cached_results", lambda *a, **k: [{"title": "t", "snippet": "s", "url": "u"}])
+    truth_by_q = {"t1": True, "t2": False}
+
+    async def fake_judge(q, results):
+        return truth_by_q[q.id], (1 if truth_by_q[q.id] else None), ""
+
+    monkeypatch.setattr(retrieval, "judge_hit", fake_judge)
+
+    class Q:
+        def __init__(self, qid):
+            self.id, self.question, self.is_trap = qid, "q", False
+
+    monkeypatch.setattr("data.load.load_all", lambda split=None: [Q(i) for i in ("t1", "t2", "t3", "l1")])
+    pts, counts = asyncio.run(conformal.test_points(tmp_path, {"t1", "t2", "t3"}, "tavily"))
     assert sorted((p.question_id, p.verdict, p.truth_hit) for p in pts) == [
         ("t1", "HIT", True), ("t2", "HIT", False), ("t2", "SHALLOW", False)]
     assert counts["finished_runs"] == 2 and counts["outside_test"] == 1

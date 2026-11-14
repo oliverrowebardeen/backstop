@@ -21,9 +21,8 @@ ratio at every candidate so the shape is visible. If no candidate satisfies the
 bound, it is vacuous at that alpha.
 
 Test (held out): the second_opinion eval logs. For each search on the first
-engine alone, the first check after it (the same rule as
-evals.score.first_engine_checks), joined with the matrix row for
-(question, first engine) via evals.score's matrix reader. Calibration and
+engine alone, the check made on its results, with truth from an offline
+judgment of the exact result list it saw (evals.retrieval). Calibration and
 test question ids must be disjoint; LeakageError is raised otherwise.
 
 Writes out/conformal.json and out/conformal.md. Analysis only: nothing here is
@@ -176,44 +175,26 @@ async def calibration_points(today: date | str, engine: str = FIRST_ENGINE,
 
 # ---------------------------------------------------------------- test
 
-def first_engine_check_events(events: Sequence[dict[str, Any]], first_engine: str = FIRST_ENGINE) -> list[dict]:
-    """The data of the first check after each search on [first_engine] alone.
+async def test_points(log_dir: Path, test_ids: set[str],
+                      engine: str = FIRST_ENGINE) -> tuple[list[CheckPoint], dict[str, int]]:
+    """First-engine checks from finished second_opinion logs of test questions.
 
-    Same rule as evals.score.first_engine_checks, which returns the verdict only;
-    this keeps the confidence too. tests/a4 checks the two agree.
+    Truth is an offline judgment of the exact result list each check saw
+    (evals.retrieval), not a matrix row for a different, question-text search.
     """
-    out, pending = [], False
-    for e in events:
-        if e["type"] == "search":
-            pending = list(e["data"].get("engines") or []) == [first_engine]
-        elif e["type"] == "check" and pending:
-            out.append(dict(e["data"]))
-            pending = False
-    return out
-
-
-def test_points(log_dir: Path, matrix: dict[tuple[str, str], bool], test_ids: set[str],
-                engine: str = FIRST_ENGINE) -> tuple[list[CheckPoint], dict[str, int]]:
-    """First-engine checks from finished second_opinion logs of test questions, joined with the matrix."""
+    from data.load import load_all
+    from evals.retrieval import judge_runs
     from evals.run_eval import finished_runs
     from evals.score import OURS
-    from so import eventlog
 
-    points: list[CheckPoint] = []
-    counts = {"finished_runs": 0, "unjoined": 0, "outside_test": 0}
-    for (qid, setup), path in sorted(finished_runs(log_dir).items()):
-        if setup != OURS:
-            continue
-        if qid not in test_ids:
-            counts["outside_test"] += 1
-            continue
-        counts["finished_runs"] += 1
-        truth = matrix.get((qid, engine))
-        for data in first_engine_check_events(eventlog.read_log(path), engine):
-            if truth is None:
-                counts["unjoined"] += 1
-                continue
-            points.append(CheckPoint(qid, str(data.get("verdict")), float(data.get("confidence") or 0.0), truth))
+    finished = {k: p for k, p in finished_runs(log_dir).items() if k[1] == OURS}
+    runs = {k: p for k, p in finished.items() if k[0] in test_ids}
+    truth = await judge_runs(runs, {q.id: q for q in load_all()})
+    points = [CheckPoint(s.question_id, str(s.verdict), float(s.confidence or 0.0), bool(s.hit))
+              for s in truth.searches
+              if s.engines == [engine] and s.verdict is not None and s.hit is not None]
+    counts = {"finished_runs": len(runs), "outside_test": len(finished) - len(runs),
+              "not_in_cache": truth.missing, "judge_errors": truth.judge_errors}
     return points, counts
 
 
@@ -298,9 +279,9 @@ def render_md(doc: dict[str, Any]) -> str:
           f"{cal['wrong_hits']} wrong. The checker already turns HITs below its own minimum confidence into "
           "SHALLOW, so every HIT here clears that floor.",
           "",
-          "Caveats: the test truth is the matrix row for (question, first engine), which used the question "
-          "text as the query; the agent's query differs, so the join is approximate (as in evals/score.py). "
-          "Calibration checks use the question as query and goal while test checks use the agent's, so "
+          "Test truth: an offline judgment of the exact (contamination-filtered) result list each "
+          "first-engine check saw, recovered from the Telem response cache (evals/retrieval.py). "
+          "Caveats: calibration checks use the question as query and goal while test checks use the agent's, so "
           "exchangeability is approximate. Coverage is kept HITs over all first-engine checks; HIT retention "
           "is kept HITs over all HITs.", ""]
     return "\n".join(L)
@@ -310,7 +291,6 @@ async def run(log_dir: Path | None = None, today: date | str | None = None,
               alphas: Sequence[float] = ALPHAS, engine: str = FIRST_ENGINE) -> dict[str, Any]:
     """Calibrate on learn, evaluate on test logs, and return the report document."""
     from data.load import load_questions
-    from evals.score import MATRIX, _read_matrix
 
     today = today or CALIBRATION_DATE
     learn_ids = {q.id for q in load_questions(split="learn")}
@@ -320,7 +300,7 @@ async def run(log_dir: Path | None = None, today: date | str | None = None,
     assert_disjoint((p.question_id for p in cal), test_ids)
 
     log_path, source = resolve_log_dir(log_dir)
-    tests, counts = test_points(log_path, _read_matrix(MATRIX), test_ids, engine)
+    tests, counts = await test_points(log_path, test_ids, engine)
     assert_disjoint((p.question_id for p in cal), (p.question_id for p in tests))
 
     rows = []
