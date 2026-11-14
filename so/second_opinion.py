@@ -513,6 +513,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                 latency_ms=(perf_counter() - in_flight["started"]) * 1000, cost_usd=0, cached=False,
                 published_after=in_flight["published_after"], session=ctx.session, status="error",
                 error=f"Cancelled at the search timeout ({limit}).",
+                **({"first_engine": engines[0], "question_type": classify(query, goal)} if len(engines) == 1 else {}),
             )
         if unchecked_pending:
             return unchecked(f"the search reached its timeout ({limit}) before the check finished",
@@ -575,6 +576,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                     latency_ms=run.latency_ms, cost_usd=run.cost_usd, cached=run.cached,
                     published_after=published_after, session=ctx.session, status=run.status,
                     **({"error": error or "Engine returned an unsuccessful response."} if engine_failed else {}),
+                    **({"first_engine": engines[0], "question_type": classify(query, goal)} if len(engines) == 1 else {}),
                 )
                 if engine_failed:
                     error = error or "Engine returned an unsuccessful response."
@@ -621,7 +623,15 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                 verdict: CheckerVerdict = checked
 
                 while True:
-                    trace.emit("check", **verdict.model_dump())
+                    check_data = verdict.model_dump()
+                    if verdict.verdict == "HIT":
+                        cited_url = verdict.best_url
+                        if not cited_url and verdict.evidence_rank and verdict.evidence_rank <= len(current_results):
+                            cited_url = current_results[verdict.evidence_rank - 1].url
+                        cited_result = merged.get(cited_url or "")
+                        if cited_result is not None:
+                            check_data["evidence_title"] = cited_result.title
+                    trace.emit("check", **check_data)
 
                     if verdict.verdict != "HIT" and rescues_used >= limits.max_rescues:
                         action = Action("NOT_FOUND")
