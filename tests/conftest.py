@@ -22,6 +22,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "first_engine_routing: opt into configured first-engine routing",
     )
+    config.addinivalue_line(
+        "markers", "finance_deep_read: opt into configured finance page reads",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -36,3 +39,17 @@ def isolate_first_engine_routing(request: pytest.FixtureRequest, monkeypatch: py
     # Matrix tests reload so.config; the router can retain the prior instance.
     if router.config is not config:
         monkeypatch.setattr(router.config, "FIRST_ENGINE_ROUTING", "off")
+
+
+@pytest.fixture(autouse=True)
+def isolate_finance_deep_read(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy rescue fixtures opt out; finance tests exercise the enabled path."""
+    if (request.node.get_closest_marker("finance_deep_read") is not None
+            or (request.node.path.parent == Path(__file__).parent / "o2"
+                and request.node.path.name.startswith("test_finance"))):
+        return
+    from so import config, second_opinion
+
+    monkeypatch.setattr(config, "FINANCE_DEEP_READ", False)
+    if second_opinion.config is not config:
+        monkeypatch.setattr(second_opinion.config, "FINANCE_DEEP_READ", False)

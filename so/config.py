@@ -113,6 +113,16 @@ if not 1 <= TAVILY_EXTRACT_CHUNKS <= 5:
     raise ValueError("TAVILY_EXTRACT_CHUNKS must be between 1 and 5")
 if not math.isfinite(TAVILY_EXTRACT_TIMEOUT_S) or TAVILY_EXTRACT_TIMEOUT_S <= 0:
     raise ValueError("TAVILY_EXTRACT_TIMEOUT_S must be finite and positive")
+
+# Finance deep reads: one goal-ranked page read after a miss, with no re-search.
+FINANCE_DEEP_READ = _bool("FINANCE_DEEP_READ", True)
+try:
+    FINANCE_EXTRACT_CHUNKS = int(os.getenv("FINANCE_EXTRACT_CHUNKS", "5"))
+except ValueError as exc:
+    raise ValueError("FINANCE_EXTRACT_CHUNKS must be an integer between 1 and 5") from exc
+if not 1 <= FINANCE_EXTRACT_CHUNKS <= 5:
+    raise ValueError("FINANCE_EXTRACT_CHUNKS must be between 1 and 5")
+
 SO_CACHE = os.getenv("SO_CACHE", "readwrite")
 if SO_CACHE not in {"readwrite", "off"}:
     raise ValueError("SO_CACHE must be readwrite or off")

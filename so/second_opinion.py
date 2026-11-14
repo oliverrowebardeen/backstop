@@ -25,7 +25,7 @@ from so.contracts import CheckerVerdict, EngineRun, PageText, Result, RunContext
 from so.ledger import ledger
 from so.memory import RunMemory
 from so.policy import Action, freshness_cutoff, load_rescue_table, next_action
-from so.router import first_engine
+from so.router import classify, first_engine
 
 
 EngineSearch = Callable[..., Awaitable[dict[str, EngineRun]]]
@@ -319,8 +319,8 @@ def _hit_evidence(
 
 
 async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: str = "SHALLOW",
-                 page_reader: PageReader | None = None) -> PageText:
-    """Read a SHALLOW page: Tavily Extract chunks for the goal first, then the Telem fetch.
+                 page_reader: PageReader | None = None, *, chunks_per_source: int | None = None) -> PageText:
+    """Read a source: Tavily Extract chunks for the goal first, then the Telem fetch.
 
     Extract runs at basic depth with the goal as its query, so it returns the
     config.TAVILY_EXTRACT_CHUNKS chunks most relevant to the goal under
@@ -343,7 +343,9 @@ async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: s
         error: str | None = None
         try:
             if via == "tavily":
-                page = await tavily_extract(url, goal=goal)
+                page = await tavily_extract(url, goal=goal,
+                                            **({"chunks_per_source": chunks_per_source}
+                                               if chunks_per_source is not None else {}))
             else:
                 page = await fetch_page(url, goal=goal, session=ctx.session,
                                         **_supported_kwargs(fetch_page, fields))
@@ -448,6 +450,8 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     published_after: str | None = None
     engine = first_engine(query, goal)
     current_results: list[Result] = []
+    finance = config.FINANCE_DEEP_READ and classify(query, goal) == "finance"
+    finance_read = False
     checker_ctx = ctx.model_copy(update={"log": trace})
     step_seconds: list[float] = []
     # Ledger label for the next Telem search: which Backstop step it is and the verdict behind it.
@@ -621,6 +625,13 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
 
                     if verdict.verdict != "HIT" and rescues_used >= limits.max_rescues:
                         action = Action("NOT_FOUND")
+                    elif finance and verdict.verdict != "HIT":
+                        if finance_read or not current_results:
+                            action = Action("NOT_FOUND")
+                        else:
+                            urls = {result.url for result in current_results}
+                            best = verdict.best_url if verdict.best_url in urls else current_results[0].url
+                            action = Action("FETCH_PAGE", url=best)
                     else:
                         # The per call max_rescues gate above replaces the policy's global cap.
                         action = next_action(verdict, engines, 0, table)
@@ -669,7 +680,11 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                     assert action.url is not None
                     step_started = perf_counter()
                     memory.record_fetch(action.url)
-                    page = await _fetch(action.url, goal, ctx, trace, verdict.verdict, page_reader)
+                    finance_read = finance
+                    page = await _fetch(
+                        action.url, goal, ctx, trace, verdict.verdict, page_reader,
+                        chunks_per_source=config.FINANCE_EXTRACT_CHUNKS if finance else None,
+                    )
                     if page.ok and page.text.strip():
                         page_read = _page_evidence(page, trace)
                         original = merged.get(action.url)
