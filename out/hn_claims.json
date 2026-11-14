@@ -1,0 +1,507 @@
+{
+  "split": "test",
+  "non_trap_only": true,
+  "n_test": 200,
+  "engines": [
+    "tavily",
+    "exa",
+    "brave",
+    "perplexity",
+    "parallel",
+    "ceramic"
+  ],
+  "seed": 14,
+  "n_boot": 10000,
+  "subset_sizes": {
+    "overall": 200,
+    "finance": 43,
+    "fact": 157,
+    "recent_2025_2026": 0
+  },
+  "newest_year_mentioned": 2023,
+  "rates": {
+    "overall": {
+      "tavily": {
+        "n": 200,
+        "hits": 137,
+        "rate": 0.685,
+        "ci95": [
+          0.62,
+          0.75
+        ]
+      },
+      "exa": {
+        "n": 200,
+        "hits": 164,
+        "rate": 0.82,
+        "ci95": [
+          0.765,
+          0.87
+        ]
+      },
+      "brave": {
+        "n": 200,
+        "hits": 134,
+        "rate": 0.67,
+        "ci95": [
+          0.605,
+          0.735
+        ]
+      },
+      "perplexity": {
+        "n": 200,
+        "hits": 164,
+        "rate": 0.82,
+        "ci95": [
+          0.765,
+          0.87
+        ]
+      },
+      "parallel": {
+        "n": 200,
+        "hits": 127,
+        "rate": 0.635,
+        "ci95": [
+          0.565,
+          0.7
+        ]
+      },
+      "ceramic": {
+        "n": 200,
+        "hits": 9,
+        "rate": 0.045,
+        "ci95": [
+          0.02,
+          0.075
+        ]
+      }
+    },
+    "finance": {
+      "tavily": {
+        "n": 43,
+        "hits": 6,
+        "rate": 0.1395,
+        "ci95": [
+          0.0465,
+          0.2558
+        ]
+      },
+      "exa": {
+        "n": 43,
+        "hits": 21,
+        "rate": 0.4884,
+        "ci95": [
+          0.3488,
+          0.6512
+        ]
+      },
+      "brave": {
+        "n": 43,
+        "hits": 3,
+        "rate": 0.0698,
+        "ci95": [
+          0.0,
+          0.1628
+        ]
+      },
+      "perplexity": {
+        "n": 43,
+        "hits": 14,
+        "rate": 0.3256,
+        "ci95": [
+          0.186,
+          0.4651
+        ]
+      },
+      "parallel": {
+        "n": 43,
+        "hits": 7,
+        "rate": 0.1628,
+        "ci95": [
+          0.0698,
+          0.2791
+        ]
+      },
+      "ceramic": {
+        "n": 43,
+        "hits": 0,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "fact": {
+      "tavily": {
+        "n": 157,
+        "hits": 131,
+        "rate": 0.8344,
+        "ci95": [
+          0.7707,
+          0.8917
+        ]
+      },
+      "exa": {
+        "n": 157,
+        "hits": 143,
+        "rate": 0.9108,
+        "ci95": [
+          0.8662,
+          0.9554
+        ]
+      },
+      "brave": {
+        "n": 157,
+        "hits": 131,
+        "rate": 0.8344,
+        "ci95": [
+          0.7771,
+          0.8917
+        ]
+      },
+      "perplexity": {
+        "n": 157,
+        "hits": 150,
+        "rate": 0.9554,
+        "ci95": [
+          0.9172,
+          0.9873
+        ]
+      },
+      "parallel": {
+        "n": 157,
+        "hits": 120,
+        "rate": 0.7643,
+        "ci95": [
+          0.6943,
+          0.828
+        ]
+      },
+      "ceramic": {
+        "n": 157,
+        "hits": 9,
+        "rate": 0.0573,
+        "ci95": [
+          0.0255,
+          0.0955
+        ]
+      }
+    },
+    "recent_2025_2026": {
+      "tavily": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "exa": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "brave": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "perplexity": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "parallel": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "ceramic": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      }
+    }
+  },
+  "claims": [
+    {
+      "id": "ceramic",
+      "engine": "ceramic",
+      "text": "Ceramic is extremely cheap and works well for broad, preliminary searches",
+      "parts": [
+        {
+          "what": "extremely cheap",
+          "kind": "price",
+          "label": "SUPPORTED",
+          "detail": "so.config.PRICE_USD (what Telem bills us): $0.00005 per call vs median other $0.005 (0.010x); Telem latency-study list prices: $0.00005 per call vs median other $0.006 (0.008x)"
+        },
+        {
+          "what": "works well (overall hit rate)",
+          "kind": "vs_median",
+          "subset": "overall",
+          "direction": "above",
+          "label": "NOT SUPPORTED",
+          "n": 200,
+          "against": "median of the other engines",
+          "diff": -0.64,
+          "diff_ci95": [
+            -0.71,
+            -0.585
+          ]
+        }
+      ],
+      "caveat": "Our questions are specific fact and finance lookups, not broad preliminary searches.",
+      "label": "NOT SUPPORTED"
+    },
+    {
+      "id": "brave",
+      "engine": "brave",
+      "text": "Brave has strong general coverage but may not be best for domain-specific queries like financial research",
+      "parts": [
+        {
+          "what": "strong general coverage (overall hit rate)",
+          "kind": "vs_median",
+          "subset": "overall",
+          "direction": "above",
+          "label": "INCONCLUSIVE",
+          "n": 200,
+          "against": "median of the other engines",
+          "diff": -0.015,
+          "diff_ci95": [
+            -0.08,
+            0.045
+          ]
+        },
+        {
+          "what": "not best on finance",
+          "kind": "vs_best",
+          "subset": "finance",
+          "direction": "below",
+          "label": "SUPPORTED",
+          "n": 43,
+          "against": "best other engine (exa)",
+          "diff": -0.4186,
+          "diff_ci95": [
+            -0.5814,
+            -0.2558
+          ]
+        }
+      ],
+      "caveat": null,
+      "label": "INCONCLUSIVE"
+    },
+    {
+      "id": "exa",
+      "engine": "exa",
+      "text": "Exa is strong for entity and people search but can be bad at latest news",
+      "parts": [
+        {
+          "what": "strong for entity search (fact questions as proxy)",
+          "kind": "vs_median",
+          "subset": "fact",
+          "direction": "above",
+          "label": "SUPPORTED",
+          "n": 157,
+          "against": "median of the other engines",
+          "diff": 0.0764,
+          "diff_ci95": [
+            0.0318,
+            0.1529
+          ]
+        },
+        {
+          "what": "bad at latest news (questions mentioning 2025 or 2026)",
+          "kind": "vs_median",
+          "subset": "recent_2025_2026",
+          "direction": "below",
+          "label": "INCONCLUSIVE",
+          "n": 0,
+          "against": "median of the other engines",
+          "detail": "no questions in this subset"
+        }
+      ],
+      "caveat": "We have no entity or people category; SimpleQA fact questions stand in for entity search. No test question mentions 2025 or 2026, so the news part cannot be tested on this matrix.",
+      "label": "INCONCLUSIVE"
+    }
+  ],
+  "prices": {
+    "so.config.PRICE_USD (what Telem bills us)": {
+      "tavily": 0.005,
+      "exa": 0.005,
+      "brave": 0.005,
+      "perplexity": 0.005,
+      "parallel": 0.001,
+      "ceramic": 5e-05
+    },
+    "Telem latency-study list prices": {
+      "tavily": 0.008,
+      "exa": 0.007,
+      "brave": 0.005,
+      "perplexity": null,
+      "parallel": 0.005,
+      "ceramic": 5e-05
+    }
+  },
+  "rescues_per_dollar": {
+    "so.config.PRICE_USD (what Telem bills us)": {
+      "first": "tavily",
+      "split": "learn",
+      "misses": 30,
+      "rows": [
+        {
+          "engine": "exa",
+          "rescued": 15,
+          "misses": 30,
+          "rate": 0.5,
+          "price_usd": 0.005,
+          "spend_usd": 0.15,
+          "rescues_per_dollar": 100.0
+        },
+        {
+          "engine": "brave",
+          "rescued": 12,
+          "misses": 30,
+          "rate": 0.4,
+          "price_usd": 0.005,
+          "spend_usd": 0.15,
+          "rescues_per_dollar": 80.0
+        },
+        {
+          "engine": "perplexity",
+          "rescued": 13,
+          "misses": 30,
+          "rate": 0.4333,
+          "price_usd": 0.005,
+          "spend_usd": 0.15,
+          "rescues_per_dollar": 86.67
+        },
+        {
+          "engine": "parallel",
+          "rescued": 13,
+          "misses": 30,
+          "rate": 0.4333,
+          "price_usd": 0.001,
+          "spend_usd": 0.03,
+          "rescues_per_dollar": 433.33
+        },
+        {
+          "engine": "ceramic",
+          "rescued": 0,
+          "misses": 30,
+          "rate": 0.0,
+          "price_usd": 5e-05,
+          "spend_usd": 0.0015,
+          "rescues_per_dollar": 0.0
+        }
+      ],
+      "order": [
+        "parallel",
+        "exa",
+        "perplexity",
+        "brave",
+        "ceramic"
+      ],
+      "unpriced": []
+    },
+    "Telem latency-study list prices": {
+      "first": "tavily",
+      "split": "learn",
+      "misses": 30,
+      "rows": [
+        {
+          "engine": "exa",
+          "rescued": 15,
+          "misses": 30,
+          "rate": 0.5,
+          "price_usd": 0.007,
+          "spend_usd": 0.21,
+          "rescues_per_dollar": 71.43
+        },
+        {
+          "engine": "brave",
+          "rescued": 12,
+          "misses": 30,
+          "rate": 0.4,
+          "price_usd": 0.005,
+          "spend_usd": 0.15,
+          "rescues_per_dollar": 80.0
+        },
+        {
+          "engine": "perplexity",
+          "rescued": 13,
+          "misses": 30,
+          "rate": 0.4333,
+          "price_usd": null,
+          "spend_usd": null,
+          "rescues_per_dollar": null
+        },
+        {
+          "engine": "parallel",
+          "rescued": 13,
+          "misses": 30,
+          "rate": 0.4333,
+          "price_usd": 0.005,
+          "spend_usd": 0.15,
+          "rescues_per_dollar": 86.67
+        },
+        {
+          "engine": "ceramic",
+          "rescued": 0,
+          "misses": 30,
+          "rate": 0.0,
+          "price_usd": 5e-05,
+          "spend_usd": 0.0015,
+          "rescues_per_dollar": 0.0
+        }
+      ],
+      "order": [
+        "parallel",
+        "brave",
+        "exa",
+        "ceramic"
+      ],
+      "unpriced": [
+        "perplexity"
+      ]
+    }
+  },
+  "order_comparison": {
+    "rescue_table": [
+      "exa",
+      "parallel",
+      "perplexity",
+      "brave",
+      "ceramic"
+    ],
+    "per_dollar_primary": [
+      "parallel",
+      "exa",
+      "perplexity",
+      "brave",
+      "ceramic"
+    ],
+    "differs": true,
+    "why": "per dollar it is parallel, exa, perplexity, brave, ceramic; positions change for parallel, exa"
+  },
+  "oracle": {
+    "split": "test",
+    "n_questions": 200,
+    "oracle_hits": 182,
+    "oracle_rate": 0.91,
+    "simulated": {
+      "source": "out/frontier.json second_opinion point (simulated)",
+      "label": "simulated, perfect checker",
+      "coverage": 0.89,
+      "cost_per_q": 0.007257,
+      "share_of_ceiling": 0.978,
+      "cost_per_captured": 0.008154
+    },
+    "headline": "simulated"
+  },
+  "context_telem_published": "Telem's own published numbers, not ours: Telem's Oct 22 2026 post reported that Tavily found known answers on 244 of 363 questions and that Tavily plus Exa top-5 found 279.",
+  "recommendation_only": true
+}
