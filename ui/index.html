@@ -88,7 +88,7 @@
         <form id="race-form" class="race-form" novalidate>
           <div class="race-input">
             <label class="sr-only" for="question">Your question</label>
-            <input id="question" name="question" readonly placeholder="Ask anything your agent would search for" maxlength="300" required autocomplete="off" aria-describedby="question-error">
+            <textarea id="question" name="question" rows="1" readonly placeholder="Ask what your agent would search for" maxlength="300" required autocomplete="off" aria-describedby="question-error"></textarea>
             <button class="btn btn-dark" id="run-button" type="submit" hidden disabled>Run race <span aria-hidden="true">&#8599;</span></button>
           </div>
           <div class="setup-pickers" id="setup-pickers" hidden>

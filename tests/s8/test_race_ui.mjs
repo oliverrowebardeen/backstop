@@ -1,6 +1,7 @@
 // O10: the single-request race reader, the comparison line under the race and the replay label.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {sseParser, readEvents} from '../../ui/race-stream.js';
 import {raceSummary, replayLabel} from '../../ui/race-summary.js';
 
@@ -61,4 +62,13 @@ test('replay label states date, commit and recording settings from the manifest,
   assert.equal(replayLabel({...pair, recorded_at: undefined}), '');
   assert.equal(replayLabel({...pair, fixture: true}), '');
   assert.equal(replayLabel(null), '');
+});
+
+test('the question box is a one-row textarea that grows, keeps the 300 character limit, and Enter runs the race', () => {
+  const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
+  const box = html.match(/<textarea id="question"[^>]*>/)?.[0];
+  assert.ok(box && box.includes('rows="1"') && box.includes('maxlength="300"'), box);
+  assert.ok(!html.includes('<input id="question"'));
+  const js = readFileSync(new URL('../../ui/race.js', import.meta.url), 'utf8');
+  assert.ok(js.includes("event.key !== 'Enter'") && js.includes('requestSubmit') && js.includes('ResizeObserver'));
 });

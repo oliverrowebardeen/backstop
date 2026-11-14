@@ -252,7 +252,7 @@ function playReplay() {
   autoplayDone = true;
   setups.left = replayPair.left; setups.right = replayPair.right;
   reset(replayPair.fixture ? 'fixture' : 'replay');
-  $('#question').value = replayPair.question;
+  setQuestion(replayPair.question);
   auditQuestion = replayPair.question;
   notify(replayPair.fixture ? 'Synthetic test events. These are not product results.' : 'Recorded live run, played at its original pace.');
   const source = new EventSource(`/replay/${encodeURIComponent(replayPair.name)}`);
@@ -270,7 +270,32 @@ $('#stop-button').addEventListener('click', () => {
 });
 
 $('#api-key').addEventListener('input', () => setActive(active));
-$('#question').addEventListener('input', () => { $('#question-error').hidden = true; });
+/** The question box is a textarea that grows to fit; a question is one line, so Enter runs the race. */
+function fitQuestion() {
+  const box = $('#question');
+  box.style.height = 'auto';
+  box.style.height = `${box.scrollHeight}px`;
+}
+function setQuestion(text) { $('#question').value = text; fitQuestion(); }
+$('#question').addEventListener('input', () => {
+  const box = $('#question');
+  if (/[\r\n]/.test(box.value)) box.value = box.value.replace(/\s*[\r\n]+\s*/g, ' ');
+  $('#question-error').hidden = true;
+  fitQuestion();
+});
+$('#question').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || event.isComposing) return;
+  event.preventDefault();
+  if (!$('#run-button').disabled && !$('#run-button').hidden) $('#race-form').requestSubmit($('#run-button'));
+});
+// Refit when the box's width changes: window resizes and the Run race button showing or hiding.
+let questionWidth = 0;
+new ResizeObserver(([entry]) => {
+  if (entry.contentRect.width === questionWidth) return;
+  questionWidth = entry.contentRect.width;
+  requestAnimationFrame(fitQuestion);
+}).observe($('#question'));
+document.fonts?.ready.then(fitQuestion);
 
 function validQuestion() {
   const question = $('#question').value.trim();
@@ -309,7 +334,7 @@ $('#race-form').addEventListener('submit', async event => {
   const question = validQuestion(); if (!question) return;
   let headers;
   try { headers = raceHeaders(); } catch (error) { notify(error.message); return; }
-  $('#question').value = question;
+  setQuestion(question);
   auditQuestion = question;
   setups.left = $('#left-setup').value; setups.right = $('#right-setup').value;
   autoplayDone = true; reset('live');
@@ -338,7 +363,7 @@ async function loadConfiguration() {
   $('#example-chips').replaceChildren(...examples.map(text => {
     const chip = element('button', 'example-chip', text);
     chip.type = 'button';
-    chip.addEventListener('click', () => { $('#question').value = text; $('#question-error').hidden = true; $('#question').focus(); });
+    chip.addEventListener('click', () => { setQuestion(text); $('#question-error').hidden = true; $('#question').focus(); });
     return chip;
   }));
 }
@@ -349,7 +374,7 @@ function selectPair(pair) {
   if (!pair) return;
   $('#replay-select').value = pair.name;
   if (!active && mode === 'replay') {
-    $('#question').value = pair.question; setups.left = pair.left; setups.right = pair.right; applySetups(); badge(pair.fixture ? 'fixture' : 'replay');
+    setQuestion(pair.question); setups.left = pair.left; setups.right = pair.right; applySetups(); badge(pair.fixture ? 'fixture' : 'replay');
   }
 }
 $('#replay-select').addEventListener('change', event => {
@@ -376,7 +401,7 @@ function setMode(next) {
   $('#mode-replay').setAttribute('aria-pressed', String(mode === 'replay'));
   if (mode === 'live') {
     Object.assign(setups, liveSetups);
-    $('#question').value = auditQuestion && !replayMode ? auditQuestion : '';
+    setQuestion(auditQuestion && !replayMode ? auditQuestion : '');
     badge('live');
     applySetups();
     notify('Type a question or pick an example, choose both setups, then press Run race.');

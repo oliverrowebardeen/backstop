@@ -242,7 +242,7 @@ section { position: relative; padding-block: clamp(80px, 9vw, 150px); }
 .race-badge.is-live::before { animation: live-pulse 1.6s ease-in-out infinite; }
 @keyframes live-pulse { 50% { opacity: 0.3; } }
 #replay-controls { margin-top: 18px; }
-.race-input { display: flex; flex: 1 1 420px; gap: 10px; align-items: center; min-width: 0; }
+.race-input { display: flex; flex: 1 1 420px; gap: 10px; align-items: flex-end; min-width: 0; }
 .race-error { margin-top: 8px; font-size: 14px; font-weight: 600; color: var(--r-accent); }
 .example-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .example-chip { border: 1px solid var(--r-line); background: var(--r-card); color: var(--r-ink); border-radius: 999px; padding: 7px 13px; font-size: 13.5px; text-align: left; }
@@ -264,8 +264,14 @@ section { position: relative; padding-block: clamp(80px, 9vw, 150px); }
 .chip-button:hover:not(:disabled) { border-color: var(--r-muted); }
 .chip-button-strong { background: var(--r-ink); color: var(--r-bg); border-color: var(--r-ink); }
 .race-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; padding: 10px; border: 1px solid var(--r-line); border-radius: var(--radius-lg); background: var(--r-card); }
-.race-form input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--r-ink); font-size: clamp(17px, 1.4vw, 21px); font-weight: 550; padding: 10px 12px; }
-.race-form input:focus-visible { outline-offset: 0; }
+/* The question wraps and grows to its full length (race.js sets the height); Enter still runs the race. */
+.race-form textarea { flex: 1 1 auto; min-width: 0; display: block; border: 0; background: transparent; font: inherit; color: var(--r-ink); font-size: clamp(17px, 1.4vw, 21px); font-weight: 550; line-height: 1.35; padding: 10px 12px; resize: none; overflow: hidden; overflow-wrap: anywhere; }
+.race-form textarea:focus-visible { outline-offset: 0; }
+@media (max-width: 680px) {
+  .race-input { flex-wrap: wrap; }
+  .race-input textarea { flex-basis: 100%; }
+  .race-input .btn { margin-left: auto; }
+}
 .setup-pickers { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; line-height: 1; color: var(--r-muted); }
 .setup-pickers label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .race-note, .race-message { margin-top: 12px; font-size: 14px; color: var(--r-muted); }
