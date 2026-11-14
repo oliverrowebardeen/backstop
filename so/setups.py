@@ -16,6 +16,8 @@ def _unchecked(query: str, goal: str, ctx: RunContext,
                runs: dict[str, EngineRun]) -> SearchOutcome:
     results = {}
     for run in runs.values():
+        if ctx.session is None and run.session_id:
+            ctx.session = run.session_id
         if run.status == "ok":
             for result in run.results:
                 results.setdefault(result.url, result)
