@@ -14,6 +14,9 @@ bad reply can cost one extra search but never produce a HIT. A model call that
 fails after the llm wrapper's own retries raises `CheckerError`, and budget
 errors propagate unchanged.
 
+Settings (environment, read after so.config loads .env):
+    CHECKER_HIT_MIN_CONFIDENCE  minimum confidence to accept a HIT, default 0.6
+
 Both functions return a `CheckedVerdict`: a `CheckerVerdict` that also carries
 the checker's own cost, tokens and latency. Those extra fields are excluded
 from `model_dump()`, so the serialized verdict matches the contract exactly.
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -46,9 +50,17 @@ PAGE_CHARS = 6000
 # Bounds on free text copied from the model into verdicts and event logs.
 WHY_CHARS = 300
 REWRITE_CHARS = 300
-MAX_OUTPUT_TOKENS = 400
+
+
+def _unit_interval(name: str, default: str) -> float:
+    value = float(os.getenv(name, default))
+    if not 0 <= value <= 1:
+        raise ValueError(f"{name} must be between 0 and 1, got {value}")
+    return value
+
+
 # A HIT below this confidence is treated as "probably the right page" and read.
-HIT_MIN_CONFIDENCE = 0.6
+HIT_MIN_CONFIDENCE = _unit_interval("CHECKER_HIT_MIN_CONFIDENCE", "0.6")
 MALFORMED_WHY = "checker output malformed"
 
 VERDICTS = ("HIT", "STALE", "WRONG_ENTITY", "SHALLOW", "DEAD")

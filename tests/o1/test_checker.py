@@ -97,6 +97,14 @@ def test_confidence_outside_unit_interval_is_malformed(raw):
         parse_verdict(reply(confidence=raw), RESULTS, "q")
 
 
+def test_hit_threshold_setting_is_validated(monkeypatch):
+    monkeypatch.setenv("CHECKER_TEST_THRESHOLD", "1.5")
+    with pytest.raises(ValueError):
+        checker._unit_interval("CHECKER_TEST_THRESHOLD", "0.6")
+    monkeypatch.setenv("CHECKER_TEST_THRESHOLD", "0.7")
+    assert checker._unit_interval("CHECKER_TEST_THRESHOLD", "0.6") == 0.7
+
+
 # Rules that keep HIT trustworthy.
 
 def test_confident_hit_points_at_its_evidence():
