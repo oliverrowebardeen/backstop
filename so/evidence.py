@@ -21,6 +21,9 @@ from so.contracts import Result
 SNIPPET_CHARS = 500
 """Longest evidence snippet, matching one Tavily Extract chunk."""
 
+CHUNK_SEPARATOR = "[...]"
+"""Tavily Extract joins the chunks of one source in raw_content with this marker."""
+
 _QUOTED = re.compile(r"\"([^\"]+)\"|“([^”]+)”|‘([^’]+)’|(?<!\w)'([^']+)'(?!\w)")
 _RESULT_REF = re.compile(r"\b(?:results?|rank|pages?)\s*#?\d+\b", re.IGNORECASE)
 _SCALES = {
@@ -88,6 +91,11 @@ def answer_terms(why: str, *, exclude: str = "") -> AnswerTerms:
         if not any(math.isclose(value, other, rel_tol=1e-9) for other in excluded)
     ))
     return AnswerTerms(phrases=phrases, numbers=numbers)
+
+
+def split_chunks(text: str) -> list[str]:
+    """Split Extract raw_content into its chunks; text without the marker is one chunk."""
+    return [chunk.strip() for chunk in text.split(CHUNK_SEPARATOR) if chunk.strip()]
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str]:

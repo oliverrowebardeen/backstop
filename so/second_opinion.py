@@ -227,7 +227,65 @@ def _record_check(trace: _Trace, verdict: CheckerVerdict) -> None:
     trace.emit("check", **verdict.model_dump())
 
 
+@dataclass(frozen=True)
+class _PageEvidence:
+    """Text a SHALLOW page read handed the checker, kept for the HIT evidence object."""
+
+    url: str
+    candidates: list[str]
+    source: str
+    chunks: int | None = None
+
+
+def _page_evidence(page: PageText, trace: _Trace) -> _PageEvidence:
+    """Split a successful page read into evidence candidates, naming the reader that produced it.
+
+    Tavily Extract with a goal returns ranked chunks joined by CHUNK_SEPARATOR;
+    the Telem fetch fallback returns plain page text, kept as one candidate.
+    """
+    from so.evidence import split_chunks
+
+    via = next((event["data"].get("via") for event in reversed(trace.events)
+                if event["type"] == "fetch" and event["data"].get("ok") and "error" not in event["data"]), "telem")
+    if via == "tavily":
+        chunks = split_chunks(page.text)
+        return _PageEvidence(page.url, chunks, "tavily_extract", len(chunks))
+    return _PageEvidence(page.url, [page.text], "telem_fetch")
+
+
+def _hit_evidence(
+    *, evidence: Result | None, evidence_url: str | None, why: str, exclude: str,
+    page: _PageEvidence | None, current_results: Sequence[Result], merged: dict[str, Result],
+    seen: dict[str, dict[str, int]], per_engine: dict[str, list[Result]],
+) -> dict[str, Any]:
+    """The verified evidence object for a HIT's search_done data. Makes no calls.
+
+    rank_reason is the evidence URL's position reason from rank_results without
+    the evidence boost (agreement across engines or best engine rank).
+    """
+    from so.evidence import build_evidence
+
+    url = evidence.url if evidence else (evidence_url or "")
+    if page is not None and page.url == url:
+        candidates, source, chunks = page.candidates, page.source, page.chunks
+    elif evidence is not None:
+        candidates, source, chunks = [evidence.snippet], "search", None
+    else:
+        candidates, source, chunks = [item.snippet for item in current_results], "search", None
+    rank_reason = next((item.rank_reason for item in rank_results(list(merged.values()), seen, None)
+                        if item.url == url), None)
+    return build_evidence(url=url, why=why, candidates=candidates, per_engine=per_engine,
+                          exclude=exclude, rank_reason=rank_reason, source=source, chunks=chunks)
+
+
 async def _fetch(url: str, goal: str, ctx: RunContext, trace: _Trace, trigger: str = "SHALLOW") -> PageText:
+    """Read a SHALLOW page: Tavily Extract chunks for the goal first, then the Telem fetch.
+
+    Extract runs at basic depth with the goal as its query, so it returns the
+    config.TAVILY_EXTRACT_CHUNKS chunks most relevant to the goal under
+    config.TAVILY_EXTRACT_TIMEOUT_S. A failed or empty Extract falls back to the
+    Telem fetch unchanged. Each attempt is a fetch trace event carrying its cost.
+    """
     from so.config import BudgetExceeded
     from so.tavily_client import tavily_extract
     from so.telem_client import fetch_page
@@ -315,6 +373,9 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
     engines: list[str] = []
     merged: dict[str, Result] = {}
     seen: dict[str, dict[str, int]] = {}
+    # Each engine's already-fetched top results, for the HIT evidence object's agreement count.
+    per_engine: dict[str, list[Result]] = {}
+    page_read: _PageEvidence | None = None
     rescues_used = 0
     ok_runs = 0
     current_query = query
@@ -403,6 +464,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             ok_runs += 1
             current_results = run.results[:config.TELEM_NUM_RESULTS]
             _observe(seen, current_results)
+            per_engine.setdefault(engine, []).extend(current_results)
         memory.urls_seen.update(result.url for result in current_results)
         _merge(merged, current_results)
         trace.emit(
@@ -455,7 +517,12 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
                 evidence = merged.get(evidence_url or "")
                 location = f"result {evidence.rank}" if evidence else "the returned evidence"
                 note = f"Answer is in {location}. You can stop searching for this."
-                return finish("HIT", note, evidence_url=evidence.url if evidence else None)
+                proof = _hit_evidence(
+                    evidence=evidence, evidence_url=evidence_url, why=verdict.why,
+                    exclude=f"{query} {current_query} {goal}", page=page_read,
+                    current_results=current_results, merged=merged, seen=seen, per_engine=per_engine,
+                )
+                return finish("HIT", note, evidence_url=evidence.url if evidence else None, evidence=proof)
             if action.kind == "NOT_FOUND":
                 return not_found()
 
@@ -490,6 +557,7 @@ async def _search(query: str, goal: str, ctx: RunContext, trace: _Trace, limits:
             memory.record_fetch(action.url)
             page = await _fetch(action.url, goal, ctx, trace, verdict.verdict)
             if page.ok and page.text.strip():
+                page_read = _page_evidence(page, trace)
                 original = merged.get(action.url)
                 evidence = Result(
                     rank=1, title=original.title if original else action.url,

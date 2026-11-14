@@ -7,15 +7,9 @@ from tavily import AsyncTavilyClient
 
 from so import config
 from so.contracts import PageText
+from so.evidence import CHUNK_SEPARATOR, split_chunks
 
-
-CHUNK_SEPARATOR = "[...]"
-"""Tavily joins the chunks of one source in raw_content with this marker."""
-
-
-def split_chunks(text: str) -> list[str]:
-    """Split Extract raw_content into its chunks; text without the marker is one chunk."""
-    return [chunk.strip() for chunk in text.split(CHUNK_SEPARATOR) if chunk.strip()]
+__all__ = ["CHUNK_SEPARATOR", "split_chunks", "tavily_extract"]
 
 
 async def tavily_extract(url: str, *, goal: str | None = None,
