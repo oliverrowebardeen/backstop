@@ -66,3 +66,45 @@ async def test_real_checker_usage_is_emitted_once_and_page_url_is_retained(monke
 def test_page_reader_contracts_accept_goal_metadata():
     signature(tavily_client.tavily_extract).bind("https://example.com", goal="find evidence")
     signature(telem_client.fetch_page).bind("https://example.com", goal="find evidence", session="unit-session")
+
+
+async def test_malformed_checker_retry_is_costed_before_engine_rescue(monkeypatch, tmp_path, caplog):
+    replies = iter(['{"verdict": "HIT"', '{"verdict": "HIT"', verdict("HIT", evidence_rank=1).model_dump_json()])
+
+    async def complete(role, system, messages, **kwargs):
+        return LLMResponse(
+            text=next(replies), role="checker", model="fixture-model",
+            cost_usd=0.001, latency_ms=25, tokens_in=100, tokens_out=30,
+        )
+
+    async def search_engines(query, engines, **kwargs):
+        engine = engines[0]
+        return {engine: EngineRun(
+            engine=engine, status="ok", results=[source(f"https://example.com/{engine}", engine=engine)],
+            cost_usd=0.005, latency_ms=100,
+        )}
+
+    monkeypatch.setattr(llm, "complete", complete)
+    monkeypatch.setattr(telem_client, "search_engines", search_engines)
+    monkeypatch.setattr("so.second_opinion.load_rescue_table", lambda: RescueTable())
+    log = EventLog("second_opinion-malformed", "malformed", "second_opinion", log_dir=tmp_path)
+    ctx = RunContext(
+        run_id=log.run_id, question_id="malformed", setup="second_opinion", log=log,
+        session="integration-session", today=date(2026, 11, 14),
+    )
+
+    outcome = await search("query", "goal", ctx)
+
+    assert outcome.status == "HIT" and outcome.calls == 2 and outcome.fetches == 0
+    assert outcome.engines_called == ["tavily", "exa"]
+    assert outcome.cost_usd == pytest.approx(0.013)
+    assert outcome.latency_ms >= 275
+    checks = [event["data"] for event in outcome.trace if event["type"] == "check"]
+    assert [check["verdict"] for check in checks] == ["DEAD", "HIT"]
+    assert checks[0]["why"] == "checker output malformed"
+    usage = [event["data"] for event in outcome.trace if event["type"] == "llm"]
+    assert len(usage) == 2
+    assert usage[0]["cost_usd"] == pytest.approx(0.002)
+    assert usage[0]["tokens_out"] == 60
+    assert summarize(log.path)["cost_usd_total"] == pytest.approx(outcome.cost_usd)
+    assert "malformed after a retry" in caplog.text
