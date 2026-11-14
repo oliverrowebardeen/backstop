@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import importlib
-import logging
 from collections.abc import Awaitable, Callable
 
 from so import config, telem_client
@@ -62,7 +61,7 @@ async def telem_default(query: str, goal: str, ctx: RunContext) -> SearchOutcome
 
 
 def get_search_tool(setup: str) -> SearchTool:
-    """Select a setup; SO_ENABLE_SECOND_OPINION=0 explicitly selects its fallback."""
+    """Select the requested setup or fail without substituting another one."""
     if setup == "single":
         return single
     if setup == "telem_default":
@@ -70,8 +69,7 @@ def get_search_tool(setup: str) -> SearchTool:
     if setup != "second_opinion":
         raise ValueError(f"Unknown setup: {setup}")
     if not config.SO_ENABLE_SECOND_OPINION:
-        logging.getLogger(__name__).warning("Second Opinion is disabled by configuration; using single.")
-        return single
+        raise RuntimeError("The requested second_opinion setup is disabled by SO_ENABLE_SECOND_OPINION")
     try:
         module = importlib.import_module("so.second_opinion")
     except ModuleNotFoundError as exc:
@@ -79,3 +77,14 @@ def get_search_tool(setup: str) -> SearchTool:
             raise RuntimeError("Second Opinion is enabled but so.second_opinion is not installed") from exc
         raise
     return module.search
+
+
+def get_search_setup(search: SearchTool) -> str:
+    """Identify a registered search implementation before labelling a run."""
+    if search is single:
+        return "single"
+    if search is telem_default:
+        return "telem_default"
+    if search is importlib.import_module("so.second_opinion").search:
+        return "second_opinion"
+    raise RuntimeError("Unrecognized search implementation; cannot verify the requested setup")

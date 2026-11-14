@@ -84,6 +84,7 @@ async def test_run_session_evidence_and_totals(question, wrappers, tmp_path, set
     assert wrapper.await_args.kwargs == {"goal": "Find current CEO", "session": None, **label}
     log = events(tmp_path)
     assert log[0]["type"] == "run_start"
+    assert log[0]["data"]["effective_setup"] == setup
     assert [entry["seq"] for entry in log] == list(range(1, len(log) + 1))
     totals = log[-1]["data"]
     assert summarize(next(tmp_path.glob("*.jsonl"))) == totals
@@ -174,6 +175,8 @@ async def test_budget_error_is_propagated_with_terminal_totals(question, wrapper
 
 
 async def test_checker_events_are_included_once(question, wrappers, tmp_path, monkeypatch):
+    from so import second_opinion
+
     async def checked(query, goal, ctx):
         assert ctx.session is None
         ctx.session = "session-one"
@@ -182,7 +185,7 @@ async def test_checker_events_are_included_once(question, wrappers, tmp_path, mo
                      cost_usd=.003, latency_ms=100)
         ctx.log.emit("search_done", cost_usd=.008, calls=1, fetches=0, latency_ms=600)
         return SearchOutcome(status="HIT", results=[result()], calls=1, cost_usd=.008)
-    monkeypatch.setattr(agent, "get_search_tool", lambda setup: checked)
+    monkeypatch.setattr(second_opinion, "search", checked)
     await agent.run_question(question, "second_opinion", log_dir=tmp_path)
     totals = events(tmp_path)[-1]["data"]
     assert totals["engine_calls"] == 1
@@ -229,10 +232,10 @@ async def test_baseline_deduplicates_urls_and_keeps_uncertainty(wrappers):
     assert outcome.engines_called == ["tavily", "exa", "brave"]
 
 
-def test_second_opinion_flag_and_loading(monkeypatch, caplog):
+def test_second_opinion_flag_and_loading(monkeypatch):
     monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", False)
-    assert setups.get_search_tool("second_opinion") is setups.single
-    assert "disabled by configuration" in caplog.text
+    with pytest.raises(RuntimeError, match="second_opinion setup is disabled"):
+        setups.get_search_tool("second_opinion")
     monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", True)
     missing = ModuleNotFoundError("missing", name="so.second_opinion")
     monkeypatch.setattr(setups.importlib, "import_module", lambda name: (_ for _ in ()).throw(missing))
@@ -296,7 +299,6 @@ async def test_exact_query_reuse_preserves_outcome_without_new_cost(
     monkeypatch.setattr(checker, "check", check)
     monkeypatch.setattr(config, "AGENT_MAX_SEARCHES", 1)
     repeat = search_call(2, query="CEO 1")
-    repeat.arguments["goal"] = "Verify a different detail"
     wrappers.complete.side_effect = [response(search_call()), response(repeat), final_response()]
 
     answer = await agent.run_question(question, setup, log_dir=tmp_path)
@@ -344,7 +346,7 @@ async def test_previous_searches_are_scoped_to_one_run(question, wrappers, tmp_p
 
 async def test_not_found_outcome_is_also_reused(question, wrappers, tmp_path, monkeypatch):
     search = AsyncMock(return_value=SearchOutcome(status="NOT_FOUND", note="No evidence found.", calls=3))
-    monkeypatch.setattr(agent, "get_search_tool", lambda setup: search)
+    monkeypatch.setattr(setups, "single", search)
     wrappers.complete.side_effect = [response(search_call(), search_call(2, query="CEO 1")),
                                        response(text="NOT FOUND")]
     answer = await agent.run_question(question, "single", log_dir=tmp_path)
@@ -352,3 +354,83 @@ async def test_not_found_outcome_is_also_reused(question, wrappers, tmp_path, mo
     reused = json.loads(wrappers.complete.await_args.args[2][-1]["content"])
     assert reused["status"] == "NOT_FOUND" and reused["calls"] == 3
     assert reused["note"].endswith("No evidence found.")
+
+
+@pytest.mark.parametrize("setup", ["single", "telem_default", "second_opinion"])
+async def test_changed_goal_gets_fresh_retrieval_and_goal_specific_check(
+        question, wrappers, tmp_path, monkeypatch, setup):
+    from so import checker
+
+    check = AsyncMock(return_value=checker.CheckedVerdict(
+        verdict="HIT", confidence=1, why="The requested fact is present.", evidence_rank=1,
+        best_url=URL, model="test-checker", cost_usd=.003, latency_ms=100,
+    ))
+    monkeypatch.setattr(checker, "check", check)
+    monkeypatch.setattr(config, "AGENT_MAX_SEARCHES", 2)
+    goals = ["Find annual revenue", "Find employee count"]
+    calls = [ToolCall(id=f"s{index}", name="search", arguments={
+        "query": "Acme annual report", "goal": goal,
+    }) for index, goal in enumerate(goals * 2)]
+    wrappers.complete.side_effect = [response(call) for call in calls] + [final_response()]
+
+    answer = await agent.run_question(question, setup, log_dir=tmp_path)
+
+    wrapper = wrappers.default if setup == "telem_default" else wrappers.pinned
+    assert answer.searches == wrapper.await_count == 2
+    assert [call.kwargs["goal"] for call in wrapper.await_args_list] == goals
+    assert check.await_count == (2 if setup == "second_opinion" else 0)
+    if setup == "second_opinion":
+        assert [call.args[1] for call in check.await_args_list] == goals
+    replies = [json.loads(message["content"]) for message in wrappers.complete.await_args.args[2]
+               if message["role"] == "tool"]
+    assert all("already ran" not in reply["note"] for reply in replies[:2])
+    assert all(goal in reply["note"] for goal, reply in zip(goals, replies[2:]))
+    assert sum(event["type"] == "search_done" for event in events(tmp_path)) == 2
+
+
+async def test_changed_goal_at_limit_cannot_reuse_another_goals_hit(question, wrappers, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "AGENT_MAX_SEARCHES", 1)
+    changed = search_call(2, query="CEO 1")
+    changed.arguments["goal"] = "Find annual revenue"
+    wrappers.complete.side_effect = [response(search_call()), response(changed), final_response()]
+    await agent.run_question(question, "single", log_dir=tmp_path)
+    reply = json.loads(wrappers.complete.await_args.args[2][-1]["content"])
+    assert "Search limit reached" in reply["error"] and "status" not in reply
+    assert wrappers.pinned.await_count == 1
+
+
+async def test_disabled_second_opinion_refuses_run_before_paid_work(question, wrappers, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "SO_ENABLE_SECOND_OPINION", False)
+    with pytest.raises(RuntimeError, match="second_opinion setup is disabled"):
+        await agent.run_question(question, "second_opinion", log_dir=tmp_path)
+    wrappers.complete.assert_not_awaited()
+    wrappers.pinned.assert_not_awaited()
+    wrappers.default.assert_not_awaited()
+    assert list(tmp_path.glob("*.jsonl")) == []
+
+
+@pytest.mark.parametrize("requested,effective", [
+    ("single", "telem_default"), ("single", "second_opinion"),
+    ("telem_default", "single"), ("telem_default", "second_opinion"),
+    ("second_opinion", "single"), ("second_opinion", "telem_default"),
+])
+async def test_effective_setup_mismatch_refuses_run(
+        question, wrappers, tmp_path, monkeypatch, requested, effective):
+    tool = setups.get_search_tool(effective)
+    monkeypatch.setattr(agent, "get_search_tool", lambda setup: tool)
+    with pytest.raises(RuntimeError, match=f"Requested setup '{requested}' resolved to '{effective}'"):
+        await agent.run_question(question, requested, log_dir=tmp_path)
+    wrappers.complete.assert_not_awaited()
+    wrappers.pinned.assert_not_awaited()
+    wrappers.default.assert_not_awaited()
+    assert list(tmp_path.glob("*.jsonl")) == []
+
+
+async def test_unregistered_search_implementation_is_not_mislabelled(question, wrappers, tmp_path, monkeypatch):
+    search = AsyncMock()
+    monkeypatch.setattr(agent, "get_search_tool", lambda setup: search)
+    with pytest.raises(RuntimeError, match="Unrecognized search implementation"):
+        await agent.run_question(question, "single", log_dir=tmp_path)
+    search.assert_not_awaited()
+    wrappers.complete.assert_not_awaited()
+    assert list(tmp_path.glob("*.jsonl")) == []

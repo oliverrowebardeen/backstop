@@ -14,7 +14,7 @@ from uuid import uuid4
 from so import config, llm, telem_client
 from so.contracts import AgentAnswer, LLMResponse, Question, RunContext, SearchOutcome, ToolCall
 from so.eventlog import EventLog
-from so.setups import SearchTool, get_search_tool, single
+from so.setups import SearchTool, get_search_setup, get_search_tool
 
 TOOLS = [
     {"type": "function", "function": {
@@ -147,7 +147,7 @@ def _assistant_turn(response: LLMResponse) -> dict[str, Any] | None:
 
 async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
                        counts: dict[str, int], sources: set[str],
-                       previous_searches: dict[str, tuple[str, SearchOutcome]]) -> dict[str, Any]:
+                       previous_searches: dict[tuple[str, str], SearchOutcome]) -> dict[str, Any]:
     arguments = call.arguments
     if call.name == "search":
         if any(not isinstance(arguments.get(key), str) or not arguments[key].strip()
@@ -158,11 +158,12 @@ async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
             return {"error": (f"search requires a goal of at least {config.AGENT_MIN_GOAL_WORDS} words that states "
                               "the fact the results must establish. If the evidence already answers the "
                               "question, reply with the final JSON answer instead.")}
-        if query in previous_searches:
-            original_goal, previous = previous_searches[query]
+        request = (query, goal)
+        if request in previous_searches:
+            previous = previous_searches[request]
             result = previous.model_dump(mode="json")
             result["note"] = (
-                f"You already ran this exact query with goal {original_goal!r}. "
+                f"You already ran this exact query with the same goal {goal!r}. "
                 f"Reusing its previous outcome without a new search. {previous.note}"
             )
             return result
@@ -170,7 +171,7 @@ async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
             return {"error": "Search limit reached. Answer from existing evidence or NOT FOUND."}
         counts["searches"] += 1
         outcome = await search(query, goal, ctx)
-        previous_searches[query] = (goal, outcome)
+        previous_searches[request] = outcome
         sources.update(result.url for result in outcome.results if _http_url(result.url))
         return outcome.model_dump(mode="json")
     if call.name == "read_page":
@@ -195,6 +196,11 @@ async def _tool_result(call: ToolCall, ctx: RunContext, search: SearchTool,
 async def run_question(question: Question, setup: str, *, log_dir: str | Path | None = None) -> AgentAnswer:
     """Answer a question and write an auditable, fully costed event log."""
     search = get_search_tool(setup)
+    effective_setup = get_search_setup(search)
+    if effective_setup != setup:
+        raise RuntimeError(
+            f"Requested setup {setup!r} resolved to {effective_setup!r}; refusing to run a different setup"
+        )
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", question.id)
     run_id = f"{setup}-{safe_id}-{uuid4().hex}"
     log = _RunLog(EventLog(run_id, question.id, setup, log_dir=config.SO_LOG_DIR if log_dir is None else log_dir))
@@ -203,13 +209,12 @@ async def run_question(question: Question, setup: str, *, log_dir: str | Path | 
     error: str | None = None
     ctx = RunContext(run_id=run_id, question_id=question.id, setup=setup, log=log)
     try:
-        log.emit("run_start", question=question.question,
-                 effective_setup="single" if setup == "second_opinion" and search is single else setup)
+        log.emit("run_start", question=question.question, effective_setup=effective_setup)
         system_prompt = Path(config.AGENT_PROMPT_PATH).read_text(encoding="utf-8").replace(
             "{{max_searches}}", str(config.AGENT_MAX_SEARCHES))
         messages: list[dict[str, Any]] = [{"role": "user", "content": question.question}]
         sources: set[str] = set()
-        previous_searches: dict[str, tuple[str, SearchOutcome]] = {}
+        previous_searches: dict[tuple[str, str], SearchOutcome] = {}
         answer: AgentAnswer | None = None
         idle_turns = 0
         for turn in range(config.AGENT_MAX_TURNS + 1):
