@@ -63,7 +63,7 @@
 - Run: `pytest tests/s6 -q`; `python -m so.second_opinion "What was Stripe's valuation in its 2023 round?" --goal "find the valuation figure" --format text`; `uvicorn server.app:app --port 8000` then `curl -H "Authorization: Bearer <key>" -H "Content-Type: application/json" -d '{"query":"...","goal":"..."}' localhost:8000/v1/search`.
 - Not done: README "## Results" awaits O5 and the held-out eval; the 12s timeout_s and 4s checker_timeout_s defaults can cut the second rescue or mark slow checks UNCHECKED live, so set SEARCH_TIMEOUT_S and CHECKER_TIMEOUT_S for the eval if needed; the rate limiter is in-memory per process; the client path skips the disk cache by design.
 
-S4 FULL EVAL STARTED 11:45 at commit 2dfa99f. Do not merge changes to search, checker or agent behavior until "S4 FULL EVAL FINISHED" appears here.
+S4 FULL EVAL STARTED 11:50 at commit a07af8d (restarted with the contamination filter in every setup). Do not merge changes to search, checker or agent behavior until "S4 FULL EVAL FINISHED" appears here.
 
 ## Site: seven-beat pitch and Vercel entry point
 - Built: one scrolling page at `/`, replacing the race/results UI; classic self-hosted typography, moving query diagram, streamed race, genuine golden replay, audit download, and measured proof. `/presentation` reads `out/matrix.jsonl` and `out/results.json`; incomplete or synthetic evaluations stay blank. Vercel imports the repository root as FastAPI via `app.py`; see DEPLOY.md.

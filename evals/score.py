@@ -252,7 +252,8 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
     agree_path = Path(out_dir) / AGREEMENT.name
     if agree_path.exists():
         a = json.loads(agree_path.read_text())
-        judge_agreement = {"n_checked": int(a["n_checked"]), "agree": int(a["agree"])}
+        judge_agreement = {"n_checked": int(a["n_checked"]), "agree": int(a["agree"]),
+                           "labeler": a.get("labeler", "human")}
     else:
         judge_agreement = {"n_checked": 0, "agree": 0,
                            "note": "no out/judge_agreement.json yet; run python -m evals.handcheck"}
@@ -272,6 +273,18 @@ async def score(log_dir: Path = LOG_DIR, out_dir: Path = OUT) -> dict:
             "note": "excluded from every setup's cost",
         },
     }
+    contam_path = Path(out_dir) / "eval_contamination.jsonl"
+    if contam_path.exists():
+        latest = {}
+        for line in contam_path.read_text().splitlines():
+            if line.strip():
+                row = json.loads(line)
+                latest[(row["question_id"], row["setup"])] = row
+        results["contamination"] = {
+            setup: {"results_seen": sum(r["results"] for k, r in latest.items() if k in runs and k[1] == setup),
+                    "benchmark_copies_removed": sum(r["removed"] for k, r in latest.items()
+                                                    if k in runs and k[1] == setup)}
+            for setup in setups}
     if manifest.get("note"):
         results["note"] = manifest["note"]
     if missing_answer:
@@ -361,9 +374,22 @@ def render_md(r: dict) -> str:
                  f"{p['declined->wrong']} | {p['unchanged']} |")
     L += ["", f"Read each row as: the baseline's grade, then {OURS}'s grade on the same question.", ""]
 
+    if r.get("contamination"):
+        L += ["## Benchmark contamination filter", "",
+              "Search results that copy the benchmark (dataset viewers, published answer sheets, pages "
+              "quoting the question) were removed before any setup, checker or agent saw them "
+              "(evals/contamination.py, installed through so.telem_client.RESULT_FILTER).", "",
+              "| Setup | Results seen | Removed |", "|---|---|---|"]
+        for setup in S:
+            c = r["contamination"].get(setup, {})
+            L.append(f"| {setup} | {c.get('results_seen', 0)} | "
+                     f"{pct(c.get('benchmark_copies_removed', 0), c.get('results_seen', 0))} |")
+        L.append("")
     ja, jc = r["judge_agreement"], r["judge_cost_usd"]
+    labeler = ja.get("labeler", "human")
     L += ["## Judge", "",
-          f"- Hand check agreement: {pct(ja['agree'], ja['n_checked'])}" + (f" ({ja['note']})" if ja.get("note") else ""),
+          f"- Hand check agreement: {pct(ja['agree'], ja['n_checked'])}, labeled by {labeler}"
+          + (f" ({ja['note']})" if ja.get("note") else ""),
           f"- Judge spend for grading this run: ${jc['grading_this_run']:.4f} "
           f"({jc['grading_calls']} calls, {jc['grading_cached']} cached). Not included in any setup's cost.", ""]
     return "\n".join(L)
