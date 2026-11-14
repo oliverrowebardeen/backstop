@@ -1,0 +1,6 @@
+{
+  "title": "A stale valuation, checked",
+  "fixture": true,
+  "left": "single.jsonl",
+  "right": "second_opinion.jsonl"
+}

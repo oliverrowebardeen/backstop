@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-11-14T19:05:00Z",
+  "n_test": 3,
+  "n_traps": 1,
+  "setups": {
+    "single": {
+      "correct": 1,
+      "wrong": 1,
+      "declined": 1,
+      "accuracy": 0.3333333333333333,
+      "wrong_rate": 0.3333333333333333,
+      "engine_calls_per_q": 2,
+      "cost_per_q_search": 0.006,
+      "cost_per_q_total": 0.008,
+      "cost_per_correct": 0.024,
+      "cost_per_search_call": 0.008,
+      "latency_p50_ms": 2000,
+      "latency_p95_ms": 4000,
+      "trap_n": 1,
+      "trap_confident_wrong": 1
+    },
+    "telem_default": {
+      "correct": 2,
+      "wrong": 1,
+      "declined": 0,
+      "accuracy": 0.6666666666666666,
+      "wrong_rate": 0.3333333333333333,
+      "engine_calls_per_q": 2,
+      "cost_per_q_search": 0.018000000000000002,
+      "cost_per_q_total": 0.02,
+      "cost_per_correct": 0.03,
+      "cost_per_search_call": 0.02,
+      "latency_p50_ms": 2000,
+      "latency_p95_ms": 4000,
+      "trap_n": 1,
+      "trap_confident_wrong": 0
+    },
+    "second_opinion": {
+      "correct": 2,
+      "wrong": 0,
+      "declined": 1,
+      "accuracy": 0.6666666666666666,
+      "wrong_rate": 0.0,
+      "engine_calls_per_q": 2,
+      "cost_per_q_search": 0.012,
+      "cost_per_q_total": 0.014,
+      "cost_per_correct": 0.021,
+      "cost_per_search_call": 0.014,
+      "latency_p50_ms": 2000,
+      "latency_p95_ms": 4000,
+      "trap_n": 1,
+      "trap_confident_wrong": 0
+    }
+  }
+}
