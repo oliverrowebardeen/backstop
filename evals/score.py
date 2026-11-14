@@ -192,8 +192,15 @@ def _provenance(runs: dict) -> dict:
             "telem_base_url": config.TELEM_BASE_URL, "scored_at_commit": commit}
 
 
-async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dict:
+COMPARE = f"{OURS}_llm_checker"  # main-eval Second Opinion runs when a separate headline pass exists
+
+
+async def score(log_dir: Path | None = None, out_dir: Path | None = None,
+                so_log_dir: Path | None = None, so_label: str | None = None) -> dict:
+    """Score finished runs. With so_log_dir, the headline second_opinion comes from that extra pass
+    (for example another checker backend); baselines and the comparison come from log_dir."""
     from evals.judge import SPEND
+    from evals.retrieval import RunTruth
     log_dir = default_log_dir() if log_dir is None else log_dir
     out_dir = deps.OUT if out_dir is None else out_dir
     questions = {q.id: q for q in load_questions(split="test") + [t for t in load_traps() if t.split == "test"]}
@@ -202,6 +209,12 @@ async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dic
     scope = set(manifest.get("test_ids", [])) | set(manifest.get("trap_ids", [])) or set(questions)
     scope &= set(questions)
     runs = {k: p for k, p in finished_runs(log_dir).items() if k[0] in scope}
+    if so_log_dir is not None:
+        main_so = {(q, COMPARE): p for (q, s), p in runs.items() if s == OURS}
+        runs = {k: p for k, p in runs.items() if k[1] != OURS}
+        runs.update({k: p for k, p in finished_runs(Path(so_log_dir)).items() if k[0] in scope and k[1] == OURS})
+        runs.update(main_so)
+    all_setups = list(SETUPS) + ([COMPARE] if so_log_dir is not None else [])
 
     recs: dict[tuple[str, str], dict] = {}
     for (qid, setup), path in sorted(runs.items()):
@@ -218,17 +231,23 @@ async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dic
             recs[k]["grade"] = g
 
     setups, by_setup = {}, {}
-    for s in SETUPS:
+    for s in all_setups:
         mine = {q: r for (q, ss), r in recs.items() if ss == s}
         setups[s] = setup_block([r for q, r in mine.items() if not questions[q].is_trap],
                                 [r for q, r in mine.items() if questions[q].is_trap])
         by_setup[s] = {q: r["grade"] for q, r in mine.items() if not questions[q].is_trap}
+    comparison_block = setups.pop(COMPARE, None)
 
     # Offline truth for every logged search, judged on the exact list each search returned.
     graded_test = {k: runs[k] for k in recs if not questions[k[0]].is_trap}
     truth = await judge_runs(graded_test, questions)
-    checker = offline_checker_metrics(truth)
-    present = [s for s in SETUPS if any(ss == s for (_, ss) in graded_test)]
+
+    def only(setup: str) -> RunTruth:
+        return RunTruth(searches=[x for x in truth.searches if x.setup == setup],
+                        missing=truth.missing, judge_errors=truth.judge_errors)
+
+    checker = offline_checker_metrics(only(OURS))
+    present = [s for s in all_setups if any(ss == s for (_, ss) in graded_test)]
     cohort = set.intersection(*[{q for (q, ss) in graded_test if ss == s} for s in present]) if present else set()
     coverage = coverage_by_setup(truth, {s: cohort for s in present})
     for s in present:
@@ -259,7 +278,8 @@ async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dic
         "retrieval": retrieval,
         "provenance": _provenance(runs),
         "judge_agreement": judge_agreement,
-        "paired": {f"{OURS}_vs_{b}": paired_flips(by_setup[OURS], by_setup[b]) for b in BASELINES},
+        "paired": {f"{OURS}_vs_{b}": paired_flips(by_setup[OURS], by_setup[b])
+                   for b in [*BASELINES, *([COMPARE] if comparison_block else [])]},
         "judge_cost_usd": {
             "grading_this_run": round(SPEND["judge_usd"], 6),
             "grading_calls": SPEND["judge_calls"], "grading_cached": SPEND["judge_cached"],
@@ -267,13 +287,28 @@ async def score(log_dir: Path | None = None, out_dir: Path | None = None) -> dic
             "note": "excluded from every setup's cost",
         },
     }
-    contam_path = Path(out_dir) / "eval_contamination.jsonl"
-    if contam_path.exists():
-        latest = {}
+    if comparison_block is not None:
+        results["comparison"] = {
+            COMPARE: comparison_block,
+            "checker": offline_checker_metrics(only(COMPARE)),
+            "what": f"{OURS} from the main eval (its default checker), same questions and baselines",
+        }
+        results["headline"] = {OURS: so_label or f"extra pass from {Path(so_log_dir).name}",
+                               "baselines": f"single and telem_default from {Path(log_dir).name}"}
+    contam_files = [(Path(out_dir) / "eval_contamination.jsonl", None)]
+    if so_log_dir is not None:
+        contam_files = [(Path(out_dir) / "eval_contamination.jsonl", {"single", "telem_default"}),
+                        (Path(so_log_dir).parent / f"{Path(so_log_dir).name}.contamination.jsonl", {OURS})]
+    latest = {}
+    for contam_path, keep in contam_files:
+        if not contam_path.exists():
+            continue
         for line in contam_path.read_text().splitlines():
             if line.strip():
                 row = json.loads(line)
-                latest[(row["question_id"], row["setup"])] = row
+                if keep is None or row["setup"] in keep:
+                    latest[(row["question_id"], row["setup"])] = row
+    if latest:
         results["contamination"] = {
             setup: {"results_seen": sum(r["results"] for k, r in latest.items() if k in runs and k[1] == setup),
                     "benchmark_copies_removed": sum(r["removed"] for k, r in latest.items()
@@ -312,6 +347,10 @@ def render_md(r: dict) -> str:
         L += [f"**Note: {r['note']}.**", ""]
     L += [f"Generated {r['generated_at']}. Test questions in scope: {r['n_test']}. Traps in scope: {r['n_traps']}.",
           "Every number comes from the test split or the traps. Judge cost is excluded from every setup.", ""]
+    if r.get("headline"):
+        h = r["headline"]
+        L += [f"**Headline {OURS}: {h[OURS]}.** Baselines: {h['baselines']}. "
+              f"The main eval's {OURS} run (default checker) is reported below as `{COMPARE}`.", ""]
     for w in r.get("warnings", []):
         L += [f"Warning: {w}", ""]
     short = [s for s in S if b[s]["n"] < r["n_test"]]
@@ -395,6 +434,20 @@ def render_md(r: dict) -> str:
             L.append(f"| {setup} | {c.get('results_seen', 0)} | "
                      f"{pct(c.get('benchmark_copies_removed', 0), c.get('results_seen', 0))} |")
         L.append("")
+    if r.get("comparison"):
+        cb, cc = r["comparison"][COMPARE], r["comparison"]["checker"]
+        hb = r["setups"].get(OURS, {})
+        L += [f"## Headline {OURS} vs {COMPARE} (same questions, same baselines)", "",
+              f"| | {OURS} (headline) | {COMPARE} |", "|---|---|---|"]
+        for label, k in (("Correct", "correct"), ("Wrong", "wrong"), ("Declined", "declined")):
+            L.append(f"| {label} | {pct(hb.get(k, 0), hb.get('n', 0))} | {pct(cb.get(k, 0), cb.get('n', 0))} |")
+        L.append(f"| Total cost per question | {usd(hb.get('cost_per_q_total'))} | {usd(cb.get('cost_per_q_total'))} |")
+        L.append(f"| Checker cost per question | {usd(hb.get('cost_per_q_checker'))} | {usd(cb.get('cost_per_q_checker'))} |")
+        L.append(f"| Checker miss recall (exact lists) | {r['checker'].get('miss_recall', 0):.1%} "
+                 f"(n={r['checker'].get('n_true_misses', 0)}) | {cc.get('miss_recall', 0):.1%} (n={cc.get('n_true_misses', 0)}) |")
+        L.append(f"| Checker false alarms (exact lists) | {r['checker'].get('false_alarm_rate', 0):.1%} "
+                 f"(n={r['checker'].get('n_true_hits', 0)}) | {cc.get('false_alarm_rate', 0):.1%} (n={cc.get('n_true_hits', 0)}) |")
+        L.append("")
     ja, jc = r["judge_agreement"], r["judge_cost_usd"]
     labeler = ja.get("labeler", "human")
     L += ["## Judge", "",
@@ -406,8 +459,13 @@ def render_md(r: dict) -> str:
 
 
 def main(argv=None) -> None:
-    argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args(argv)
-    results = asyncio.run(score())
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--so-log-dir", type=Path, default=None,
+                   help="headline second_opinion runs from this extra pass; the main eval's second_opinion "
+                        "runs are reported as the comparison")
+    p.add_argument("--so-label", default=None, help="what the extra pass is, e.g. its checker settings and commit")
+    a = p.parse_args(argv)
+    results = asyncio.run(score(so_log_dir=a.so_log_dir, so_label=a.so_label))
     out = deps.OUT
     out.mkdir(parents=True, exist_ok=True)
     (out / RESULTS_JSON).write_text(json.dumps(results, indent=2))

@@ -55,8 +55,18 @@ def default_log_dir() -> Path:
     return deps.OUT / "logs"
 
 
-def manifest_path() -> Path:
-    return deps.OUT / MANIFEST_NAME
+def manifest_path(log_dir: Path | None = None) -> Path:
+    """The default log dir shares out/eval_manifest.json; any other log dir gets a sibling of its own."""
+    if log_dir is None or Path(log_dir) == default_log_dir():
+        return deps.OUT / MANIFEST_NAME
+    return Path(log_dir).parent / f"{Path(log_dir).name}.manifest.json"
+
+
+def contamination_path(log_dir: Path) -> Path:
+    """Per-run contamination counts, kept next to (never inside) the log directory."""
+    if Path(log_dir) == default_log_dir():
+        return Path(log_dir).parent / CONTAMINATION_NAME
+    return Path(log_dir).parent / f"{Path(log_dir).name}.contamination.jsonl"
 
 
 def load_agent():
@@ -231,7 +241,7 @@ async def run(test, traps, setups: list[str], log_dir: Path | None = None,
                     await _call_agent(agent, q, setup, log_dir)
                 finally:
                     RESULT_FILTER.reset(token)
-                _record_contamination(Path(log_dir).parent / CONTAMINATION_NAME,
+                _record_contamination(contamination_path(log_dir),
                                       {"question_id": q.id, "setup": setup, **seen})
                 path = _finished_since(log_dir, q.id, setup, started - 1)
                 if path is None:
@@ -268,16 +278,21 @@ def main(argv=None) -> None:
     p.add_argument("--max-test", type=int, help="cut to the first N test questions plus all traps")
     p.add_argument("--concurrency", type=int, default=LLM_MAX_CONCURRENCY,
                    help="default so.config.LLM_MAX_CONCURRENCY")
+    p.add_argument("--log-dir", type=Path, default=None,
+                   help="write run logs here instead of out/logs (for an extra pass, e.g. another checker "
+                        "backend); its manifest and contamination counts are written next to it")
     args = p.parse_args(argv)
+    log_dir = args.log_dir or default_log_dir()
     setups = [s.strip() for s in args.setups.split(",") if s.strip()]
     bad = [s for s in setups if s not in SETUPS]
     if bad:
         p.error(f"unknown setup(s): {', '.join(bad)}. choose from {', '.join(SETUPS)}")
     test, traps = select(args.limit, args.max_test, args.traps_only)
-    m = write_manifest(test, traps, setups, args.limit, args.max_test, args.traps_only)
+    m = write_manifest(test, traps, setups, args.limit, args.max_test, args.traps_only,
+                       path=manifest_path(log_dir))
     if m.get("note"):
         print(f"note: {m['note']}")
-    asyncio.run(run(test, traps, setups, default_log_dir(), args.concurrency))
+    asyncio.run(run(test, traps, setups, log_dir, args.concurrency))
 
 
 if __name__ == "__main__":

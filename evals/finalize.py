@@ -25,13 +25,18 @@ from evals import deps
 from evals.deps import ROOT
 
 
-def steps() -> list[tuple[str, list[str]]]:
+def steps(so_log_dir: Path | None = None, so_label: str | None = None) -> list[tuple[str, list[str]]]:
+    """The pipeline. With so_log_dir, the headline second_opinion (and the conformal test side)
+    come from that extra pass, and the main eval's second_opinion is scored as the comparison."""
     out = deps.OUT
+    score = ["-m", "evals.score"]
+    if so_log_dir is not None:
+        score += ["--so-log-dir", str(so_log_dir)] + (["--so-label", so_label] if so_label else [])
     return [
-        ("score the eval", ["-m", "evals.score"]),
+        ("score the eval", score),
         ("frontier chart", ["-m", "analysis.frontier"]),
         ("findings", ["-m", "analysis.findings"]),
-        ("conformal wrong-HIT bound", ["-m", "analysis.conformal", "--log-dir", str(out / "logs")]),
+        ("conformal wrong-HIT bound", ["-m", "analysis.conformal", "--log-dir", str(so_log_dir or out / "logs")]),
         ("founder claims", ["-m", "analysis.hn_claims", "--results", str(out / "results.json")]),
     ]
 
@@ -44,12 +49,15 @@ OUTPUTS = ["out/results.json", "out/results.md", "out/frontier.json", "out/front
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dry-run", action="store_true", help="print the steps without running them")
+    p.add_argument("--so-log-dir", type=Path, default=None,
+                   help="headline second_opinion from this extra pass (see evals.score --so-log-dir)")
+    p.add_argument("--so-label", default=None, help="what the extra pass is (shown in results)")
     args = p.parse_args(argv)
     logs = deps.OUT / "logs"
     if not args.dry_run and not any(logs.glob("*.jsonl")):
         print(f"no eval logs in {logs}; run python -m evals.run_eval first", file=sys.stderr)
         return 2
-    plan = steps()
+    plan = steps(args.so_log_dir, args.so_label)
     for i, (name, cmd) in enumerate(plan, 1):
         print(f"[{i}/{len(plan)}] {name}: python {' '.join(cmd)}", flush=True)
         if args.dry_run:
