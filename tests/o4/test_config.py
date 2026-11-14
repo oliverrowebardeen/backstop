@@ -31,6 +31,7 @@ def test_server_defaults_inherit_shared_paths_and_disable_fixtures(tmp_path: Pat
     assert settings["SERVER_RESULTS_PATH"] == str(tmp_path / "output/results.json")
     assert settings["SERVER_FRONTIER_PATH"] == str(tmp_path / "output/frontier.json")
     assert settings["SERVER_FIXTURE_DIR"] is None
+    assert settings["SERVER_LIVE_RACES"] is False
     assert settings["SERVER_HOST"] == "127.0.0.1"
     assert settings["SERVER_PORT"] == 8000
 
@@ -43,13 +44,15 @@ def test_server_settings_accept_environment_overrides(tmp_path: Path) -> None:
         "SERVER_MAX_ACTIVE_RUNS": "4", "SERVER_MAX_QUESTION_CHARS": "500",
         "SERVER_START_TIMEOUT_SECONDS": "20", "SERVER_RUN_TIMEOUT_SECONDS": "300",
         "SERVER_POLL_SECONDS": "0.2", "SERVER_KEEPALIVE_SECONDS": "15",
-        "SERVER_HOST": "0.0.0.0", "SERVER_PORT": "8123",
+        "SERVER_HOST": "0.0.0.0", "SERVER_PORT": "8123", "SERVER_LIVE_RACES": "true",
     }
     result = read_config(tmp_path, **overrides)
     assert result.returncode == 0, result.stderr
     settings = json.loads(result.stdout)
     for name, value in overrides.items():
-        if isinstance(settings[name], (int, float)):
+        if isinstance(settings[name], bool):
+            assert settings[name] is (value == "true")
+        elif isinstance(settings[name], (int, float)):
             assert settings[name] == float(value)
         else:
             assert settings[name] == value
@@ -59,7 +62,7 @@ def test_server_settings_accept_environment_overrides(tmp_path: Path) -> None:
     {"SERVER_MAX_ACTIVE_RUNS": "1"}, {"SERVER_MAX_QUESTION_CHARS": "0"},
     {"SERVER_START_TIMEOUT_SECONDS": "nan"}, {"SERVER_RUN_TIMEOUT_SECONDS": "inf"},
     {"SERVER_POLL_SECONDS": "0"}, {"SERVER_KEEPALIVE_SECONDS": "-1"},
-    {"SERVER_HOST": " "}, {"SERVER_PORT": "65536"},
+    {"SERVER_LIVE_RACES": "invalid"}, {"SERVER_HOST": " "}, {"SERVER_PORT": "65536"},
 ])
 def test_invalid_server_settings_fail_clearly(tmp_path: Path, overrides: dict[str, str]) -> None:
     result = read_config(tmp_path, **overrides)

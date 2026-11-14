@@ -2,10 +2,33 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {applyEvent, failRun, newRun, safeURL, VERDICTS} from '../../ui/race-state.js';
+import {raceControls, liveHeaders} from '../../ui/race-access.js';
 
 function fixture(setup) {
   return readFileSync(new URL(`./fixtures/${setup}.jsonl`, import.meta.url), 'utf8').trim().split('\n').map(JSON.parse);
 }
+
+test('replay-only controls fail closed until live mode is explicitly enabled', () => {
+  for (const liveAvailable of [false, undefined, null]) {
+    const controls = raceControls({liveAvailable, active: false, hasKey: true, replayAvailable: true});
+    assert.equal(controls.showCredentials, false);
+    assert.equal(controls.readOnlyQuestion, true);
+    assert.equal(controls.disableRun, true);
+    assert.equal(controls.disableReplay, false);
+  }
+});
+
+test('live controls require a key and honor active work', () => {
+  const idle = {liveAvailable: true, active: false, replayAvailable: true};
+  assert.equal(raceControls({...idle, hasKey: false}).disableRun, true);
+  assert.equal(raceControls({...idle, hasKey: true}).disableRun, false);
+  assert.equal(raceControls({...idle, hasKey: true, active: true}).disableRun, true);
+});
+
+test('live requests send a bearer header and reject empty credentials', () => {
+  assert.throws(() => liveHeaders('  '), /API key/);
+  assert.deepEqual(liveHeaders(' test-only-key '), {'Content-Type': 'application/json', Authorization: 'Bearer test-only-key'});
+});
 
 for (const setup of ['single', 'second_opinion']) {
   test(`${setup} counters equal the log totals, including checker cost`, () => {

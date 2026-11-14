@@ -1,4 +1,5 @@
 import {newRun, applyEvent, failRun, VERDICTS, safeURL} from './race-state.js';
+import {raceControls, liveHeaders} from './race-access.js';
 import {proofMetrics, efficientFrontier} from './proof.js';
 
 const $ = selector => document.querySelector(selector);
@@ -13,9 +14,16 @@ const notify = text => { $('#race-message').textContent = text; };
 
 function setActive(value) {
   active = value;
-  $('#run-button').disabled = value || !liveAvailable;
+  const controls = raceControls({liveAvailable, active: value,
+    hasKey: Boolean($('#api-key').value.trim()), replayAvailable: Boolean(replayPair)});
+  $('#run-button').disabled = controls.disableRun;
+  $('#run-button').hidden = !controls.showCredentials;
+  $('#credentials').hidden = !controls.showCredentials;
+  $('#replay-only').hidden = controls.showCredentials;
   $('#question').disabled = value;
-  $('#replay-button').disabled = value || !replayPair;
+  $('#question').readOnly = controls.readOnlyQuestion;
+  $('#api-key').disabled = value;
+  $('#replay-button').disabled = controls.disableReplay;
   $('#stop-button').hidden = !value;
 }
 
@@ -73,7 +81,7 @@ function receive(side, event) {
   }
   if (states.left.finished && states.right.finished) finish();
 }
-function finish() { setActive(false); const interrupted = Object.values(states).some(state => Boolean(state.failure)); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? 'Recorded run complete. Run your own question above.' : 'Both agents have finished. Export the audit trail below.'); }
+function finish() { setActive(false); const interrupted = Object.values(states).some(state => Boolean(state.failure)); notify(interrupted ? 'One agent stopped before completion. The received audit trail is available below.' : replayMode ? (liveAvailable ? 'Recorded run complete. Use your API key to run a question above.' : 'Recorded run complete. Replay it or export the audit trail below.') : 'Both agents have finished. Export the audit trail below.'); }
 function fail(message, side) {
   for (const name of side ? [side] : ['left', 'right']) {
     if (side || !states[name].finished) { failRun(states[name], message); render(name); }
@@ -140,15 +148,18 @@ async function consumeStream(response) {
   }
   if (!(states.left.finished && states.right.finished)) throw new Error('The connection ended before both agents recorded final totals.');
 }
+$('#api-key').addEventListener('input', () => setActive(active));
 $('#race-form').addEventListener('submit', async event => {
   event.preventDefault(); if (active || !liveAvailable) return;
   const question = $('#question').value.trim(); if (!question) return;
+  let headers;
+  try { headers = liveHeaders($('#api-key').value); } catch (error) { notify(error.message); return; }
   auditQuestion = question;
   autoplayDone = true; reset('live'); notify('Both agents are searching. Every counter comes from the event log.');
   const abort = new AbortController(); controller = abort;
   try {
-    const response = await fetch('/race-stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,left:'single',right:'second_opinion'}),signal:abort.signal});
-    if (!response.ok) { const error = await response.json(); throw new Error(typeof error.detail === 'string' ? error.detail : 'The race could not start.'); }
+    const response = await fetch('/race-stream',{method:'POST',headers,body:JSON.stringify({question,left:'single',right:'second_opinion'}),signal:abort.signal});
+    if (!response.ok) { const error = await response.json(); throw new Error(typeof error.detail === 'string' ? error.detail : error.detail?.message || 'The race could not start.'); }
     await consumeStream(response);
   } catch(error) { if (error.name !== 'AbortError') fail(error.message); }
 });
@@ -199,7 +210,7 @@ async function initialize(){
   await loadPresentation();
   try{const response=await fetch('/replays');if(!response.ok)throw new Error();const pairs=await response.json();replayPair=pairs.find(p=>!p.fixture&&p.name.includes('golden'))||pairs.find(p=>!p.fixture)||pairs[0]||null;
     if(replayPair){$('#question').value=replayPair.question;$('#race-mode').textContent=replayPair.fixture?'Synthetic fixture available':'Replay of a live run';}
-    else{$('#race-mode').textContent=liveAvailable?'Ready for a live question':'Live server not configured';notify(liveAvailable?'Enter a question to run both agents. A golden recording is not available yet.':'A recorded golden run will appear here when available.');}
+    else{$('#race-mode').textContent=liveAvailable?'API key required for live races':'Replay-only mode';notify(liveAvailable?'Enter your API key and a question to run both agents.':'No recording is available yet. Live races are disabled on this server.');}
   }catch{$('#race-mode').textContent='Live server unavailable';notify('Connect the race server to run questions or replay a recording.');}
   ready=true;setActive(false);maybeAutoplay();
 }

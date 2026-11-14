@@ -2,7 +2,9 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+import pytest
+
+from tests.o4.access import KEY, authenticated_client
 
 from server.app import ServerSettings, create_app
 from server.presentation import first_search_misses, measured_results
@@ -52,8 +54,18 @@ def sse_rows(response):
     return result
 
 
-def test_streamed_race_contains_both_complete_exact_event_logs(tmp_path):
-    with TestClient(create_app(settings=settings(tmp_path),runner=run_question)) as client:
+@pytest.fixture
+def live_client(monkeypatch):
+    monkeypatch.setenv("BACKSTOP_API_KEYS", KEY)
+
+    def build(configured, runner):
+        return authenticated_client(create_app(settings=replace(configured, live_races=True), runner=runner))
+
+    return build
+
+
+def test_streamed_race_contains_both_complete_exact_event_logs(tmp_path, live_client):
+    with live_client(settings(tmp_path), run_question) as client:
         response=client.post('/race-stream',json={'question':'A test question','left':'single','right':'second_opinion'})
         assert response.status_code==200
         rows=sse_rows(response)
@@ -66,8 +78,8 @@ def test_streamed_race_contains_both_complete_exact_event_logs(tmp_path):
         assert client.get('/presentation').json()['live_available'] is True
 
 
-def test_stream_failure_is_explicit_and_capacity_is_released(tmp_path):
-    with TestClient(create_app(settings=settings(tmp_path),runner=interrupted_question)) as client:
+def test_stream_failure_is_explicit_and_capacity_is_released(tmp_path, live_client):
+    with live_client(settings(tmp_path), interrupted_question) as client:
         for _ in range(2):
             response=client.post('/race-stream',json={'question':'A test question'})
             rows=sse_rows(response)
@@ -76,15 +88,15 @@ def test_stream_failure_is_explicit_and_capacity_is_released(tmp_path):
             assert rows[-1][0]=='complete'
 
 
-def test_stream_rejects_blank_and_oversize_questions(tmp_path):
-    with TestClient(create_app(settings=settings(tmp_path),runner=run_question)) as client:
+def test_stream_rejects_blank_and_oversize_questions(tmp_path, live_client):
+    with live_client(settings(tmp_path), run_question) as client:
         assert client.post('/race-stream',json={'question':'  '}).status_code==422
         assert client.post('/race-stream',json={'question':'x'*2001}).status_code==422
 
 
-def test_provider_limit_after_cleanup_totals_is_a_stream_failure(tmp_path):
+def test_provider_limit_after_cleanup_totals_is_a_stream_failure(tmp_path, live_client):
     from tests.o4.fakes import usage_limit_question
-    with TestClient(create_app(settings=settings(tmp_path),runner=usage_limit_question)) as client:
+    with live_client(settings(tmp_path), usage_limit_question) as client:
         response=client.post('/race-stream',json={'question':'A test question'})
         rows=sse_rows(response)
         for side in ['left','right']:

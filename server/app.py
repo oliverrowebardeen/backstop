@@ -6,29 +6,24 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import json
-import logging
 from pathlib import Path
 import re
-from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
+from typing import Any, AsyncIterator, Awaitable, Callable
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from server import api_v1
+from server.races import LiveRun, RaceManager, Runner
 from so import config
 from so.contracts import AgentAnswer, Event, Frontier, Question, Results, Setup
 from so.eventlog import read_log
-from server.errors import RunFailure, describe_failure, log_failure, read_failure, write_failure
+from server.errors import RunFailure, describe_failure, read_failure
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-logger = logging.getLogger(__name__)
-
-
-class Runner(Protocol):
-    def __call__(self, question: Question, setup: str, *, log_dir: str) -> Awaitable[AgentAnswer]: ...
 
 
 class RaceRequest(BaseModel):
@@ -51,12 +46,14 @@ class ServerSettings:
     run_timeout: float
     poll_seconds: float
     keepalive_seconds: float
+    live_races: bool = False
 
     @classmethod
     def from_config(cls) -> ServerSettings:
         """Read deployment settings from the shared environment configuration."""
         fixture_dir = config.SERVER_FIXTURE_DIR
         return cls(
+            live_races=config.SERVER_LIVE_RACES,
             ui_dir=Path(config.SERVER_UI_DIR), demo_dir=Path(config.SERVER_DEMO_DIR),
             fixture_dir=Path(fixture_dir) if fixture_dir else None,
             log_dir=Path(config.SERVER_LOG_DIR), results_path=Path(config.SERVER_RESULTS_PATH),
@@ -74,13 +71,6 @@ class ServerSettings:
             raise ValueError("Server run capacity must be at least two and question length must be positive")
         if min(self.start_timeout, self.run_timeout, self.poll_seconds, self.keepalive_seconds) <= 0:
             raise ValueError("Server timeouts and polling intervals must be positive")
-
-
-@dataclass
-class LiveRun:
-    directory: Path
-    task: asyncio.Task[AgentAnswer]
-    path: Path | None = None
 
 
 @dataclass
@@ -156,14 +146,12 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
                replay_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> FastAPI:
     settings = settings or ServerSettings.from_config()
     runs: dict[str, LiveRun] = {}
-    tasks: set[asyncio.Task[AgentAnswer]] = set()
+    manager = RaceManager(settings, runner)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await manager.close()
 
     app = FastAPI(title="Backstop", lifespan=lifespan)
     app.mount("/ui", StaticFiles(directory=settings.ui_dir), name="ui")
@@ -175,7 +163,8 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
     @app.get("/config")
     async def ui_config() -> dict[str, Any]:
-        return {"first_engine": config.FIRST_ENGINE, "max_question_chars": settings.max_question_chars}
+        return {"first_engine": config.FIRST_ENGINE, "max_question_chars": settings.max_question_chars,
+                "live_available": settings.live_races}
 
     def catalog() -> dict[str, Replay]:
         try:
@@ -208,53 +197,33 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
 
         return stream_response(events())
 
+    def require_live_races() -> None:
+        if not settings.live_races:
+            raise HTTPException(403, {"code": "live_races_disabled",
+                                      "message": "Live races are disabled. Watch a recorded replay instead."})
+
+    def live_key(_enabled: None = Depends(require_live_races),
+                 key: str = Depends(api_v1.rate_limited_key)) -> str:
+        return key
+
     @app.post("/race")
-    async def race(body: RaceRequest) -> dict[str, str]:
+    async def race(body: RaceRequest, api_key: str = Depends(live_key)) -> dict[str, str]:
         question_text = body.question.strip()
         if not question_text:
             raise HTTPException(422, "Enter a question first.")
         if len(question_text) > settings.max_question_chars:
             raise HTTPException(422, f"Questions are limited to {settings.max_question_chars} characters.")
-        if sum(not task.done() for task in tasks) + 2 > settings.max_active_runs:
-            raise HTTPException(429, "The server's run capacity is full. Try again when a race finishes.")
-        active_runner = runner
-        if active_runner is None:
-            try:
-                from so.agent import run_question
-                active_runner = run_question
-            except ImportError:
-                raise HTTPException(503, "The live agent is unavailable. Check the server installation.") from None
         question = Question(id=f"race-{uuid4().hex}", question=question_text, gold=[],
                             category="fact", source="race-ui", split="test")
-        jobs = []
+        jobs = list(manager.start(question, body.left, body.right, api_key=api_key).values())
 
-        async def execute(setup: Setup, directory: Path) -> AgentAnswer:
-            try:
-                async with asyncio.timeout(settings.run_timeout):
-                    return await active_runner(question, setup, log_dir=str(directory))
-            except Exception as exc:
-                failure = log_failure(logger, exc)
-                try:
-                    write_failure(directory, failure)
-                except OSError as write_error:
-                    log_failure(logger, write_error)
-                raise
-
-        def finish(task: asyncio.Task[AgentAnswer]) -> None:
-            tasks.discard(task)
-            if not task.cancelled():
-                task.exception()
+        def forget(task: asyncio.Task[AgentAnswer]) -> None:
             for run_id, job in list(runs.items()):
                 if job.task is task:
                     del runs[run_id]
 
-        for side, setup in (("left", body.left), ("right", body.right)):
-            directory = settings.log_dir / question.id / side
-            directory.mkdir(parents=True, exist_ok=True)
-            task = asyncio.create_task(execute(setup, directory))
-            tasks.add(task)
-            task.add_done_callback(finish)
-            jobs.append(LiveRun(directory, task))
+        for job in jobs:
+            job.task.add_done_callback(forget)
 
         async def identify(job: LiveRun) -> str:
             # The agent owns run IDs. Discover its first event before returning them.
@@ -371,7 +340,7 @@ def create_app(*, settings: ServerSettings | None = None, runner: Runner | None 
         return output
 
     from server.presentation import install_presentation
-    install_presentation(app, settings, runner)
+    install_presentation(app, settings, manager, live_key)
     return app
 
 

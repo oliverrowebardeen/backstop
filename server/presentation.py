@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+
+from server.races import RaceManager
 
 from so import config
 from so.contracts import Event, Question, Results
@@ -70,10 +71,9 @@ def measured_results(path: Path) -> tuple[dict | None, str]:
     return data, f'{n} held-out questions per setup'
 
 
-def install_presentation(app, settings, runner=None):
+def install_presentation(app, settings, manager: RaceManager, live_key):
     # Import locally to avoid a cycle with app.create_app().
     from server.app import RaceRequest, stream_response, sse
-    active_runs = 0
 
     @app.get('/presentation')
     async def presentation():
@@ -81,43 +81,28 @@ def install_presentation(app, settings, runner=None):
         return {'miss': first_search_misses(config.ROOT, settings.results_path.parent / 'matrix.jsonl', config.FIRST_ENGINE),
                 'results': results, 'status': status,
                 'first_engine': config.FIRST_ENGINE,
-                'live_available': runner is not None or bool(os.environ.get('TELEM_API_KEY') and os.environ.get(f'{config.LLM_PROVIDER.upper()}_API_KEY'))}
+                'live_available': settings.live_races}
 
-    async def race_stream(body: RaceRequest, request: Request):
-        nonlocal active_runs
+    async def race_stream(body: RaceRequest, request: Request, api_key: str = Depends(live_key)):
         question_text = body.question.strip()
         if not question_text or len(question_text) > settings.max_question_chars:
             raise HTTPException(422, 'Enter a question within the length limit.')
-        if active_runs + 2 > settings.max_active_runs:
-            raise HTTPException(429, 'A race is already using the available capacity. Try again shortly.')
-        active_runner = runner
-        if active_runner is None:
-            from so.agent import run_question
-            active_runner = run_question
         question = Question(id=f'pitch-{uuid4().hex}', question=question_text, gold=[],
                             category='fact', source='race-ui', split='test')
-        active_runs += 2
+        jobs = manager.start(question, body.left, body.right, api_key=api_key)
 
         async def events():
-            nonlocal active_runs
-            jobs = {}
             seen = {'left': 0, 'right': 0}
             ended = set()
             answered = set()
             try:
-                for side, setup in (('left', body.left), ('right', body.right)):
-                    directory = settings.log_dir / question.id / side
-                    directory.mkdir(parents=True, exist_ok=True)
-                    async def execute(setup=setup, directory=directory):
-                        async with asyncio.timeout(settings.run_timeout):
-                            return await active_runner(question, setup, log_dir=str(directory))
-                    jobs[side] = (directory, asyncio.create_task(execute()))
                 yield sse('race', {'question': question_text, 'mode': 'live'})
                 last_keepalive = asyncio.get_running_loop().time()
                 while len(ended) < 2:
                     if await request.is_disconnected():
                         return
-                    for side, (directory, task) in jobs.items():
+                    for side, job in jobs.items():
+                        directory, task = job.directory, job.task
                         if side in ended:
                             continue
                         for path in directory.glob('*.jsonl'):
@@ -157,11 +142,10 @@ def install_presentation(app, settings, runner=None):
                     await asyncio.sleep(settings.poll_seconds)
                 yield sse('complete', {'question_id': question.id})
             finally:
-                for _, task in jobs.values():
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*(task for _, task in jobs.values()), return_exceptions=True)
-                active_runs -= 2
+                for job in jobs.values():
+                    if not job.task.done():
+                        job.task.cancel()
+                await asyncio.gather(*(job.task for job in jobs.values()), return_exceptions=True)
         return stream_response(events())
 
     # An explicit annotation is needed because RaceRequest is a local import.
