@@ -2,8 +2,8 @@
 
 Run ``python -m so.decision_checker --compare --split learn``. The default
 Tavily rows match checker_eval; DECISION_EVAL_ENGINES selects other engines.
-The search integration remains unchanged. Call ``configured_check`` to opt
-into CHECKER_BACKEND, or ``check`` to explicitly use Decisions.
+Search result lists use ``configured_check`` to select CHECKER_BACKEND;
+page checks keep the LLM checker. Call ``check`` to explicitly use Decisions.
 
 All settings are environment-backed in so.config. Comparisons share its
 $3 process budget, require disk caching, and exclude ceramic by default.
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import math
@@ -172,11 +173,22 @@ async def check(query: str, goal: str, results: Sequence[Result | dict[str, Any]
 
 async def configured_check(query: str, goal: str, results: Sequence[Result | dict[str, Any]],
                            today: date | str | None = None, *, ctx: RunContext | None = None) -> checker.CheckedVerdict:
-    """Opt-in dispatcher; the existing checker module and default search are unchanged."""
+    """Dispatch result lists without changing the LLM checker's input or output."""
     if config.CHECKER_BACKEND == "cascade":
         return await cascade_check(query, goal, results, today, ctx=ctx)
-    backend = check if config.CHECKER_BACKEND == "decision" else checker.check
-    return await backend(query, goal, results, today, ctx=ctx)
+    if config.CHECKER_BACKEND == "decision":
+        return await check(query, goal, results, today, ctx=ctx)
+    from so.checker import check as llm_check
+
+    # Preserve the search loop's support for checker adapters without context.
+    kwargs: dict[str, Any] = {}
+    try:
+        params = inspect.signature(llm_check).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "ctx" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        kwargs["ctx"] = ctx
+    return await llm_check(query, goal, results, today, **kwargs)
 
 
 def _needs_escalation(verdict: CheckerVerdict, threshold: float) -> bool:

@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from pydantic import Field
 
-from so import config
+from so import config, decision_checker
 from so.contracts import CheckerVerdict, EngineRun, PageText, Result, RunContext, SearchOutcome
 from so.ledger import ledger
 from so.memory import RunMemory
@@ -199,12 +199,13 @@ def ranked_results(outcome: SearchOutcome) -> list[RankedResult]:
 
 
 async def _check(query: str, goal: str, results: list[Result], ctx: RunContext) -> CheckerVerdict:
-    from so.checker import check
+    check = decision_checker.configured_check
 
     return await check(query, goal, results, ctx.today, **_supported_kwargs(check, {"ctx": ctx}))
 
 
 async def _check_page(query: str, goal: str, page: PageText, ctx: RunContext) -> CheckerVerdict:
+    # Decisions classifies result lists only; page evidence uses the LLM checker.
     from so.checker import check_page
 
     return await check_page(query, goal, page, ctx.today, **_supported_kwargs(check_page, {"ctx": ctx}))
