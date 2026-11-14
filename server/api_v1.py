@@ -1,4 +1,4 @@
-"""Hosted verified-search API: POST /v1/search, GET /v1/usage, GET /health.
+"""Hosted verified-search API: POST /v1/search, GET /v1/usage, GET /v1/autopsy/{id}, GET /health.
 
 Authentication is `Authorization: Bearer <key>`, checked against the
 comma-separated BACKSTOP_API_KEYS. Keys and request bodies are never logged.
@@ -16,11 +16,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Path as PathParam
 from pydantic import BaseModel, ConfigDict, Field
 
 from server.usage import RateLimiter, UsageStore, key_id
 from so import config
+from so.autopsy import Autopsy, AutopsyUnavailable, SessionNotFound, autopsy
 from so.client import BackstopSearchResponse, BackstopTelem
 from so.second_opinion import TelemUnavailable
 
@@ -128,3 +129,20 @@ async def usage_totals(
 ) -> dict[str, Any]:
     """The caller's metered totals: verified searches by status, engine calls, fetches, cost."""
     return usage.totals(api_key)
+
+
+@router.get("/v1/autopsy/{session_id}", response_model=Autopsy)
+async def session_autopsy(
+    session_id: str = PathParam(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:-]+$"),
+    api_key: str = Depends(rate_limited_key),
+) -> Autopsy:
+    """Replay a Telem session through the checker: first miss, where Backstop would stop, next rescue."""
+    try:
+        return await autopsy(session_id)
+    except SessionNotFound as exc:
+        raise _error(404, "session_not_found", str(exc)) from exc
+    except AutopsyUnavailable as exc:
+        logger.warning("Autopsy unavailable for key %s: %s", key_id(api_key), exc)
+        raise _error(502, "telem_unavailable", "Telem's Sessions API did not return this session.") from exc
+    except config.BudgetExceeded as exc:
+        raise _error(503, "budget_exhausted", "This deployment's spend budget is exhausted.") from exc

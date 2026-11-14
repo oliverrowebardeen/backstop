@@ -72,6 +72,27 @@ agent can cite its URL. A miss that survives two rescues becomes `NOT_FOUND`, wi
 note telling the agent to answer NOT FOUND unless it has other evidence. The checker's
 cost is always counted in `cost_usd`.
 
+### Miss autopsy
+
+Backstop catches a bad search at call time. The autopsy does the same after the fact,
+for any Telem session, including ones Backstop never touched:
+
+```sh
+curl -s http://localhost:8000/v1/autopsy/<telem_session_id> -H "Authorization: Bearer bk_live_one"
+```
+
+It reads the session back with Telem's Sessions API (`sessions.history(id, full=True)`
+and `sessions.results(id)`), rebuilds the ordered searches (query, goal, engines,
+results), and runs the checker on each against the recorded goal (or the first query).
+The answer names the first search that missed (`first_failure_index`), where Backstop
+would have stopped (`stop_index`, the first `HIT`), the rescue it would have tried next
+(`next_rescue`, from the learned rescue table), and how many searches the agent spent
+after the first miss. It checks at most 25 searches and returns within 30 seconds,
+marking any step it did not reach. Telem's session payloads carry no judge or quality
+score today, so `telem_judge` is `null` and the note says so; if one appears, each step
+shows it along with the checker's agreement (Cohen's kappa). In Python:
+`await so.autopsy.autopsy(session_id)`.
+
 ### Verdicts and rescue actions
 
 | Verdict | Meaning | Action |
