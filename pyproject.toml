@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backstop"
+version = "0.1.0"
+description = "Second Opinion search verification"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2,<3", "httpx>=0.27", "telem-sdk", "tavily-python", "fastapi", "uvicorn", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.setuptools.packages.find]
+include = ["so*", "server*", "data*", "evals*", "analysis*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
