@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {HERO_FALLBACK, economy, heroClaimHolds, measured, raceNote, sameAccuracy, validateResults, withEngineNames} from '../../ui/results.js';
+import {BENCH_COLUMNS, HERO_FALLBACK, benchmarkRows, economy, heroClaimHolds, measured, raceNote, sameAccuracy, validateResults, withEngineNames} from '../../ui/results.js';
 
 const results = JSON.parse(readFileSync(new URL('../../out/results.json', import.meta.url), 'utf8'));
 
@@ -32,18 +32,35 @@ test('Results lead with accuracy, then cost, engine calls and time saved, with n
   assert.equal(e.time, Math.round(100 * (base.latency_p50_ms - ours.latency_p50_ms) / base.latency_p50_ms));
   const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
   const section = html.slice(html.indexOf('id="results"'), html.indexOf('id="developers"'));
-  assert.ok(section.includes('accuracy-chart') && !section.includes('frontier-chart') && !/coverage/i.test(section));
+  assert.ok(section.includes('class="bench-table"') && !section.includes('accuracy-chart') && !section.includes('frontier-chart') && !/coverage/i.test(section));
   const js = readFileSync(new URL('../../ui/results.js', import.meta.url), 'utf8');
   assert.ok(!/coverage/i.test(js), 'no retrieval coverage on the site');
-  for (const text of ['Accuracy against total cost per question', 'total cost per question', "'accuracy'"]) assert.ok(js.includes(text), text);
+  assert.deepEqual(BENCH_COLUMNS.map(c => c.label), ['Accuracy', 'Cost per question', 'Engine calls per question', 'Median time per question']);
 });
 
-test('the chart plots accuracy against TOTAL cost per question from out/results.json', () => {
+test('the benchmark table shows every setup from out/results.json, with zero-based bars and no question counts', () => {
   const metrics = measured(results, validateResults(results));
+  const rows = benchmarkRows(metrics);
+  assert.deepEqual(rows.map(r => r.name), ['Single engine', 'Telem default', 'Backstop']);
+  assert.deepEqual(rows.map(r => r.ours), [false, false, true]);
+  const blocks = ['single', 'telem_default', 'second_opinion'].map(key => results.setups[key]);
+  const fields = [s => s.accuracy, s => s.cost_per_q_total, s => s.engine_calls_per_q, s => s.latency_p50_ms];
+  const text = [v => `${(v * 100).toFixed(1)}%`, v => `$${v.toFixed(4)}`, v => v.toFixed(2), v => `${(v / 1000).toFixed(1)} s`];
+  rows.forEach((row, i) => row.cells.forEach((cell, j) => {
+    assert.equal(cell.text, text[j](fields[j](blocks[i])), `${row.name} ${cell.label}`);
+    // Accuracy runs 0 to 100%; the rest are scaled to the column's largest value.
+    const max = j === 0 ? 1 : Math.max(...blocks.map(fields[j]));
+    assert.ok(Math.abs(cell.width - fields[j](blocks[i]) / max) < 1e-9, `${row.name} ${cell.label} bar`);
+  }));
+  // 94.0% and 94.5% must look alike: the accuracy bars differ by under a percent of their length.
+  const acc = rows.map(r => r.cells[0].width);
+  assert.ok(Math.max(...acc) - Math.min(...acc) < 0.01);
+  // Cost uses the total, not search only, and nothing shows a correct-of-scored count such as 188/199.
   const js = readFileSync(new URL('../../ui/results.js', import.meta.url), 'utf8');
-  const chart = js.slice(js.indexOf('export function drawAccuracyCost'), js.indexOf('export function findingsFrom'));
-  assert.ok(chart.includes('cost_per_q_total') && !chart.includes('cost_per_q_search') && !chart.includes('frontier.json'));
-  for (const key of ['single', 'baseline', 'ours']) assert.ok(Number.isFinite(metrics[key].cost_per_q_total));
+  assert.ok(js.includes('s.cost_per_q_total') && !js.includes('cost_per_q_search'));
+  assert.ok(!/correct`|\/\$\{scored|of \$\{count\}/.test(js), 'no correct/scored fractions on the site');
+  for (const row of rows) for (const cell of row.cells) assert.ok(!/\d+\/\d+/.test(cell.text), cell.text);
+  assert.deepEqual(benchmarkRows(null), []);
 });
 
 test('the hero headline claim holds for the committed results, and a fallback replaces it if not', () => {

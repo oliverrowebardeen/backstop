@@ -26,12 +26,6 @@ const el = (tag, cls, text) => {
   if (text !== undefined && text !== null) node.textContent = text;
   return node;
 };
-const svg = (tag, attrs = {}, text) => {
-  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
 const pct = value => `${(value * 100).toFixed(1)}%`;
 const usd = value => `$${value.toFixed(4)}`;
 
@@ -68,47 +62,73 @@ export function measured(results, vetted) {
   return metrics;
 }
 
-function cell(text, sub) {
-  const td = el('td');
-  td.append(el('span', 'cell-main', text));
-  if (sub) td.append(el('span', 'cell-sub', sub));
-  return td;
-}
-
 const seconds = ms => `${(ms / 1000).toFixed(1)} s`;
 const pick = (metrics, key) => metrics[{single: 'single', telem_default: 'baseline', second_opinion: 'ours'}[key]];
 const latencyOk = block => Number.isFinite(block.latency_p50_ms) && block.latency_p50_ms > 0;
 /** Equal within half a point: the two setups answered the same share of questions. */
 export const sameAccuracy = (a, b) => Math.abs(a.accuracy - b.accuracy) < 0.005;
 
-function renderTable(table, metrics) {
-  const body = table.querySelector('tbody');
-  body.replaceChildren();
-  const rows = [
-    ['Accuracy', 'Final answers graded against the answer key', s =>
-      [pct(s.accuracy), `${s.correct}/${scored(s, metrics.n)} correct`]],
-    ['Total cost per question', 'Search, page reads, checker and agent model', s =>
-      Number.isFinite(s.cost_per_q_total) ? [usd(s.cost_per_q_total)] : [PENDING]],
-    ['Engine calls per question', 'Every engine query Telem bills', s =>
-      Number.isFinite(s.engine_calls_per_q) ? [s.engine_calls_per_q.toFixed(2)] : [PENDING]],
-    ['Median time per question', 'p50 wall time of the agent run', s =>
-      latencyOk(s) ? [seconds(s.latency_p50_ms)] : [PENDING]],
-  ];
-  for (const [label, sub, value] of rows) {
+/**
+ * Benchmark rows: one per setup, one bar per metric. Accuracy bars run from 0 to 100%, so 94.0% and
+ * 94.5% look the same, as they are; the other bars are scaled to the largest value in their column.
+ */
+export const BENCH_COLUMNS = [
+  {label: 'Accuracy', value: s => s.accuracy, text: pct, scale: () => 1},
+  {label: 'Cost per question', value: s => s.cost_per_q_total, text: usd},
+  {label: 'Engine calls per question', short: 'Engine calls', value: s => s.engine_calls_per_q, text: v => v.toFixed(2)},
+  {label: 'Median time per question', short: 'Median time', value: s => latencyOk(s) ? s.latency_p50_ms : NaN, text: seconds},
+];
+
+/** Rows of {key, name, ours, cells: [{label, text, width}]}: width 0 to 1, text null when not recorded, label short for phones. */
+export function benchmarkRows(metrics) {
+  if (!metrics) return [];
+  const blocks = SETUPS.map(([key, name]) => ({key, name, s: pick(metrics, key)}));
+  return blocks.map(({key, name, s}) => ({
+    key, name, ours: key === 'second_opinion',
+    cells: BENCH_COLUMNS.map(column => {
+      const value = column.value(s);
+      const label = column.short ?? column.label;
+      if (!Number.isFinite(value)) return {label, text: null, width: 0};
+      const max = column.scale ? column.scale() : Math.max(...blocks.map(b => column.value(b.s)).filter(Number.isFinite));
+      return {label, text: column.text(value), width: max > 0 ? Math.min(1, value / max) : 0};
+    }),
+  }));
+}
+
+function renderBenchmark(root, metrics) {
+  const body = root.querySelector('.bench-table tbody');
+  const foot = root.querySelector('.bench-foot');
+  const rows = benchmarkRows(metrics);
+  if (!rows.length) {
     const tr = el('tr');
-    const th = el('th');
+    const td = el('td', 'pending-box', PENDING);
+    td.colSpan = BENCH_COLUMNS.length + 1;
+    tr.append(td);
+    body.replaceChildren(tr);
+    if (foot) foot.textContent = 'The table fills in when out/results.json has every setup.';
+    return;
+  }
+  body.replaceChildren(...rows.map(row => {
+    const tr = el('tr', row.ours ? 'is-ours' : '');
+    const th = el('th', null, row.name);
     th.scope = 'row';
-    th.append(el('span', 'cell-main', label), el('span', 'cell-sub', sub));
     tr.append(th);
-    for (const [key] of SETUPS) {
-      const [main, detail] = metrics ? value(pick(metrics, key)) : [PENDING];
-      const td = cell(main, detail);
-      if (main === PENDING) td.classList.add('is-pending');
-      if (key === 'second_opinion') td.classList.add('is-ours');
+    for (const c of row.cells) {
+      const td = el('td');
+      td.dataset.label = c.label;
+      const metric = el('div', 'metric');
+      const bar = el('span', 'metric-bar');
+      bar.setAttribute('aria-hidden', 'true');
+      const fill = el('span');
+      fill.style.width = `${(c.width * 100).toFixed(1)}%`;
+      bar.append(fill);
+      metric.append(el('span', 'metric-value', c.text ?? 'Not recorded'), bar);
+      td.append(metric);
       tr.append(td);
     }
-    body.append(tr);
-  }
+    return tr;
+  }));
+  if (foot) foot.textContent = 'Held-out test questions. Total cost includes search, page reads, the checker and the agent model. Median time is the p50 wall time of the agent run.';
 }
 
 /**
@@ -187,55 +207,6 @@ function renderHero(metrics) {
   proof.hidden = items.length === 0;
 }
 
-const narrowChart = container => container.clientWidth > 0 && container.clientWidth < 480;
-
-/** Accuracy against total cost per question, one labelled point per setup. */
-export function drawAccuracyCost(container, metrics) {
-  const note = container.parentElement.querySelector('.chart-note');
-  const points = metrics ? SETUPS.map(([key, name]) => ({key, name, s: pick(metrics, key)}))
-    .filter(p => Number.isFinite(p.s.cost_per_q_total) && Number.isFinite(p.s.accuracy)) : [];
-  if (points.length < SETUPS.length) {
-    container.replaceChildren(el('p', 'pending-box', PENDING));
-    if (note) note.textContent = 'The chart appears when out/results.json has every setup.';
-    return;
-  }
-  // A narrow card gets a narrower drawing, so the labels stay readable on a phone.
-  const W = narrowChart(container) ? 380 : 620, H = 400, L = 64, R = 34, T = 24, B = 62;
-  const maxCost = Math.max(...points.map(p => p.s.cost_per_q_total)) * 1.18;
-  // A scatter needs no zero baseline; the floor is a round 5 points, at least 8 below the lowest setup.
-  const floor = Math.max(0, Math.floor((Math.min(...points.map(p => p.s.accuracy)) - 0.08) * 20) / 20);
-  const x = v => L + (v / maxCost) * (W - L - R);
-  const y = v => H - B - ((v - floor) / (1 - floor)) * (H - T - B);
-  const chart = svg('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img', class: 'frontier-svg',
-    'aria-label': `Accuracy against total cost per question: ${points.map(p => `${p.name} ${pct(p.s.accuracy)} at ${usd(p.s.cost_per_q_total)}`).join(', ')}.`});
-  const steps = Math.round((1 - floor) / 0.05);
-  for (let i = 0; i <= steps; i += 1) {
-    const value = floor + i * 0.05, gy = y(value);
-    chart.append(svg('line', {x1: L, x2: W - R, y1: gy, y2: gy, class: 'grid'}), svg('text', {x: L - 12, y: gy + 4, 'text-anchor': 'end', class: 'tick-label'}, `${Math.round(value * 100)}%`));
-  }
-  for (let i = 0; i <= 4; i += 1) {
-    const value = (maxCost * i) / 4;
-    chart.append(svg('text', {x: x(value), y: H - B + 24, 'text-anchor': 'middle', class: 'tick-label'}, `$${value.toFixed(3)}`));
-  }
-  chart.append(svg('line', {x1: L, x2: L, y1: T, y2: H - B, class: 'axis'}), svg('line', {x1: L, x2: W - R, y1: H - B, y2: H - B, class: 'axis'}));
-  const ordered = [...points].sort((a, b) => a.s.cost_per_q_total - b.s.cost_per_q_total);
-  ordered.forEach((p, i) => {
-    const cx = x(p.s.cost_per_q_total), cy = y(p.s.accuracy);
-    const count = scored(p.s, metrics.n);
-    const dot = svg('circle', {cx, cy, r: p.key === 'second_opinion' ? 9 : 8, class: `dot-${p.key}`});
-    dot.append(svg('title', {}, `${p.name}: ${p.s.correct} of ${count} correct (${pct(p.s.accuracy)}), ${usd(p.s.cost_per_q_total)} total per question`));
-    // Labels alternate above and below so nearby points never collide.
-    const above = i % 2 === 0;
-    chart.append(dot,
-      svg('text', {x: cx, y: cy + (above ? -32 : 34), 'text-anchor': 'middle', class: `point-label${p.key === 'second_opinion' ? ' label-ours' : ''}`}, p.name),
-      svg('text', {x: cx, y: cy + (above ? -15 : 51), 'text-anchor': 'middle', class: 'point-sub'}, `${pct(p.s.accuracy)} at ${usd(p.s.cost_per_q_total)}`));
-  });
-  chart.append(svg('text', {x: (L + W - R) / 2, y: H - 14, 'text-anchor': 'middle', class: 'axis-label'}, 'total cost per question'),
-    svg('text', {transform: `translate(20 ${(T + H - B) / 2}) rotate(-90)`, 'text-anchor': 'middle', class: 'axis-label'}, 'accuracy'));
-  container.replaceChildren(chart);
-  if (note) note.textContent = `Held-out test questions. Total cost includes search, page reads, the checker and the agent model. The vertical axis starts at ${Math.round(floor * 100)}%.`;
-}
-
 /** Two plain findings from analysis/findings.md. A FAKE DATA banner keeps them hidden. */
 export function findingsFrom(markdown) {
   if (typeof markdown !== 'string' || /fake data/i.test(markdown)) return [];
@@ -253,14 +224,16 @@ const ENGINE_NAMES = {tavily: 'Tavily', exa: 'Exa', brave: 'Brave', perplexity: 
 export const withEngineNames = text => text.replace(/\b(tavily|exa|brave|perplexity|parallel|ceramic)\b/g, id => ENGINE_NAMES[id]);
 
 function renderFindings(root, markdown) {
-  const list = root.querySelector('.findings');
+  const box = root.querySelector('.findings');
   const items = findingsFrom(markdown);
-  list.replaceChildren(...(items.length ? items.map((text, i) => {
-    const card = el('article', 'finding');
-    card.append(el('p', 'label', `Finding ${i + 1}`), el('p', 'finding-text', withEngineNames(text)));
-    return card;
-  }) : [el('p', 'pending-box', PENDING)]));
-  if (items.length) list.append(el('p', 'findings-note', 'Both findings come from the engine hit matrix, where each question was asked of each engine once, with Tavily as the first engine. They are not from the agent runs above. Source: analysis/findings.md.'));
+  if (!items.length) { box.replaceChildren(el('p', 'pending-box', PENDING)); return; }
+  const list = el('ol', 'finding-list');
+  list.append(...items.map((text, i) => {
+    const item = el('li', 'finding');
+    item.append(el('p', 'finding-label', `Finding ${i + 1}`), el('p', 'finding-text', withEngineNames(text)));
+    return item;
+  }));
+  box.replaceChildren(list, el('p', 'findings-note', 'Both findings come from the engine hit matrix, where each question was asked of each engine once, with Tavily as the first engine. They are not from the agent runs above. Source: analysis/findings.md.'));
 }
 
 /**
@@ -290,15 +263,7 @@ export async function loadResults(root) {
   renderHeadline(root, metrics);
   const note = document.getElementById('race-honest');
   if (note) { const text = raceNote(metrics); note.textContent = text || ''; note.hidden = !text; }
-  renderTable(root.querySelector('.results-table'), metrics);
-  const chart = root.querySelector('.accuracy-chart');
-  drawAccuracyCost(chart, metrics);
-  let narrow = narrowChart(chart);
-  addEventListener('resize', () => {
-    if (narrowChart(chart) === narrow) return;
-    narrow = narrowChart(chart);
-    drawAccuracyCost(chart, metrics);
-  });
+  renderBenchmark(root, metrics);
   renderFindings(root, site?.findings ?? null);
   return {metrics, rescueTable: site?.rescue_table || null};
 }

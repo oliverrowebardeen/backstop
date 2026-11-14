@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#161714">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f4f2eb">
+  <meta name="color-scheme" content="light">
   <title>Backstop · Checked search on Telem</title>
   <meta name="description" content="Backstop asks one engine through Telem, checks the results against the agent's goal, and pays for another engine only when the first one missed.">
   <meta property="og:title" content="Backstop: pay for another search engine only when the first one misses">
@@ -15,6 +15,7 @@
   <script type="module" src="/ui/race.js"></script>
 </head>
 <body>
+  <canvas class="page-dots" aria-hidden="true"></canvas>
   <a class="skip" href="#race">Skip to the live race</a>
 
   <header class="nav" id="top">
@@ -37,10 +38,9 @@
   </header>
 
   <main>
-    <section class="hero dark" aria-labelledby="hero-title">
-      <canvas class="dots" aria-hidden="true"></canvas>
+    <section class="hero" aria-labelledby="hero-title">
       <div class="wrap hero-inner">
-        <p class="label label-dark"><span class="live-dot" aria-hidden="true"></span>Checked search on Telem</p>
+        <p class="label"><span class="live-dot" aria-hidden="true"></span>Checked search on Telem</p>
         <h1 id="hero-title"><span class="h1-line">Same accuracy.</span> <span class="h1-line">Half the&nbsp;cost.</span></h1>
         <p class="hero-sub">Backstop asks one engine through Telem, checks the results against your agent's goal, and pays for another engine only when the first one missed.</p>
         <div class="hero-proof" hidden>
@@ -109,7 +109,7 @@
       <template id="column-template"><article class="race-column"><header class="column-head"><div><span class="column-tag"></span><h3 class="column-name"></h3></div><span class="run-status">Ready</span></header><dl class="counters"><div title="Every engine query Telem runs and bills. One Telem default request can fan out to many engines."><dd class="engine-count">0</dd><dt>Engine calls</dt></div><div title="Engine calls, page reads and the checker."><dd class="search-cost">$0.0000</dd><dt>Search cost</dt></div><div title="Search cost plus the agent model's own turns."><dd class="cost-count">$0.0000</dd><dt>Total cost</dt></div><div><dd class="time-count">0.0<span>s</span></dd><dt>Elapsed time</dt></div></dl><ol class="steps" aria-label="Search events"><li class="empty">Waiting for the question.</li></ol><div class="answer"><p class="answer-label">Final answer</p><p class="answer-text">Following the evidence.</p><div class="sources"></div><details class="answer-details" hidden><summary>Read full answer</summary><p class="answer-full"></p></details><p class="grade-note" hidden>Not graded: a live question has no answer key here.</p><button class="chip-button watch-recorded" type="button" hidden>Watch a recorded run instead</button></div><p class="session">Session pending</p></article></template>
     </section>
 
-    <section class="how light" id="how" aria-labelledby="how-title">
+    <section class="how" id="how" aria-labelledby="how-title">
       <div class="wrap">
         <div class="section-head">
           <div>
@@ -178,7 +178,7 @@
       </div>
     </section>
 
-    <section class="results light" id="results" aria-labelledby="results-title">
+    <section class="results" id="results" aria-labelledby="results-title">
       <div class="wrap">
         <div class="section-head">
           <div>
@@ -191,29 +191,28 @@
           </div>
         </div>
         <div class="headline-numbers"></div>
-        <div class="results-grid">
-          <div class="table-card">
-            <table class="results-table">
-              <caption class="sr-only">Single engine, Telem default and Backstop on the held-out questions</caption>
-              <thead><tr><th scope="col"><span class="sr-only">Metric</span></th><th scope="col">Single engine</th><th scope="col">Telem default</th><th scope="col" class="is-ours">Backstop</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <figure class="chart-card">
-            <figcaption><p class="label">Accuracy against cost</p><p class="chart-title">Accuracy against total cost per&nbsp;question.</p></figcaption>
-            <div class="accuracy-chart"></div>
-            <p class="chart-note"></p>
-          </figure>
-        </div>
+        <figure class="bench" aria-labelledby="bench-title">
+          <figcaption class="bench-head">
+            <p class="bench-title" id="bench-title">Three setups, same test questions</p>
+            <p class="bench-scale">Accuracy bars run from 0 to 100%. The other bars are scaled to the largest value; shorter is better.</p>
+          </figcaption>
+          <table class="bench-table">
+            <caption class="sr-only">Accuracy, total cost, engine calls and median time per question for each setup</caption>
+            <colgroup><col class="col-setup"><col><col><col><col></colgroup>
+            <thead><tr><th scope="col">Setup</th><th scope="col">Accuracy<span>higher is better</span></th><th scope="col">Cost per question<span>total, all models</span></th><th scope="col">Engine calls<span>per question</span></th><th scope="col">Median time<span>per question</span></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="bench-foot"></p>
+        </figure>
         <div class="findings"></div>
       </div>
     </section>
 
-    <section class="dev dark" id="developers" aria-labelledby="dev-title">
+    <section class="dev" id="developers" aria-labelledby="dev-title">
       <div class="wrap">
         <div class="section-head">
           <div>
-            <p class="label label-dark">Developers</p>
+            <p class="label">Developers</p>
             <h2 id="dev-title">One line to&nbsp;switch.</h2>
           </div>
           <p class="section-intro">BackstopTelem keeps Telem's response shape and adds status, verdict, why, trace, cost and a rank reason on every result. Every other AsyncTelem method passes through.</p>
@@ -256,7 +255,7 @@ pip install -e .   # Python 3.11+; TELEM_API_KEY, ANTHROPIC_API_KEY and OPENAI_A
     </section>
   </main>
 
-  <footer class="footer dark">
+  <footer class="footer">
     <div class="wrap footer-inner">
       <p class="footer-mark">Backstop</p>
       <div>

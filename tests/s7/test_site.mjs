@@ -73,13 +73,26 @@ test('Check a memo, Miss autopsy and fact-sheet Monitors are gone from the page,
   }
 });
 
-test('the theme follows prefers-color-scheme, with no toggle on the page', () => {
+test('one light theme for the whole page: no dark mode, no toggle, no dark sections', () => {
   const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../ui/style.css', import.meta.url), 'utf8');
   const race = readFileSync(new URL('../../ui/race.js', import.meta.url), 'utf8');
   assert.ok(!/id="(race|memo)-theme"|data-theme=|Dark mode|Light mode/.test(html));
-  assert.ok(!/data-theme|dataset\.theme/.test(css + race));
-  assert.ok(css.includes('@media (prefers-color-scheme: dark)') && html.includes('name="color-scheme" content="light dark"'));
+  assert.ok(!/data-theme|dataset\.theme|prefers-color-scheme/.test(css + race));
+  assert.ok(html.includes('name="color-scheme" content="light"') && /color-scheme:\s*light;/.test(css));
+  const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap(m => m[1].split(/\s+/));
+  for (const name of ['dark', 'light', 'label-dark']) assert.ok(!classes.includes(name), `no per-section theme class "${name}"`);
+});
+
+test('one dot field runs behind the whole page, with no section dividers', () => {
+  const html = readFileSync(new URL('../../ui/index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../ui/style.css', import.meta.url), 'utf8');
+  assert.ok(/<body>\s*<canvas class="page-dots" aria-hidden="true"><\/canvas>/.test(html));
+  assert.ok(!html.includes('class="dots"'));
+  assert.ok(/\.page-dots \{[^}]*position: fixed/.test(css));
+  assert.ok(/main > section, main > \.race-section \{ background: transparent; border-top: 0; \}/.test(css));
+  const app = readFileSync(new URL('../../ui/app.js', import.meta.url), 'utf8');
+  assert.ok(app.includes("startDots(canvas, {hero: $('.hero')"));
 });
 
 test('the HTTP example takes its base URL from the page origin, not localhost', () => {

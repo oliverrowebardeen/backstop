@@ -1,4 +1,4 @@
-/** Wiring for the product site: hero dots, flow, results, the API example's base URL, copy buttons. */
+/** Wiring for the product site: page dots, flow, results, the API example's base URL, copy buttons. */
 import {startDots} from './dots.js';
 import {loadResults} from './results.js';
 import {drawFlow, flowLabels} from './flow.js';
@@ -8,9 +8,9 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const params = new URLSearchParams(location.search);
 if (params.has('still')) document.documentElement.classList.add('still');
 
-// Hero.
-const canvas = $('.hero .dots');
-if (canvas) startDots(canvas, {reducedMotion: reduced});
+// One dot field behind the whole page; its accent dots belong to the hero.
+const canvas = $('.page-dots');
+if (canvas) startDots(canvas, {hero: $('.hero'), reducedMotion: reduced || params.has('still')});
 
 // The HTTP example calls this deployment, wherever the page is served from.
 function initApiBase() {
