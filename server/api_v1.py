@@ -1,4 +1,4 @@
-"""Hosted verified-search API: POST /v1/search, GET /v1/usage, GET /v1/autopsy/{id}, GET /health.
+"""Hosted verified-search API: POST /v1/search, POST /v1/memo-check, GET /v1/usage, GET /v1/autopsy/{id}, GET /health.
 
 Authentication is `Authorization: Bearer <key>`, checked against the
 comma-separated BACKSTOP_API_KEYS. Keys and request bodies are never logged.
@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path as PathParam
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from server.usage import RateLimiter, UsageStore, key_id
-from so import config
+from so import claims, config
 from so.autopsy import MAX_STEPS, Autopsy, AutopsyUnavailable, SessionNotFound, autopsy
 from so.client import BackstopSearchResponse, BackstopTelem
 from so.second_opinion import TelemUnavailable
@@ -222,3 +222,52 @@ async def session_autopsy(
     finally:
         usage.record_autopsy(api_key, cost_usd=sum(spent))
         usage.release(api_key, reserved)
+
+
+class MemoCheckRequest(BaseModel):
+    """Body of POST /v1/memo-check: the memo to split into claims and verify."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=claims.MAX_MEMO_CHARS)
+
+    @field_validator("text")
+    @classmethod
+    def _text_has_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("text must contain non-whitespace text")
+        return value
+
+
+async def metered_memo_check(api_key: str, text: str, usage: UsageStore) -> claims.MemoReport:
+    """Run one memo check against the key's spend cap and meter it as one verified request."""
+    minimum = config.BACKSTOP_CHECK_COST_USD * 2
+    reserved = usage.reserve(api_key, claims.MAX_COST_USD, minimum=minimum, cap=config.BACKSTOP_KEY_SPEND_CAP_USD)
+    if not reserved:
+        raise _spend_cap_error()
+    try:
+        report = await claims.check_memo(text, max_cost_usd=min(claims.MAX_COST_USD, reserved))
+        decided = report.totals.verified + report.totals.contradicted
+        usage.record(api_key, status="HIT" if decided else "NOT_FOUND", engine_calls=report.engine_calls,
+                     fetches=report.fetches, cost_usd=report.cost_usd)
+    finally:
+        usage.release(api_key, reserved)
+    if report.telem_session_id and not usage.bind_session(api_key, report.telem_session_id):
+        report = report.model_copy(update={"telem_session_id": None})
+    return report
+
+
+@router.post("/v1/memo-check", response_model=claims.MemoReport)
+async def memo_check(
+    body: MemoCheckRequest,
+    api_key: str = Depends(rate_limited_key),
+    usage: UsageStore = Depends(get_usage_store),
+) -> claims.MemoReport:
+    """Split a memo into at most 12 claims and verify each through Backstop on Telem.
+
+    Each claim comes back VERIFIED, CONTRADICTED or NOT_FOUND with its evidence
+    snippet and source URL. At most $0.40 and 90 seconds per memo, clamped to
+    what remains of the key's spend cap.
+    """
+    return await metered_memo_check(api_key, body.text, usage)
