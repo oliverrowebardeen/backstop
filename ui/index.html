@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Second Opinion | Search with evidence</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/ui/style.css">
+  <script src="/ui/app.js" type="module"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="Second Opinion home"><span class="brand-mark" aria-hidden="true">2<span>o</span></span><span>Second Opinion<small>Every answer earns its confidence.</small></span></a>
+    <nav aria-label="Views"><button class="nav-button active" id="race-tab" aria-current="page">Race</button><button class="nav-button" id="results-tab">Results</button></nav>
+    <button class="theme-button" id="theme" aria-label="Switch color theme">Dark mode</button>
+  </header>
+  <main>
+    <section id="race-view" aria-labelledby="race-heading">
+      <div class="intro"><div><p class="eyebrow">SEARCH. CHECK. RESCUE.</p><h1 id="race-heading">Same question. A second opinion.</h1></div><p class="powered">search and fetch by <strong>Telem</strong><br><span id="engine-note">Evidence at every step.</span></p></div>
+      <form id="race-form" class="question-form"><label for="question">Put a question to the test</label><div class="question-row"><input id="question" name="question" required placeholder="Ask a question that needs evidence"><button class="primary" id="run" type="submit">Run race <span aria-hidden="true">↗</span></button></div></form>
+      <div class="replay-bar"><label for="replay">Or watch a recording</label><select id="replay"><option value="">Choose a replay</option></select><button id="play" disabled>Play replay</button><span id="mode" class="mode">Ready for a live question</span></div>
+      <p id="notice" class="notice" role="status" hidden></p>
+      <div class="race-grid" id="columns"></div>
+      <footer class="race-footer"><span><span class="status-dot"></span> Total cost includes search, page reads, and model calls.</span><span>Grounded answers. An auditable path.</span></footer>
+    </section>
+    <section id="results-view" aria-labelledby="results-heading" hidden>
+      <div class="intro"><div><p class="eyebrow">MEASURED, NOT ASSUMED</p><h1 id="results-heading">The evidence, side by side.</h1></div><button id="refresh-results">Refresh results</button></div>
+      <p id="result-counts" class="result-counts"></p><p id="results-notice" class="notice" role="status"></p>
+      <div id="results-content"></div>
+      <div class="chart-panel"><div><h2>Cost and coverage</h2><p>Answer found in results, not final answer accuracy.</p></div><div id="frontier"></div></div>
+    </section>
+  </main>
+  <template id="column-template">
+    <article class="run-column">
+      <div class="column-heading"><div><span class="column-letter"></span><label class="setup-label">Setup<select class="setup"><option value="single">Single engine</option><option value="telem_default">Telem default</option><option value="second_opinion">Second Opinion</option></select></label></div><span class="run-status">Ready</span></div>
+      <p class="setup-description"></p>
+      <div class="counters"><div><span class="counter engine-count">0</span><span class="counter-label">Engine calls</span></div><div><span class="counter cost">$0.0000</span><span class="counter-label">Total cost</span></div><div><span class="counter time">0.0<span>s</span></span><span class="counter-label">Time</span></div></div>
+      <div class="telem-meta"><span><strong class="telem-count">0</strong> Telem calls</span><span class="session" title="Telem session ID">Session pending</span></div>
+      <ol class="steps" aria-label="Search and verification steps"><li class="empty-step"><span aria-hidden="true">↗</span><strong>The evidence will unfold here.</strong><span>Queries, engines, checks, and page reads.</span></li></ol>
+      <div class="answer"><p class="eyebrow answer-label">FINAL ANSWER</p><p class="answer-text">Waiting for a question.</p><div class="sources"></div></div>
+      <div class="column-footer"><span class="event-count">0 events recorded</span><button class="export" disabled>Export audit trail <span aria-hidden="true">↓</span></button></div>
+    </article>
+  </template>
+</body>
+</html>
