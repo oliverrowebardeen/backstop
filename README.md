@@ -130,7 +130,8 @@ Set in `.env` or the environment; the limits can also be set on the client or pe
 | `TELEM_BASE_URL` | `https://router.telem.ai` | Telem router |
 | `ANTHROPIC_API_KEY` | | Key for the checker model |
 | `CHECKER_MODEL` | `claude-haiku-5-5` | Model that labels each search |
-| `FIRST_ENGINE` | `tavily` | Engine every search starts on |
+| `FIRST_ENGINE_ROUTING` | `on` | Pick each search's first engine by question type from `out/first_engine.json`, built on the learn split only (`python -m so.router build`); currently Perplexity for fact questions and Exa for finance |
+| `FIRST_ENGINE` | `tavily` | First engine when routing is `off` or the routing table is missing |
 | `FALLBACK_ORDER` | `exa,perplexity,brave,parallel,ceramic` | Rescue order when `out/rescue_table.json` is absent |
 | `MAX_RESCUES` / `max_rescues` | 2 | Rescues per search |
 | `SEARCH_MAX_COST_USD` / `max_cost_usd` | 0.03 | Spend cap per search, checker included |
